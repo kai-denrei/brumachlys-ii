@@ -220,7 +220,9 @@ Bundle ~5 curated XMLs in `data/maps/` (imported as raw strings via Vite `?raw`)
 criteria: `maxPlayers == 2`, 150–500 tiles, produces a connected interesting board (verify by
 generating). The donor stash is `/Users/minikai/Documents/Dev/STB_Brumachlys/weewar-maps/`
 (12k+ files — scan with a script, do not bundle the stash). Record chosen maps in deban.
-`Tai Chi` (10701.xml) is a known-good 2-player candidate.
+(P2 note: `Tai Chi` (10701.xml), once suggested here, measured as 3 disconnected land
+components and can never pass the §4.1 guard — bundled set chosen by scan instead:
+vietFort 55480, Puddles 33564, Valley Road 53316, 1v1 Showdown JMK 63319, spooner hell 34069.)
 
 ### 4.3 New battle flow
 
@@ -248,7 +250,7 @@ The resolver depends only on this interface. v1 of II ships `weewar`. Future mod
 
 ```
 p = clamp(0.5 + 0.05 * ((A + Ta) - (D + Td) + B), 0, 1)
-damage = round(attackerCount * p)        // Math.round, half-up — document
+damage = round(min(attackerCount, defenderCount) * p)   // Math.round, half-up
 if damage == 0 and p > 0: damage = 1     // min-damage floor (v1 decision B.16)
 ```
 - `A` = attacker's attack strength vs defender's armor type. `D` = defender armor.
