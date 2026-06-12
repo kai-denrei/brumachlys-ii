@@ -19,8 +19,8 @@ export function TopBar({
       <VersionBadge />
       <span className="top-bar-title">BRUMACHLYS II</span>
       <span className="top-bar-status">
-        {round !== null ? `R${round} · ` : ''}
-        {phase}
+        {round !== null && <span className="top-bar-round">R{round}</span>}
+        <span className={`phase-chip phase-chip-${phase}`}>{phase}</span>
       </span>
     </header>
   );

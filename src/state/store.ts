@@ -1,38 +1,45 @@
 // store.ts — Zustand app store. P6: shell navigation (start ↔ battle),
-// donor/seed choice, the generated board, DISPLAY units. P7 adds the planning
-// slice: selected unit, queued orders per unit (core/orders.ts OrderQueues),
-// queue/edit/remove actions and the commit gate. P8 adds game+replay slices.
+// donor/seed choice, the generated board. P7: the planning slice (selected
+// unit, queued orders, validation gate). P8: the GAME slice — a full core
+// GameState from newGame(), the commit → AI → resolve → replay loop, and the
+// replay/summary/banner phase machine.
 //
-// Determinism boundary (spec §0/§4.3): board generation stays pure
-// (generateBoard); ONLY randomizeSeed touches Date.now, and it lives here in
+// Determinism boundary (spec §0/§4.3): board generation and resolution stay
+// pure; ONLY randomizeSeed/freshSeed touch Date.now, and they live here in
 // the UI layer where that is allowed.
 //
-// Placement: P4's core/setup.ts newGame landed mid-P7 and startBattle now
-// prefers it (P6 handoff). buildDisplayArmies remains only as the fallback
-// for boards without anchors and dies entirely when P8's game slice holds the
-// full GameState. KNOWN WART (P8): newGame/placeForce excludes only water, so
-// an armored unit can be seated on mountains it cannot legally re-enter —
-// flagged to the resolver owner, not patched UI-side (the planning view must
-// match what the resolver will resolve).
+// UI phase machine (uiPhase — game.phase stays the core's own field):
+//   planning --commit--> replay --frames end--> summary --close-->
+//     game.outcome ? over (banner §9.6) : planning (fog recomputed from the
+//     new GameState by the planning selectors — nothing special to do).
+//
+// P7's ?debug=close hook is gone: with the resolver wired, contact happens
+// organically.
 
 import { create } from 'zustand';
 import type { Board, CellId } from '../board/types';
-import { generateBoard, placeForce } from '../board';
-import type { FactionId, UnitInstance } from '../core/types';
+import { generateBoard } from '../board';
+import { buildFactionView, greedyPlanner } from '../ai';
+import type { FactionId, GameState } from '../core/types';
 import {
   type Order,
   type OrderKind,
   type OrderQueues,
   type UnitOrders,
   type ValidationResult,
+  flattenOrders,
   queueOrder,
   removeOrder,
   validateOrder,
 } from '../core/orders';
+import { weewar } from '../core/combat/weewar';
 import { visibleCells } from '../core/fog';
+import { resolveRound } from '../core/resolver';
+import { createRng } from '../core/rng';
 import { newGame } from '../core/setup';
 import { loadUnits } from '../io/data-loader';
 import { DONOR_ENTRIES, loadDonor } from '../io/donor-registry';
+import { buildReplay, type ReplayScript } from './replay';
 
 /** §6.4 standard army: one of each of the 8 types, initiative descending. */
 export const STANDARD_ARMY: readonly string[] = [
@@ -50,14 +57,31 @@ export type Screen = 'start' | 'battle';
 
 export const PLAYER_FACTION: FactionId = 0;
 
+/** UI phase — orthogonal to GameState.phase (which the resolver owns). */
+export type UiPhase = 'planning' | 'replay' | 'summary' | 'over';
+
+export type ReplaySpeed = 1 | 2 | 'skip';
+
+export type ReplaySlice = {
+  script: ReplayScript;
+  /** The round these events resolved (game.round is already advanced). */
+  round: number;
+};
+
 export type AppState = {
   screen: Screen;
   donorId: string;
   seed: number;
-  /** Generated battle board (null until startBattle). */
+  /** Generated battle board (null until startBattle). game.board === board. */
   board: Board | null;
-  /** Mirror armies placed for display (P6). P8's GameState supersedes. */
-  displayUnits: UnitInstance[];
+
+  // --- game slice (P8) --------------------------------------------------------
+  /** The authoritative core GameState (newGame → resolveRound chain). */
+  game: GameState | null;
+  uiPhase: UiPhase;
+  /** Last resolved round's replay script (null in planning of round 1). */
+  replay: ReplaySlice | null;
+  replaySpeed: ReplaySpeed;
 
   // --- planning slice (P7) ---------------------------------------------------
   /** Currently selected OWN unit (Layer 1, §9.2). */
@@ -82,77 +106,25 @@ export type AppState = {
   tryQueueOrder: (order: Order) => ValidationResult;
   removeUnitOrder: (unitId: string, kind: OrderKind) => void;
   clearOrders: () => void;
+
+  // --- game actions (P8) -------------------------------------------------------
+  /** Commit the round: player orders (or the override — the ?autopilot=greedy
+   * flag plans faction 0 too) + AI planOrders → resolveRound → replay. */
+  commit: (playerOrdersOverride?: Order[]) => void;
+  /** Dev/demo: plan faction 0 with the same greedy AI, then commit. */
+  commitAutopilot: () => void;
+  setReplaySpeed: (speed: ReplaySpeed) => void;
+  /** Playback driver reached the last frame → round summary sheet. */
+  finishReplay: () => void;
+  /** Summary dismissed → back to planning, or the §2.8 banner. */
+  closeSummary: () => void;
+  /** §4.3 New Battle: same donor, given seed (banner seed field). */
+  rematch: (seed: number) => void;
 };
 
-/**
- * One of each of the 8 unit types per faction on the placeForce cells.
- * Vehicles (armored) prefer cells they can actually stand on (not mountains)
- * — a display nicety; real placement is core/setup.ts territory.
- */
-export function buildDisplayArmies(board: Board): UnitInstance[] {
-  const anchors = board.placementAnchors;
-  if (!anchors) throw new Error('buildDisplayArmies: board has no placement anchors');
-  const types = loadUnits();
-  const units: UnitInstance[] = [];
-  for (const faction of [0, 1] as FactionId[]) {
-    const cells = placeForce(board, anchors[faction], STANDARD_ARMY.length);
-    const vehicleOk = (c: CellId) => board.cells.get(c)?.terrain !== 'mountains';
-    const free = [...cells];
-    const take = (pred: (c: CellId) => boolean): CellId => {
-      const i = free.findIndex(pred);
-      const j = i >= 0 ? i : 0;
-      return free.splice(j, 1)[0]!;
-    };
-    // Armored units claim non-mountain cells first (deterministic: BFS order).
-    const assigned = new Map<string, CellId>();
-    for (const key of STANDARD_ARMY) {
-      if (types[key]?.armorType === 'armored') assigned.set(key, take(vehicleOk));
-    }
-    for (const key of STANDARD_ARMY) {
-      if (!assigned.has(key)) assigned.set(key, take(() => true));
-    }
-    for (const key of STANDARD_ARMY) {
-      units.push({
-        id: `${faction}-${key}`,
-        type: key,
-        faction,
-        cell: assigned.get(key)!,
-        count: 10,
-        stance: 'aggressive',
-        attackedFrom: [],
-      });
-    }
-  }
-  return units;
-}
-
-/**
- * Dev-only (`?debug=close`): relocate the AI army next to the player's so
- * enemies are visible/in range during planning — P7 has no resolver yet, so
- * from a fresh battle both armies otherwise sit outside each other's vision
- * and attack arcs / target rings cannot be exercised. Never active in
- * production flows (URL param only); noted in the P7 verification report.
- */
-function debugCloseArmies(board: Board, units: UnitInstance[]): UnitInstance[] {
-  const anchors = board.placementAnchors;
-  if (!anchors) return units;
-  const types = loadUnits();
-  const taken = new Set(units.filter((u) => u.faction === 0).map((u) => u.cell));
-  // A generous BFS ring around the PLAYER anchor; faction-1 units take the
-  // first free legal cells beyond the player's 8.
-  const ring = placeForce(board, anchors[0], 8 + 24).filter((c) => !taken.has(c));
-  return units.map((u) => {
-    if (u.faction !== 1) return u;
-    const armored = types[u.type]?.armorType === 'armored';
-    const i = ring.findIndex((c) => !armored || board.cells.get(c)?.terrain !== 'mountains');
-    const cell = i >= 0 ? ring.splice(i, 1)[0]! : u.cell;
-    return { ...u, cell };
-  });
-}
-
-function debugFlag(): string | null {
-  if (typeof window === 'undefined') return null;
-  return new URLSearchParams(window.location.search).get('debug');
+/** Non-zero deterministic planner seed per (game seed, round, faction). */
+function plannerSeed(rngSeed: number, round: number, faction: FactionId): number {
+  return ((rngSeed ^ Math.imul(round, 0x9e3779b9) ^ faction) >>> 0) || 1;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -160,7 +132,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   donorId: DONOR_ENTRIES[0]!.id,
   seed: 7,
   board: null,
-  displayUnits: [],
+
+  game: null,
+  uiPhase: 'planning',
+  replay: null,
+  replaySpeed: 1,
 
   selectedUnitId: null,
   orders: {},
@@ -173,14 +149,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   startBattle: () => {
     const { donorId, seed } = get();
     const board = generateBoard(loadDonor(donorId), seed);
-    let displayUnits = Object.values(
-      newGame(board, STANDARD_ARMY, loadUnits(), seed).units,
-    );
-    if (debugFlag() === 'close') displayUnits = debugCloseArmies(board, displayUnits);
+    const game = newGame(board, STANDARD_ARMY, loadUnits(), seed);
     set({
       board,
-      displayUnits,
+      game,
       screen: 'battle',
+      uiPhase: 'planning',
+      replay: null,
       selectedUnitId: null,
       orders: {},
       focus: null,
@@ -191,7 +166,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       screen: 'start',
       board: null,
-      displayUnits: [],
+      game: null,
+      uiPhase: 'planning',
+      replay: null,
       selectedUnitId: null,
       orders: {},
       focus: null,
@@ -204,14 +181,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   centerOn: (cell) => set((s) => ({ focus: { cell, token: (s.focus?.token ?? 0) + 1 } })),
 
   tryQueueOrder: (order) => {
-    const { board, displayUnits, orders } = get();
-    if (!board) return { ok: false, reason: 'unknown-unit' };
+    const { board, game, orders } = get();
+    if (!board || !game) return { ok: false, reason: 'unknown-unit' };
     const types = loadUnits();
-    const visible = visibleCells(board, displayUnits, PLAYER_FACTION, types);
+    const units = Object.values(game.units).filter((u) => u.count > 0);
+    const visible = visibleCells(board, units, PLAYER_FACTION, types);
     // The player's KNOWN units: own + visible enemies (spec §7 planning fog).
-    const known = displayUnits.filter(
-      (u) => u.faction === PLAYER_FACTION || visible.has(u.cell),
-    );
+    const known = units.filter((u) => u.faction === PLAYER_FACTION || visible.has(u.cell));
     const queued: UnitOrders | undefined = orders[order.unitId];
     const verdict = validateOrder(
       { board, units: known, unitTypes: types, visible, queued },
@@ -224,4 +200,77 @@ export const useAppStore = create<AppState>((set, get) => ({
   removeUnitOrder: (unitId, kind) => set((s) => ({ orders: removeOrder(s.orders, unitId, kind) })),
 
   clearOrders: () => set({ orders: {} }),
+
+  // --- game actions (P8) ---------------------------------------------------------
+
+  commit: (playerOrdersOverride) => {
+    const { game, orders, uiPhase } = get();
+    if (!game || game.outcome || uiPhase !== 'planning') return;
+    const types = loadUnits();
+    const playerOrders = playerOrdersOverride ?? flattenOrders(orders);
+
+    // The AI plans when the player commits (spec §2.1, solo flow) — through
+    // its own fog-filtered FactionView only (§8.1 symmetric honesty).
+    const aiView = buildFactionView(game.board, game, 1, types);
+    const aiOrders = greedyPlanner.planOrders(
+      aiView,
+      createRng(plannerSeed(game.rngSeed, game.round, 1)),
+    );
+
+    // Pre-resolution snapshot — the replay simulates forward from here.
+    const baseUnits = Object.values(game.units).map((u) => ({
+      ...u,
+      attackedFrom: u.attackedFrom.map((e) => ({ ...e })),
+    }));
+
+    const { state, events } = resolveRound(
+      game.board,
+      game,
+      { 0: playerOrders, 1: aiOrders },
+      types,
+      weewar,
+    );
+    const script = buildReplay(game.board, baseUnits, events, types, PLAYER_FACTION);
+
+    set({
+      game: state,
+      replay: { script, round: game.round },
+      uiPhase: 'replay',
+      orders: {},
+      selectedUnitId: null,
+      focus: null,
+    });
+  },
+
+  commitAutopilot: () => {
+    const { game, uiPhase } = get();
+    if (!game || game.outcome || uiPhase !== 'planning') return;
+    const types = loadUnits();
+    const view = buildFactionView(game.board, game, PLAYER_FACTION, types);
+    const planned = greedyPlanner.planOrders(
+      view,
+      createRng(plannerSeed(game.rngSeed, game.round, PLAYER_FACTION)),
+    );
+    get().commit(planned);
+  },
+
+  setReplaySpeed: (replaySpeed) => set({ replaySpeed }),
+
+  finishReplay: () => {
+    if (get().uiPhase === 'replay') set({ uiPhase: 'summary' });
+  },
+
+  closeSummary: () =>
+    set((s) => {
+      if (s.uiPhase !== 'summary') return s;
+      if (s.game?.outcome) return { ...s, uiPhase: 'over' as const };
+      // Back to planning; the replay script is spent. Planning fog recomputes
+      // from the advanced GameState in the selectors.
+      return { ...s, uiPhase: 'planning' as const, replay: null };
+    }),
+
+  rematch: (seed) => {
+    set({ seed: Math.trunc(seed) });
+    get().startBattle();
+  },
 }));

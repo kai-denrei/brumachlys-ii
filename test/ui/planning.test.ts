@@ -8,7 +8,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Board, Cell, CellId, TerrainKey, Vec2 } from '../../src/board/types';
-import type { FactionId, UnitInstance } from '../../src/core/types';
+import type { FactionId, GameState, UnitInstance } from '../../src/core/types';
 import { findConvergences, orderedUnitIds } from '../../src/core/orders';
 import { PLAYER_FACTION, useAppStore } from '../../src/state/store';
 
@@ -35,10 +35,22 @@ function unit(id: string, faction: FactionId, cell: CellId, type = 'infantry'): 
 const N = 12;
 
 function seedBattle(units: UnitInstance[]) {
+  const board = lineBoard(N);
+  const game: GameState = {
+    round: 1,
+    phase: 'planning',
+    board,
+    units: Object.fromEntries(units.map((u) => [u.id, u])),
+    pendingOrders: { 0: [], 1: [] },
+    rngSeed: 7,
+    log: [],
+  };
   useAppStore.setState({
     screen: 'battle',
-    board: lineBoard(N),
-    displayUnits: units,
+    board,
+    game,
+    uiPhase: 'planning',
+    replay: null,
     selectedUnitId: null,
     orders: {},
     focus: null,
@@ -134,13 +146,13 @@ describe('planning slice', () => {
     const s = () => useAppStore.getState();
     s().tryQueueOrder({ kind: 'move', unitId: 'a', path: [1] });
     s().tryQueueOrder({ kind: 'move', unitId: 'b', path: [3] });
-    let conv = findConvergences(s().orders, s().displayUnits, PLAYER_FACTION);
+    let conv = findConvergences(s().orders, Object.values(s().game!.units), PLAYER_FACTION);
     expect(conv.size).toBe(0);
     // redirect b onto a's destination
     s().tryQueueOrder({ kind: 'move', unitId: 'b', path: [3, 2, 1] }); // through e-near at 2 → rejected
     s().tryQueueOrder({ kind: 'move', unitId: 'a', path: [1, 2] }); // a charges cell 2
     s().tryQueueOrder({ kind: 'move', unitId: 'b', path: [3, 2] }); // b also ends on cell 2
-    conv = findConvergences(s().orders, s().displayUnits, PLAYER_FACTION);
+    conv = findConvergences(s().orders, Object.values(s().game!.units), PLAYER_FACTION);
     expect(conv.get(2)).toEqual(['a', 'b']);
   });
 

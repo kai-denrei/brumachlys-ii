@@ -52,7 +52,35 @@ body {
 .top-bar-status {
   margin-left: auto;
   font-size: 0.7rem;
-  opacity: 0.65;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.top-bar-round {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.phase-chip {
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: rgba(74, 68, 58, 0.1);
+  opacity: 0.85;
+}
+
+.phase-chip-replay {
+  background: rgba(232, 128, 107, 0.22);
+  color: #9c4732;
+}
+
+.phase-chip-over {
+  background: rgba(123, 139, 217, 0.25);
+  color: #46519c;
 }
 
 .version-badge {
@@ -591,4 +619,450 @@ body {
 
 .dock-chip-filled {
   background: rgba(232, 128, 107, 0.18);
+}
+
+/* --- P8: layer 3 — what happened (§9.4) ------------------------------------ */
+
+/* 2× speed: move transitions match the halved frame duration. */
+.board-replay-2x .unit-token {
+  transition-duration: 0.125s;
+}
+
+/* attack flash arc: draws in, then fades */
+.fx-arc {
+  stroke-dasharray: 1400;
+  stroke-dashoffset: 1400;
+  animation: fx-arc-flash 0.55s ease-out forwards;
+}
+
+@keyframes fx-arc-flash {
+  0% {
+    stroke-dashoffset: 1400;
+    opacity: 1;
+  }
+  45% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.25;
+  }
+}
+
+/* floating damage number: rises and holds (stays tappable for breakdown) */
+.fx-floater {
+  animation: fx-float-up 0.7s ease-out forwards;
+}
+
+.fx-floater-pill {
+  cursor: pointer;
+}
+
+@keyframes fx-float-up {
+  0% {
+    opacity: 0;
+    transform: translate(0, 14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+}
+
+/* fire-from-the-mist impact: expanding rings, no source shown (§7) */
+.fx-impact-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-impact-pop 0.8s ease-out forwards;
+}
+
+.fx-impact-ring-2 {
+  animation-delay: 0.18s;
+}
+
+@keyframes fx-impact-pop {
+  0% {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+/* brawl clash burst */
+.fx-burst {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-burst-pop 0.6s ease-out forwards;
+}
+
+@keyframes fx-burst-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+
+/* kill fade: the dead token sinks into the mist */
+.fx-kill {
+  animation: fx-kill-fade 0.75s ease-in forwards;
+}
+
+@keyframes fx-kill-fade {
+  0% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* --- P8: replay dock — initiative timeline strip (§9.4) -------------------- */
+
+.replay-dock {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem calc(env(safe-area-inset-bottom) + 0.45rem);
+  background: var(--bar-bg);
+  backdrop-filter: blur(6px);
+  border-top: 1px solid rgba(74, 68, 58, 0.12);
+  animation: dock-slide-up 0.22s ease-out; /* slides over the dock (§9.4) */
+}
+
+@keyframes dock-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.timeline-strip {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  align-items: center;
+}
+
+.timeline-empty {
+  font-size: 0.72rem;
+  opacity: 0.55;
+  font-style: italic;
+  padding: 0.4rem 0.2rem;
+}
+
+.timeline-slot {
+  border: none;
+  background: none;
+  padding: 1px;
+  width: 30px;
+  height: 34px;
+  flex: none;
+  border-radius: 9px;
+  position: relative;
+  opacity: 0.45;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.timeline-slot-past {
+  opacity: 0.8;
+}
+
+.timeline-slot-active {
+  opacity: 1;
+  background: rgba(232, 128, 107, 0.22);
+  box-shadow: 0 0 0 1.5px var(--faction-a);
+}
+
+.timeline-slot-tappable {
+  cursor: pointer;
+}
+
+.timeline-slot-svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.timeline-slot-mist {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: #9a937f;
+  color: #f2eee3;
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timeline-slot-kind {
+  font-size: 0.5rem;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.replay-controls {
+  display: flex;
+  gap: 0.3rem;
+  flex: none;
+}
+
+.replay-button {
+  border: 1.5px solid rgba(74, 68, 58, 0.2);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+  width: 34px;
+  height: 30px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.replay-button-active {
+  background: var(--faction-a);
+  border-color: var(--faction-a);
+  color: #fff;
+}
+
+.replay-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* --- P8: breakdown modal (§9.4) --------------------------------------------- */
+
+.breakdown-strike {
+  background: #fff;
+  border-radius: 12px;
+  padding: 0.55rem 0.7rem;
+  margin-bottom: 0.55rem;
+}
+
+.breakdown-mist {
+  background: #ece7da;
+}
+
+.breakdown-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.breakdown-kind {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.breakdown-vs {
+  font-size: 0.8rem;
+}
+
+.breakdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.breakdown-table td {
+  padding: 0.14rem 0.25rem;
+}
+
+.bd-term {
+  font-weight: 700;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  width: 2.8rem;
+  white-space: nowrap;
+}
+
+.bd-label {
+  opacity: 0.7;
+}
+
+.bd-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.bd-gangup-row td {
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+
+.bd-p-row td {
+  border-top: 1px solid rgba(74, 68, 58, 0.15);
+  padding-top: 0.3rem;
+}
+
+.bd-damage-row td {
+  font-weight: 700;
+}
+
+.bd-damage-row .bd-value {
+  font-size: 0.95rem;
+  color: #9c2f1d;
+}
+
+/* --- P8: round summary sheet (§9.4) ------------------------------------------ */
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.summary-cell {
+  background: #fff;
+  border-radius: 12px;
+  padding: 0.5rem 0.3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.summary-num {
+  font-size: 1.3rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+}
+
+.summary-kills {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.summary-kill-row {
+  display: flex;
+  gap: 0.6rem;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.76rem;
+  align-items: baseline;
+}
+
+.summary-kill-side {
+  font-weight: 700;
+  flex: none;
+  width: 6.2rem;
+}
+
+.summary-kill-names {
+  opacity: 0.8;
+}
+
+.summary-continue {
+  background: var(--faction-a);
+  border-color: var(--faction-a);
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* --- P8: game-over banner (§2.8 / §9.6) --------------------------------------- */
+
+.banner-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(242, 238, 227, 0.78);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  padding: 1.2rem;
+}
+
+.banner {
+  background: #fbf9f2;
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(74, 68, 58, 0.3);
+  padding: 1.4rem 1.3rem 1.2rem;
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  text-align: center;
+  animation: banner-in 0.3s ease-out;
+}
+
+@keyframes banner-in {
+  from {
+    transform: translateY(18px) scale(0.97);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.banner-title {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: 0.14em;
+}
+
+.banner-win {
+  color: var(--faction-a);
+}
+
+.banner-loss {
+  color: var(--faction-b);
+}
+
+.banner-draw {
+  color: #8d8675;
+}
+
+.banner-sub {
+  margin: 0;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.banner-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.banner-rematch {
+  margin-top: 0;
+}
+
+.banner-leave {
+  padding: 0.6rem;
 }

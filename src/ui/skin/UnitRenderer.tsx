@@ -20,6 +20,9 @@ export type UnitRendererProps = {
   size: number;
   /** Layer-1 selection: the token lifts slightly (§9.2). */
   selected?: boolean;
+  /** Glyph-only token (timeline strip chips): no count pip, no stance
+   * stroke styling — squircle + glyph at tiny sizes. */
+  minimal?: boolean;
   onTap?: (unitId: string) => void;
 };
 
@@ -90,6 +93,7 @@ export const UnitRenderer = memo(function UnitRenderer({
   y,
   size,
   selected = false,
+  minimal = false,
   onTap,
 }: UnitRendererProps) {
   const color = factionColor(unit.faction);
@@ -99,7 +103,7 @@ export const UnitRenderer = memo(function UnitRenderer({
   const stroke = '#fff';
 
   // Stance → stroke style (§10.2).
-  const stance = unit.stance;
+  const stance = minimal ? 'aggressive' : unit.stance;
   const dash = stance === 'hold-fire' ? `${size * 0.12} ${size * 0.09}` : undefined;
 
   const pipR = size * 0.21;
@@ -141,19 +145,21 @@ export const UnitRenderer = memo(function UnitRenderer({
       <g transform={`translate(${-h} ${-h}) scale(${size / 100})`} pointerEvents="none">
         {glyph(unit.type)}
       </g>
-      <g className="unit-count" transform={`translate(${h * 0.78} ${h * 0.78})`} pointerEvents="none">
-        <circle r={pipR} fill="#fff" stroke={darken(color, 0.18)} strokeWidth={pipR * 0.14} />
-        <text
-          y={pipR * 0.06}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fontSize={pipR * 1.35}
-          fontWeight={700}
-          fill={darken(color, 0.3)}
-        >
-          {unit.count}
-        </text>
-      </g>
+      {!minimal && (
+        <g className="unit-count" transform={`translate(${h * 0.78} ${h * 0.78})`} pointerEvents="none">
+          <circle r={pipR} fill="#fff" stroke={darken(color, 0.18)} strokeWidth={pipR * 0.14} />
+          <text
+            y={pipR * 0.06}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize={pipR * 1.35}
+            fontWeight={700}
+            fill={darken(color, 0.3)}
+          >
+            {unit.count}
+          </text>
+        </g>
+      )}
     </g>
   );
 });

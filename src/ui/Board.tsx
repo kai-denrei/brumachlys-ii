@@ -32,12 +32,14 @@ import {
   EffectRenderer,
   GrainFilterDef,
   GrainOverlay,
+  ReplayFx,
   StanceIcon,
   UnitRenderer,
   VisionEdge,
   factionColor,
   type GhostOrder,
   type Pt,
+  type ReplayFxData,
 } from './skin';
 
 export type BoardHighlights = {
@@ -68,6 +70,11 @@ export type BoardProps = {
   selectedUnitId?: string | null;
   /** Layer-2 queued-order ghosts (§9.3), drawn by skin/EffectRenderer. */
   ghosts?: readonly GhostOrder[];
+  /** Layer-3 replay effects (§9.4), drawn by skin/ReplayFx. `key` remounts
+   * the fx group per replay frame so CSS animations restart. */
+  replayFx?: { key: number; fx: ReplayFxData } | null;
+  /** Tap a floating damage number → breakdown modal for its slot (§9.4). */
+  onFloaterTap?: (slot: number) => void;
   /** Pan so this cell is centered whenever `token` changes. */
   focus?: { cell: CellId; token: number } | null;
   /** Stance popover on the selected unit (§9.2); rendered inside the SVG. */
@@ -103,11 +110,13 @@ export function Board({
   highlights,
   selectedUnitId = null,
   ghosts,
+  replayFx = null,
   focus = null,
   stancePopover = null,
   onCellTap,
   onUnitTap,
   onGhostTap,
+  onFloaterTap,
   onCellLongPress,
   interactive = true,
   className,
@@ -428,6 +437,16 @@ export function Board({
             );
           })}
         </g>
+        {replayFx && (
+          <ReplayFx
+            key={replayFx.key}
+            board={board}
+            toScreen={toScreen}
+            tokenSize={tokenSize}
+            fx={replayFx.fx}
+            onFloaterTap={tapGuard(onFloaterTap)}
+          />
+        )}
         {stancePopover && selectedUnit && selectedCell && (
           <StancePopover
             anchor={toScreen(selectedCell.center)}
