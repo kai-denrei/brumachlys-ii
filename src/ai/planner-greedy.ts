@@ -43,6 +43,28 @@
 // baseline weights (0.8/0.15/…) were retuned against the §13.6 acceptance
 // fixture — data/ai.json is the source of truth.
 //
+// E4 — CONQUEST (addendum §B.7). The same engine grows conquest-gated
+// branches, active ONLY when view.conquest is present (skirmish behavior is
+// bit-identical — the §13.6 acceptance suite pins it):
+//   • capture objectives: personnel units claim capturable (neutral or
+//     believed-enemy) bases as advance targets — greedy assignment in
+//     initiative order, scored by distance / threat / spread; vehicles
+//     ESCORT (advance toward visible enemies, else the claimed frontier)
+//     and are taxed for squatting on base cells they cannot capture;
+//   • a direct capture bonus for ending a personnel unit's round on a
+//     capturable base (the §B.2 flip), a defend bonus for standing on or
+//     covering an own base under visible threat, and a spawn-block tax for
+//     parking on own safe bases;
+//   • the desperation curve re-keys from ROUND_LIMIT (meaningless when
+//     roundLimit is null) to the BASE DIFFERENTIAL — down on bases the
+//     income gap compounds so urgency rises; baseless, the §B.5 grace is
+//     ticking and the army goes all-out for the nearest capturable base;
+//   • buys (conquest-economy.ts) spend down credits each round at safe
+//     spawnable bases — counter-composition vs seen enemies, personnel
+//     floor for capture capacity.
+// Conquest weights live in their OWN data/ai.json section ("conquest") —
+// tunable freely without touching the sacred skirmish numbers.
+//
 // Performance: per-enemy BFS hop maps + threat sets are precomputed once per
 // planOrders call, so the per-candidate loop is O(enemies) hash lookups.
 // Measured ≈0.5 ms avg / ≈2 ms max for 8 units on a 254-cell donor board
@@ -57,8 +79,9 @@ import type { MovementCosts } from '../core/pathing';
 import { ROUND_LIMIT } from '../core/resolver';
 import { fnv1a32, initTieKey } from '../core/rng';
 import type { Rng } from '../core/rng';
-import type { Stance, UnitInstance, UnitType } from '../core/types';
-import type { OrderPlanner } from './planner';
+import type { FactionId, Stance, UnitInstance, UnitType } from '../core/types';
+import { planConquestBuys } from './conquest-economy';
+import type { ConquestPlan, OrderPlanner } from './planner';
 import type { FactionView } from './view';
 
 export type GreedyWeights = {
@@ -74,6 +97,89 @@ export type GreedyWeights = {
 };
 
 export const DEFAULT_GREEDY_WEIGHTS: GreedyWeights = aiJson.greedy;
+
+/** E4 conquest weights — a SEPARATE data/ai.json section ("conquest"): the
+ *  skirmish numbers above are pinned by the §13.6 acceptance suite, these
+ *  are free to tune. All bonuses are in the planner's score units (1 ≈ one
+ *  expected damage point dealt). */
+export type ConquestWeights = {
+  /** Ending a personnel unit's round on a capturable base (§B.2 flip). */
+  captureBonus: number;
+  /** Per visible-enemy-count threat near a base, when CHOOSING capture
+   *  targets — hot bases are worth approaching with force, not solo. */
+  baseThreat: number;
+  /** Target-assignment spread: penalty per ally already claiming a base. */
+  claimSpread: number;
+  /** Standing on (full) / covering (scaled) an own base under visible
+   *  threat — an occupied base cannot be flipped (§B.2 needs to END there). */
+  defendBase: number;
+  /** Tax for parking on an own SAFE base — it blocks Phase E production. */
+  spawnBlock: number;
+  /** Tax for a vehicle ending on any base cell it cannot capture — vehicles
+   *  escort the personnel, they don't squat objectives. */
+  vehicleSquat: number;
+  /** Personnel fraction floor for buys (capture capacity — economy module). */
+  personnelFloor: number;
+  /** Conquest pressure per base of believed deficit (3 behind ≈ all-out). */
+  pressurePerBaseDown: number;
+  /** Conquest pressure per base of believed SURPLUS — the leader smells
+   *  blood. This is the symmetry breaker the mirror stall needs: the
+   *  stall-clock/overdrive escalation saturates IDENTICALLY for both sides
+   *  (both end at the same max pressure, the standoff re-stabilizes), but
+   *  surplus pressure stacks ON TOP of the ceiling, so any transient base
+   *  lead turns into a one-sided surge that consolidates it. */
+  pressurePerBaseUp: number;
+  /** Capture-bonus multiplier slope under pressure: at full desperation the
+   *  flip is worth captureBonus × (1 + capturePressure). */
+  capturePressure: number;
+  /** Advance-weight multiplier slope under pressure: at full desperation a
+   *  cell of march is worth w.advance × (1 + advancePressure) — enough to
+   *  pull pinned units OUT of an even firefight and into the capture race. */
+  advancePressure: number;
+  /** Stall-breaker ramp: pressure also rises with the round clock, starting
+   *  here… (mirror standoffs have base deficit 0 forever — without a clock
+   *  NOTHING converts; observed: 80 rounds, 5-5 bases, 70-unit armies parked
+   *  at the frontier trading ~2 attacks a round). */
+  stallPressureStart: number;
+  /** …reaching full desperation this many rounds later. */
+  stallPressureRamp: number;
+  /** Overdrive level at which the massed thrust gives way to the fan-out
+   *  raid (> 1 disables the raid entirely — thrust persists). */
+  raidThreshold: number;
+  /** OVERDRIVE: the second escalation stage, ramping over this many rounds
+   *  AFTER the stall ramp saturates. Saturated desperation (urgency floor
+   *  0.25, one massed thrust) was measured to be a stable mirror
+   *  equilibrium — both sides max out identically, captures ping-pong one
+   *  frontier base, production replaces every loss, 0/3 seeds convert. Past
+   *  saturation, overdrive (a) decays caution all the way to ZERO (rangers
+   *  walk through sniper fire onto objectives), and (b) switches the massed
+   *  thrust to a FAN-OUT RAID: personnel spread across ALL capturable
+   *  bases, threat-blind, near-flat distance discount — five simultaneous
+   *  objectives cannot all be answered by a frontier-pinned defense, so
+   *  base counts finally diverge and §B.5 collapse becomes reachable. */
+  overdriveRamp: number;
+  /** Stop buying at this many own living units — units beyond what the map
+   *  can maneuver just gridlock the frontier (observed in the same stall:
+   *  uncapped mirror games grew 70–80-unit hordes that out-produced each
+   *  other in place and flipped nothing). */
+  maxForce: number;
+  /** Force cap per believed-own base (supply): effective cap =
+   *  min(maxForce, forcePerBase × own bases). THE conquest snowball — a
+   *  flat cap equalizes the armies and the leader's income edge converts
+   *  to nothing but hoard; a per-base cap makes bases→army→bases the
+   *  positive feedback loop, and a collapsing faction's shrinking cap is
+   *  the death spiral that actually ENDS mirror games (economy module). */
+  forcePerBase: number;
+  /** Idle-credit threshold (≈ 2× the costliest unit) above which the economy
+   *  buys the top shelf (artillery/heavytank) instead of the cheap line —
+   *  hoarded income converted to siege quality (economy module). */
+  richFloor: number;
+};
+
+export const DEFAULT_CONQUEST_WEIGHTS: ConquestWeights = aiJson.conquest;
+
+/** Hop radius within which visible enemies register as threat on a base. */
+const BASE_THREAT_RADIUS = 4;
 
 /** Full-board BFS hop distances from `from` (optionally depth-capped).
  *  Hop metric matches graphDistance — range and vision are hop-based. */
@@ -244,13 +350,23 @@ type EnemyInfo = {
   takenByTerrain: Map<TerrainKey, number>;
 };
 
-export function createGreedyPlanner(overrides: Partial<GreedyWeights> = {}): OrderPlanner {
+export function createGreedyPlanner(
+  overrides: Partial<GreedyWeights> = {},
+  conquestOverrides: Partial<ConquestWeights> = {},
+): OrderPlanner {
   const w: GreedyWeights = { ...DEFAULT_GREEDY_WEIGHTS, ...overrides };
+  const cw: ConquestWeights = { ...DEFAULT_CONQUEST_WEIGHTS, ...conquestOverrides };
 
-  return {
-    key: 'greedy',
-    planOrders(view: FactionView, _rng: Rng): Order[] {
+  /** The whole movement/attack pass — shared by both modes (conquest logic
+   *  is gated on view.conquest). Also returns each own unit's planned end
+   *  cell (the buy planner must know which base cells will be vacant) and
+   *  the overdrive level (the buy planner pumps fast capture troops once
+   *  the raid is on). */
+  const plan = (
+    view: FactionView,
+  ): { orders: Order[]; plannedEnd: Map<string, CellId>; overdrive: number } => {
       const { board, unitTypes, round } = view;
+      const cq = view.conquest;
       const orders: Order[] = [];
 
       // Initiative order — matches the resolver's §2.2 sort, so "earlier-
@@ -291,6 +407,102 @@ export function createGreedyPlanner(overrides: Partial<GreedyWeights> = {}): Ord
           takenByTerrain: new Map(),
         });
       }
+
+      // ── Conquest base intel (addendum §B.7) ───────────────────────────────
+      // Built ONLY from the honest view: believed ownership (cq.bases — stale
+      // for unseen flips) + visible enemies. `threat` is visible enemy
+      // strength within BASE_THREAT_RADIUS hops, nearer counting more.
+      type BaseIntel = {
+        cell: CellId;
+        owner: FactionId | null; // BELIEVED owner
+        hops: Map<CellId, number>; // full-board BFS from the base cell
+        threat: number;
+      };
+      const baseIntel: BaseIntel[] = [];
+      if (cq) {
+        for (const cell of cq.baseCells) {
+          if (!board.cells.has(cell)) continue;
+          const hops = bfsHops(board, cell);
+          let threat = 0;
+          for (const ei of enemyInfos) {
+            const d = hops.get(ei.unit.cell) ?? Infinity;
+            if (d <= BASE_THREAT_RADIUS) {
+              threat += (ei.unit.count * (BASE_THREAT_RADIUS + 1 - d)) / (BASE_THREAT_RADIUS + 1);
+            }
+          }
+          baseIntel.push({ cell, owner: cq.bases[cell] ?? null, hops, threat });
+        }
+      }
+      const baseAt = new Map<CellId, BaseIntel>(baseIntel.map((b) => [b.cell, b]));
+      const capturableBases = baseIntel.filter((b) => b.owner !== view.faction);
+      const ownBaseCount = baseIntel.length - capturableBases.length;
+      const enemyBaseCount = capturableBases.filter((b) => b.owner !== null).length;
+      const threatenedOwn = baseIntel.filter((b) => b.owner === view.faction && b.threat > 0);
+      /** §B.5: zero believed-own bases — the grace counter is ticking. */
+      const baseless = cq !== undefined && ownBaseCount === 0;
+
+      // Desperation curve. SKIRMISH: §2.8 timeout is a draw — a LOSS of a
+      // won siege — so caution decays toward the fixed ROUND_LIMIT, floor
+      // 0.25: from ~70% of the limit on, the army accepts increasingly bad
+      // trades to convert. (A "patience" variant that ALSO ran caution hot
+      // early was tried and measured worse on every seed: it idled the melee
+      // while the camp was strong, then compressed the same bad trades into
+      // fewer rounds.)
+      // CONQUEST (§B.7): roundLimit may be null — the curve re-keys to the
+      // BASE DIFFERENTIAL. Even or ahead: patient (income compounds for us).
+      // Behind: each believed base of deficit adds pressure (the income gap
+      // compounds AGAINST us — waiting loses). BASELESS: the §B.5 grace
+      // counter is ticking, full desperation, all-out for the nearest
+      // capturable base. A stall-breaker clock rises regardless (mirror
+      // standoffs have deficit 0 forever — without a clock NOTHING converts;
+      // observed: 80 rounds, 5-5 bases, parked armies, ~2 attacks a round).
+      // An optional round limit contributes its own late curve when set.
+      let lateGame: number;
+      let overdrive = 0;
+      if (!cq) {
+        lateGame = Math.max(0, round - Math.floor(ROUND_LIMIT * 0.7)) / (ROUND_LIMIT * 0.3);
+      } else {
+        const deficit = Math.max(0, enemyBaseCount - ownBaseCount);
+        lateGame = baseless ? 1 : deficit * cw.pressurePerBaseDown;
+        lateGame = Math.max(
+          lateGame,
+          Math.min(1, Math.max(0, round - cw.stallPressureStart) / cw.stallPressureRamp),
+        );
+        if (cq.roundLimit != null && cq.roundLimit > 0) {
+          lateGame = Math.max(
+            lateGame,
+            Math.max(0, round - Math.floor(cq.roundLimit * 0.7)) / (cq.roundLimit * 0.3),
+          );
+        }
+        // Overdrive: the stage past saturated desperation (see the weight's
+        // doc comment). Pure round arithmetic — deterministic, view-only.
+        overdrive = Math.min(
+          1,
+          Math.max(0, round - cw.stallPressureStart - cw.stallPressureRamp) / cw.overdriveRamp,
+        );
+      }
+      // Caution: desperation drives it to the 0.25 floor; overdrive removes
+      // the floor entirely — at full overdrive units price damage taken at 0
+      // and walk through covering fire onto objectives. A saturated-but-
+      // floored caution was measured as a stable mirror equilibrium.
+      const urgency = (1 - 0.75 * Math.min(1, lateGame)) * (1 - overdrive);
+      // Escalation pressure for the capture/advance payoffs: desperation
+      // saturates at 1, overdrive stacks a second unit on top (0..2), and a
+      // believed base SURPLUS stacks beyond the ceiling (the asymmetric
+      // term — see pressurePerBaseUp).
+      const surplus = cq ? Math.max(0, ownBaseCount - enemyBaseCount) : 0;
+      const pressure = Math.min(1, lateGame) + overdrive + surplus * cw.pressurePerBaseUp;
+      // Pressure-scaled capture payoff: at full desperation a flip is worth
+      // chasing through covering fire (the patient value never converts a
+      // defended frontier — observed).
+      const captureBonusEff = cq ? cw.captureBonus * (1 + cw.capturePressure * pressure) : 0;
+      // Pressure-scaled ADVANCE weight (conquest only): at the skirmish
+      // 0.3/cell the engaged frontline never disengages — attack values
+      // (~6–8) pin every unit in contact, production replaces every loss,
+      // and the wall holds for 80 rounds (observed). Under pressure the
+      // march itself must outbid a round of trading, so the thrust actually
+      // moves; captures, not kills, are what convert a conquest standoff.
+      const advWeight = cq ? w.advance * (1 + cw.advancePressure * pressure) : w.advance;
 
       // Advance objective (per-unit field built below, terrain-aware):
       //   1. visible enemies → walk toward the nearest one;
@@ -338,7 +550,14 @@ export function createGreedyPlanner(overrides: Partial<GreedyWeights> = {}): Ord
       // the phantom wall for 12 final rounds while a single hidden humvee
       // count sat in the fog (observed, seed 13) — a round-limit draw of a
       // 19-counts-vs-1 position.
-      const hiddenEnemies = Math.max(0, view.enemyTotal - view.enemyDead - view.enemies.length);
+      let hiddenEnemies = Math.max(0, view.enemyTotal - view.enemyDead - view.enemies.length);
+      // Conquest: the initial-force arithmetic above cannot see PRODUCTION
+      // (hidden spawns are unknowable — view.ts restricts the public fields
+      // to the setup force). While the enemy is believed to hold any base,
+      // fresh defenders may be materializing behind the fog: keep a floor of
+      // 2 possible hiders so the camp phantom never fully disarms against a
+      // producing opponent. Belief-driven, not a hidden read.
+      if (cq && enemyBaseCount > 0) hiddenEnemies = Math.max(hiddenEnemies, 2);
       holdScale *= Math.min(1, hiddenEnemies / 4);
       const holdActive = holdScale > 0;
       // Advance objective. While the camp-hold is active the objective is
@@ -362,10 +581,123 @@ export function createGreedyPlanner(overrides: Partial<GreedyWeights> = {}): Ord
       const advHops = multiSourceHops(board, advanceSources);
       // Terrain-aware advance fields, one per unit (movement costs differ).
       const advFieldByUnit = new Map<string, Map<CellId, number>>();
-      for (const v of own) {
-        const vt = unitTypes[v.type];
-        if (!vt) continue;
-        advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), advanceSources));
+      // Conquest: advance objectives are PER UNIT (capture targets), so the
+      // hop fallback must be per unit too. Empty in skirmish — the shared
+      // advHops above is used unchanged.
+      const advHopsByUnit = new Map<string, Map<CellId, number>>();
+      if (!cq) {
+        for (const v of own) {
+          const vt = unitTypes[v.type];
+          if (!vt) continue;
+          advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), advanceSources));
+        }
+      } else {
+        // ── Conquest capture objectives (addendum §B.7) ───────────────────
+        // Personnel claim capturable bases greedily in initiative order
+        // (`own` is already sorted): nearer is better, threatened is worse
+        // (approach hot bases with force, not solo), already-claimed is
+        // worse (spread the expansion). Believed-enemy bases get a small
+        // bump (flipping one swings income BY two).
+        // THRUST (high pressure — baseless or the desperation curve ≥ 0.7):
+        // spreading 1–2 personnel per defended base converts NOTHING (each
+        // probe dies to the local garrison and production replaces every
+        // loss — observed equilibrium). Instead ALL personnel mass on the
+        // single best capturable base (team-scored: reachable by many,
+        // lightly held) and the escorts come with them — a breakthrough,
+        // not a picket line.
+        const claims = new Map<CellId, number>();
+        const targetOf = new Map<string, CellId>();
+        const allPersonnel = own.filter((v) => unitTypes[v.type]?.armorType === 'personnel');
+        // RAID (overdrive ≥ 0.5): the massed thrust is what makes the mirror
+        // ping-pong — both teams contest the SAME frontier base forever.
+        // Raiders instead fan out across every capturable base, threat-blind
+        // and with a near-flat distance discount (the rear bases are the
+        // undefended ones); claimSpread doubled so claims really spread.
+        // Only FAST personnel (movement ≥ 9) raid — a grenadier on a 15-hop
+        // march contributes nothing for 8 rounds, while the same grenadier
+        // in the siege line is the wall-breaker (measured: fanning everyone
+        // out regressed every converted seed back to a stall).
+        const raid = overdrive >= cw.raidThreshold && capturableBases.length > 0;
+        const personnel = raid
+          ? allPersonnel.filter((v) => (unitTypes[v.type]?.movement ?? 0) >= 9)
+          : allPersonnel;
+        const thrust = !raid && (baseless || lateGame >= 0.5) && capturableBases.length > 0;
+        let thrustCell = -1;
+        if (thrust) {
+          // Team scoring with the threat term doubled: the thrust wants the
+          // WEAKLY HELD base it can mass on, not the most contested one.
+          let bestScore = -Infinity;
+          for (const b of capturableBases) {
+            let s = -2 * cw.baseThreat * b.threat + (b.owner !== null ? 0.5 : 0);
+            let reachers = 0;
+            for (const v of personnel) {
+              const d = b.hops.get(v.cell) ?? Infinity;
+              if (!Number.isFinite(d)) continue;
+              reachers++;
+              s += cw.captureBonus / (1 + d / 4);
+            }
+            if (reachers === 0) continue;
+            if (s > bestScore || (s === bestScore && b.cell < thrustCell)) {
+              bestScore = s;
+              thrustCell = b.cell;
+            }
+          }
+          if (thrustCell >= 0) {
+            for (const v of personnel) {
+              if (Number.isFinite(baseAt.get(thrustCell)!.hops.get(v.cell) ?? Infinity)) {
+                targetOf.set(v.id, thrustCell);
+              }
+            }
+          }
+        }
+        if (!thrust || thrustCell < 0) {
+          for (const v of personnel) {
+            let bestCell = -1;
+            let bestScore = -Infinity;
+            for (const b of capturableBases) {
+              const d = b.hops.get(v.cell) ?? Infinity;
+              if (!Number.isFinite(d)) continue;
+              const s =
+                cw.captureBonus / (1 + d / (raid ? 12 : 4)) +
+                (b.owner !== null ? 0.5 : 0) -
+                (raid ? 0 : cw.baseThreat * b.threat) -
+                cw.claimSpread * (raid ? 2 : 1) * (claims.get(b.cell) ?? 0);
+              if (s > bestScore || (s === bestScore && b.cell < bestCell)) {
+                bestScore = s;
+                bestCell = b.cell;
+              }
+            }
+            if (bestCell >= 0) {
+              targetOf.set(v.id, bestCell);
+              claims.set(bestCell, (claims.get(bestCell) ?? 0) + 1);
+            }
+          }
+        }
+        // Vehicles escort rather than squat: during a thrust they move WITH
+        // it (the push needs its fire support — attack values still engage
+        // whatever crosses their range en route); otherwise toward visible
+        // enemies, else the claimed frontier, else any capturable base,
+        // else the skirmish fallback (fog sweep / anchor) — also the
+        // personnel fallback when no capturable base is reachable.
+        const claimedCells = [...new Set(targetOf.values())].sort((a, b) => a - b);
+        const escortSources: CellId[] =
+          thrust && thrustCell >= 0
+            ? [thrustCell]
+            : enemyInfos.length > 0
+              ? enemyInfos.map((ei) => ei.unit.cell).sort((a, b) => a - b)
+              : claimedCells.length > 0
+                ? claimedCells
+                : capturableBases.length > 0
+                  ? capturableBases.map((b) => b.cell)
+                  : advanceSources;
+        for (const v of own) {
+          const vt = unitTypes[v.type];
+          if (!vt) continue;
+          const t = targetOf.get(v.id);
+          const sources = t !== undefined ? [t] : escortSources;
+          advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), sources));
+          advHopsByUnit.set(v.id, multiSourceHops(board, sources));
+        }
       }
       // NOTE on scouting: no unit gets a phantom exemption. An earlier
       // design let the best-vision unit creep inside the hold radius "to
@@ -534,9 +866,11 @@ export function createGreedyPlanner(overrides: Partial<GreedyWeights> = {}): Ord
 
         // Terrain-aware advance field in THIS unit's movement costs, with the
         // hop field as fallback when the cost field cannot reach this unit.
+        // Conquest: the hop fallback is per unit too (capture objectives).
         const advField = advFieldByUnit.get(u.id) ?? new Map<CellId, number>();
+        const unitAdvHops = advHopsByUnit.get(u.id) ?? advHops;
         const baseCost = advField.get(u.cell);
-        const baseHops = advHops.get(u.cell);
+        const baseHops = unitAdvHops.get(u.cell);
         // Raw advance credit: cost-based when the field reaches both ends,
         // else hop-based (walled-off units press toward the barrier).
         const advanceAt = (cell: CellId): number => {
@@ -544,9 +878,44 @@ export function createGreedyPlanner(overrides: Partial<GreedyWeights> = {}): Ord
           if (baseCost !== undefined && dc !== undefined) {
             return (baseCost - dc) / ADVANCE_NORM;
           }
-          const hc = advHops.get(cell);
+          const hc = unitAdvHops.get(cell);
           if (baseHops !== undefined && hc !== undefined) return baseHops - hc;
           return 0;
+        };
+        // ── Conquest score terms for ending THIS unit's round on `cell` ────
+        // (0 in skirmish). Capture flips need the unit ALIVE at Phase B.5 —
+        // the charge branch passes its brawl-survival verdict.
+        const isPersonnel = ut.armorType === 'personnel';
+        const cqBonusAt = (cell: CellId, survives: boolean): number => {
+          if (!cq) return 0;
+          let bonus = 0;
+          const bi = baseAt.get(cell);
+          if (bi) {
+            if (bi.owner !== view.faction) {
+              // Ending here flips it (§B.2) — the conquest payoff itself,
+              // pressure-scaled (captureBonusEff). Vehicles cannot capture:
+              // squatting an objective both wastes the escort and blocks the
+              // flip a personnel ally would make.
+              if (isPersonnel) bonus += survives ? captureBonusEff : 0;
+              else bonus -= cw.vehicleSquat;
+            } else if (bi.threat > 0) {
+              // Standing ON an own threatened base denies the flip outright
+              // (§B.2 requires the capturer to END there — occupied means a
+              // charge/brawl instead of a free flip).
+              bonus += cw.defendBase;
+            } else {
+              // Parking on an own SAFE base blocks Phase E production.
+              bonus -= cw.spawnBlock + (isPersonnel ? 0 : cw.vehicleSquat);
+            }
+          }
+          // Defend-base impulse: cells COVERING an own base under visible
+          // threat gain value — adjacency strongest, fading by hop 2.
+          for (const tb of threatenedOwn) {
+            if (tb.cell === cell) continue;
+            const d = tb.hops.get(cell) ?? Infinity;
+            if (d <= 2) bonus += cw.defendBase * (d <= 1 ? 0.5 : 0.25);
+          }
+          return bonus;
         };
         // Hold radius: uniform — mass at the camp rim (see scouting note).
         const holdRadius = Math.max(ut.vision, CAMP_HOLD);
@@ -582,17 +951,10 @@ export function createGreedyPlanner(overrides: Partial<GreedyWeights> = {}): Ord
         // allies have already committed — recomputed as planning progresses).
         const shadowDistOf = new Map<EnemyInfo, number>();
         for (const ei of enemyInfos) shadowDistOf.set(ei, nearestCommittedTo(ei));
-        // Caution decays toward the round limit (§2.8: timeout = draw — a
-        // LOSS of a won siege), floor 0.25: from ~70% of the limit on, the
-        // army accepts increasingly bad trades to convert. The depletion
-        // multiplier (counts are hit points — damaged units value theirs
-        // more, up to ~×2 at 1 count) fades with the same curve:
-        // desperation overrides self-preservation. (A "patience" variant
-        // that ALSO ran caution hot early was tried and measured worse on
-        // every seed: it idled the melee while the camp was strong, then
-        // compressed the same bad trades into fewer rounds.)
-        const lateGame = Math.max(0, round - Math.floor(ROUND_LIMIT * 0.7)) / (ROUND_LIMIT * 0.3);
-        const urgency = 1 - 0.75 * Math.min(1, lateGame);
+        // Depletion multiplier (counts are hit points — damaged units value
+        // theirs more, up to ~×2 at 1 count) fades with the desperation
+        // curve computed above the loop: desperation overrides
+        // self-preservation.
         const dtEff = w.damageTaken * (1 + (1 - u.count / 10) * urgency) * urgency;
 
         type Pick = {
@@ -683,7 +1045,8 @@ export function createGreedyPlanner(overrides: Partial<GreedyWeights> = {}): Ord
               value -
               dtEff * taken +
               w.terrainArmorBonus * armorBonus +
-              w.advance * advBoost * advanceAt(cell);
+              advWeight * advBoost * advanceAt(cell) +
+              cqBonusAt(cell, sim.ourEnd > 0);
             const tie = fnv1a32(`${u.id}:${cell}:${round}`);
             if (
               !best ||
@@ -834,7 +1197,8 @@ export function createGreedyPlanner(overrides: Partial<GreedyWeights> = {}): Ord
             (chosenAtt?.value ?? 0) -
             dtEff * taken +
             w.terrainArmorBonus * armorBonus +
-            w.advance * advBoost * adv;
+            advWeight * advBoost * adv +
+            cqBonusAt(cell, true);
           const tie = fnv1a32(`${u.id}:${cell}:${round}`);
 
           if (
@@ -895,7 +1259,20 @@ export function createGreedyPlanner(overrides: Partial<GreedyWeights> = {}): Ord
         plannedPosition.set(u.id, landedOn);
       }
 
-      return orders;
+      return { orders, plannedEnd: plannedPosition, overdrive };
+  };
+
+  return {
+    key: 'greedy',
+    planOrders(view: FactionView, _rng: Rng): Order[] {
+      return plan(view).orders;
+    },
+    // E4 (addendum §B.7): the conquest round — same movement/attack pass,
+    // plus the economy module's spend-down buys against the planned end
+    // positions. Callers go through planner.ts's planRound dispatcher.
+    planConquest(view: FactionView, _rng: Rng): ConquestPlan {
+      const { orders, plannedEnd, overdrive } = plan(view);
+      return { orders, buys: planConquestBuys(view, plannedEnd, cw, overdrive) };
     },
   };
 }

@@ -6,5 +6,25 @@
     "advance": 0.3,
     "focusFire": 0.5,
     "threatConcentration": 0.5
+  },
+  "conquest": {
+    "captureBonus": 8.0,
+    "baseThreat": 0.4,
+    "claimSpread": 4.0,
+    "defendBase": 3.0,
+    "spawnBlock": 1.0,
+    "vehicleSquat": 2.0,
+    "personnelFloor": 0.4,
+    "pressurePerBaseDown": 0.34,
+    "pressurePerBaseUp": 0.0,
+    "capturePressure": 3.0,
+    "advancePressure": 5.0,
+    "stallPressureStart": 8,
+    "stallPressureRamp": 10,
+    "overdriveRamp": 10,
+    "maxForce": 12,
+    "forcePerBase": 2.5,
+    "richFloor": 800,
+    "raidThreshold": 99
   }
 }
