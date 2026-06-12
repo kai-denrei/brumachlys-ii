@@ -21,6 +21,7 @@
 
 import type {
   AttackContext,
+  AttackTerms,
   ExchangeContext,
   ExchangeResult,
   ResolutionModel,
@@ -32,26 +33,35 @@ export const roundDamage = (raw: number): number => Math.round(raw);
 
 const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
 
-export function attackDamage(ctx: AttackContext): number {
+// Itemized terms for the §9.4 breakdown modal. attackDamage delegates here so
+// the displayed math is BY CONSTRUCTION the math that was applied.
+export function explainAttack(ctx: AttackContext): AttackTerms {
   const { attacker, defender, bonusB } = ctx;
-  if (attacker.count <= 0 || defender.count <= 0) return 0;
 
   // A is looked up by the *defender's* armor type in the *attacker's* table.
   const A = attacker.type.attackStrengths[defender.type.armorType];
-  if (A <= 0) return 0; // cannot engage this armor type
   const D = defender.type.armor;
   const Ta = attacker.type.terrainEffects[attacker.terrain]?.attackBonus ?? 0;
   const terrainTd = defender.type.terrainEffects[defender.terrain]?.armorBonus ?? 0;
   const stanceTd = defender.stance === 'defensive' ? 1 : 0;
   const Td = terrainTd + stanceTd;
 
+  // Cannot fire: dead participant or cannot engage this armor type.
+  if (attacker.count <= 0 || defender.count <= 0 || A <= 0) {
+    return { A, Ta, D, Td, B: bonusB, p: 0, damage: 0 };
+  }
+
   const p = clamp01(0.5 + 0.05 * (A + Ta - (D + Td) + bonusB));
   const engagements = Math.min(attacker.count, defender.count);
   const raw = roundDamage(engagements * p);
   // Minimum-damage floor: never round to 0 when the attacker can damage this
   // armor type and the formula gave any positive probability.
-  if (raw === 0 && p > 0) return 1;
-  return raw;
+  const damage = raw === 0 && p > 0 ? 1 : raw;
+  return { A, Ta, D, Td, B: bonusB, p, damage };
+}
+
+export function attackDamage(ctx: AttackContext): number {
+  return explainAttack(ctx).damage;
 }
 
 // Mutual exchange (spec §2.7 counter semantics):
@@ -93,4 +103,5 @@ export const weewar: ResolutionModel = {
   key: 'weewar',
   attackDamage,
   battleExchange,
+  explainAttack,
 };

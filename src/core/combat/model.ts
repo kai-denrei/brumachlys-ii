@@ -42,8 +42,24 @@ export type ExchangeResult = {
   counterFired: boolean;
 };
 
+/** Itemized formula terms for one strike — what the §9.4 breakdown modal
+ *  shows (`A + Ta − D − Td + B → p → damage`). `B` echoes ctx.bonusB; the
+ *  gang-up itemization is attached by the resolver (it owns the geometry). */
+export type AttackTerms = {
+  A: number;
+  Ta: number;
+  D: number;
+  Td: number;
+  B: number;
+  p: number; // 0 when the attack cannot fire (A <= 0 or a side is dead)
+  damage: number; // == attackDamage(ctx)
+};
+
 export interface ResolutionModel {
   key: string; // 'weewar' for II v1
   attackDamage(ctx: AttackContext): number; // pure
   battleExchange(ctx: ExchangeContext): ExchangeResult; // pure
+  /** Optional: itemized terms for replay breakdowns (§9.4). Models without it
+   *  still resolve; the resolver falls back to damage-only breakdowns. */
+  explainAttack?(ctx: AttackContext): AttackTerms; // pure
 }

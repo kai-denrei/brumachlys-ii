@@ -2,12 +2,13 @@
 
 export type {
   AttackContext,
+  AttackTerms,
   Combatant,
   ExchangeContext,
   ExchangeResult,
   ResolutionModel,
 } from './model';
-export { attackDamage, battleExchange, roundDamage, weewar } from './weewar';
+export { attackDamage, battleExchange, explainAttack, roundDamage, weewar } from './weewar';
 export {
   GANGUP_WEIGHT,
   classifyPriorAttack,

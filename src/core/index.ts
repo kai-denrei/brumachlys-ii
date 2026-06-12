@@ -3,14 +3,18 @@
 
 export type {
   ArmorType,
+  AttackBreakdown,
   AttackedFromEntry,
   FactionId,
+  GameOutcome,
+  GameOverReason,
   GamePhase,
   GameState,
   ResolutionEvent,
   Stance,
   TerrainEffect,
   TerrainType,
+  TruncationReason,
   UnitInstance,
   UnitType,
 } from './types';
@@ -20,12 +24,13 @@ export type { Rng } from './rng';
 
 export type {
   AttackContext,
+  AttackTerms,
   Combatant,
   ExchangeContext,
   ExchangeResult,
   ResolutionModel,
 } from './combat/model';
-export { attackDamage, battleExchange, roundDamage, weewar } from './combat/weewar';
+export { attackDamage, battleExchange, explainAttack, roundDamage, weewar } from './combat/weewar';
 export {
   GANGUP_WEIGHT,
   classifyPriorAttack,
@@ -39,3 +44,8 @@ export { IMPASSABLE, findPath, movementCostsFor, reachableCells } from './pathin
 export type { MovementCosts, PathOpts, PathResult } from './pathing';
 
 export { visibleCells } from './fog';
+
+export { ROUND_LIMIT, resolveRound } from './resolver';
+export type { OrdersByFaction, ResolveResult } from './resolver';
+export { newGame } from './setup';
+export type { Scenario } from './setup';

@@ -5,6 +5,11 @@
 
 import type { Board, CellId, TerrainKey } from '../board/types';
 import type { Order } from './orders';
+// Type-only imports — erased at compile time, so the runtime import graph
+// stays acyclic (combat/* runtime-imports only board geometry + this module's
+// types, never this module's values).
+import type { GangUpBreakdown } from './combat/gangup';
+import type { AttackTerms } from './combat/model';
 
 export type FactionId = 0 | 1;
 
@@ -57,25 +62,75 @@ export type TerrainType = {
   passable: ArmorType[];
 };
 
-// Discriminated event log emitted by the P4 resolver; replay UI consumes it.
-// Defined here so P3 types are complete; v1 shape minus economy/capture,
-// plus the Phase A.5 brawl exchange (spec §2.6).
+// ── Resolution event log (P4) ────────────────────────────────────────────────
+// Discriminated event log emitted by the P4 resolver; the P8 replay UI
+// consumes it. Every combat event carries a full AttackBreakdown so the §9.4
+// breakdown modal can show `A + Ta − D − Td + B → p → damage` with gang-up
+// contributions itemized — the math is never invisible (v1 lesson).
+
+/** Formula terms + itemized gang-up for one strike (§9.4 breakdown modal).
+ *  For counters and brawls B is 0 and `gangUp.contributions` is empty. */
+export type AttackBreakdown = AttackTerms & { gangUp: GangUpBreakdown };
+
+/** Why a move ended short of its planned destination (§2.5). */
+export type TruncationReason =
+  | 'budget' // terrain cost exhausted the movement budget
+  | 'enemy-contact' // mid-path enemy: surprise contact, stopped one cell short
+  | 'friendly-occupied' // may not END on a friendly cell: backed up
+  | 'invalid-step'; // stale/illegal path step (re-validated at execution time)
+
+export type GameOverReason = 'annihilation' | 'mutual-annihilation' | 'round-limit';
+
+/** §2.8 — winner `null` means draw. */
+export type GameOutcome = { winner: FactionId | null; reason: GameOverReason };
+
 export type ResolutionEvent =
   | { type: 'stance'; unitId: string; stance: Stance }
   | { type: 'move'; unitId: string; from: CellId; to: CellId; pathTaken: CellId[] }
-  | { type: 'path-truncated'; unitId: string; planned: CellId; actual: CellId }
-  | { type: 'attack'; attackerId: string; defenderId: string; damage: number; bonusB: number }
-  | { type: 'counter'; attackerId: string; defenderId: string; damage: number }
   | {
-      type: 'brawl-exchange';
+      type: 'path-truncated';
+      unitId: string;
+      planned: CellId;
+      actual: CellId;
+      reason: TruncationReason;
+    }
+  | {
+      type: 'attack'; // Phase B real attack (explicit or auto)
+      attackerId: string;
+      defenderId: string;
+      attackerCell: CellId;
+      defenderCell: CellId;
+      damage: number;
+      bonusB: number; // == breakdown.gangUp.total
+      defenderCountAfter: number;
+      counterFired: boolean; // a `counter` event follows iff true
+      breakdown: AttackBreakdown;
+    }
+  | {
+      type: 'counter'; // defender's return fire inside the attacker's slot
+      attackerId: string; // the countering unit (the original defender)
+      defenderId: string; // the original attacker, now taking the counter
+      attackerCell: CellId;
+      defenderCell: CellId;
+      damage: number;
+      defenderCountAfter: number;
+      breakdown: AttackBreakdown; // B always 0 — counters never gang up
+    }
+  | {
+      type: 'brawl-exchange'; // Phase A.5 (§2.6) — one full mutual exchange
       cell: CellId;
       higherInitId: string;
       lowerInitId: string;
       higherInitDamageDealt: number;
-      lowerInitDamageDealt: number;
+      lowerInitDamageDealt: number; // 0 when the lower-init side cannot return (range/armor gate)
+      higherInitCountAfter: number;
+      lowerInitCountAfter: number;
+      higherInitBreakdown: AttackBreakdown;
+      lowerInitBreakdown: AttackBreakdown | null; // null when no return strike fired
     }
-  | { type: 'kill'; unitId: string }
-  | { type: 'lost-target'; attackerId: string; targetCell: CellId };
+  | { type: 'kill'; unitId: string; cell: CellId; faction: FactionId }
+  | { type: 'lost-target'; attackerId: string; targetCell: CellId }
+  | { type: 'game-over'; outcome: GameOutcome };
 
 export type GameState = {
   round: number; // 1-indexed
@@ -85,4 +140,6 @@ export type GameState = {
   pendingOrders: Record<FactionId, Order[]>;
   rngSeed: number; // xorshift32 state
   log: ResolutionEvent[];
+  /** Set by the resolver when the game ends (§2.8); absent while running. */
+  outcome?: GameOutcome;
 };

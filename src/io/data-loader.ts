@@ -6,8 +6,10 @@
 
 import type { TerrainKey } from '../board/types';
 import type { TerrainType, UnitType } from '../core/types';
+import type { Scenario } from '../core/setup';
 import unitsJson from '../../data/units.json';
 import terrainJson from '../../data/terrain.json';
+import scenariosJson from '../../data/scenarios.json';
 
 export function loadUnits(): Record<string, UnitType> {
   // The JSON shape matches UnitType — asserted via the type checker at the
@@ -18,4 +20,8 @@ export function loadUnits(): Record<string, UnitType> {
 
 export function loadTerrain(): Record<TerrainKey, TerrainType> {
   return terrainJson as unknown as Record<TerrainKey, TerrainType>;
+}
+
+export function loadScenarios(): Record<string, Scenario> {
+  return scenariosJson as unknown as Record<string, Scenario>;
 }

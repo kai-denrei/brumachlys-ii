@@ -1,0 +1,16 @@
+{
+  "standard": {
+    "name": "Standard Battle",
+    "description": "Mirror armies: each faction fields one of each of the eight land units (spec §6.4).",
+    "forces": [
+      "sniper",
+      "humvee",
+      "ranger",
+      "infantry",
+      "grenadier",
+      "tank",
+      "artillery",
+      "heavytank"
+    ]
+  }
+}
