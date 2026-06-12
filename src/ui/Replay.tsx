@@ -46,6 +46,7 @@ export function ReplayDock({
   onSpeed,
   onTogglePause,
   onSlotTap,
+  onRecenter,
 }: {
   slots: readonly TimelineSlot[];
   activeSlot: number;
@@ -56,6 +57,9 @@ export function ReplayDock({
   onSpeed: (s: ReplaySpeed) => void;
   onTogglePause: () => void;
   onSlotTap: (slot: number) => void;
+  /** Non-null while auto-follow is suspended by a manual pan (P9) — shows the
+   *  recenter button that hands the camera back to the replay. */
+  onRecenter?: (() => void) | null;
 }) {
   const stripRef = useRef<HTMLDivElement>(null);
 
@@ -98,6 +102,15 @@ export function ReplayDock({
         })}
       </div>
       <div className="replay-controls">
+        {onRecenter && (
+          <button
+            className="replay-button replay-recenter"
+            onClick={onRecenter}
+            aria-label="recenter on the action"
+          >
+            ⌖
+          </button>
+        )}
         <button
           className="replay-button"
           onClick={onTogglePause}

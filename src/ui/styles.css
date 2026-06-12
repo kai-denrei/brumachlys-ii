@@ -650,8 +650,11 @@ body {
   }
 }
 
-/* floating damage number: rises and holds (stays tappable for breakdown) */
-.fx-floater {
+/* floating damage number: rises and holds (stays tappable for breakdown).
+   P9: the animation targets an INNER group — a CSS transform animation
+   replaces the SVG transform ATTRIBUTE on the same element, which silently
+   teleported pills (and bursts) to the layer origin in P8. */
+.fx-floater-rise {
   animation: fx-float-up 0.7s ease-out forwards;
 }
 
@@ -668,6 +671,17 @@ body {
     opacity: 1;
     transform: translate(0, 0);
   }
+}
+
+/* P9: last-volley pill carried into later frames — settled (the ReplayFx
+   group remounts per frame; without this the pop would replay every frame),
+   slightly faded, still a breakdown tap target. */
+.fx-floater-linger {
+  opacity: 0.88;
+}
+
+.fx-floater-linger .fx-floater-rise {
+  animation: none;
 }
 
 /* fire-from-the-mist impact: expanding rings, no source shown (§7) */
@@ -845,6 +859,14 @@ body {
 .replay-button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* P9: recenter — appears only while a manual pan suspended auto-follow */
+.replay-recenter {
+  background: var(--faction-a);
+  border-color: var(--faction-a);
+  color: #fff;
+  font-size: 0.9rem;
 }
 
 /* --- P8: breakdown modal (§9.4) --------------------------------------------- */

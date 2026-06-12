@@ -16,7 +16,17 @@ import type { Pt } from './rounded';
 
 export type ReplayFxData = {
   arcs: { from: CellId; to: CellId; faction: FactionId }[];
-  floaters: { id: string; cell: CellId; text: string; mist: boolean; slot: number }[];
+  /** `linger`: a "last volley" pill carried into later frames (P9) — still a
+   *  breakdown tap target, but rendered settled (no pop animation, no
+   *  re-expanding mist impact rings). */
+  floaters: {
+    id: string;
+    cell: CellId;
+    text: string;
+    mist: boolean;
+    slot: number;
+    linger?: boolean;
+  }[];
   bursts: CellId[];
   kills: UnitInstance[];
 };
@@ -74,6 +84,13 @@ function FlashArc({
   );
 }
 
+// NOTE (P9 fix): a CSS `transform` animation REPLACES an element's SVG
+// `transform` presentation attribute (the attribute is just a low-priority
+// presentational hint) — so animated transforms must live on an INNER group,
+// never on the same element that carries the positioning translate. P8
+// shipped with bursts and floater pills silently rendering at the layer
+// origin because of this; caught by the P9 Playwright pass.
+
 function ClashBurst({ at, tokenSize }: { at: Pt; tokenSize: number }) {
   const r0 = tokenSize * 0.34;
   const r1 = tokenSize * 0.78;
@@ -82,20 +99,22 @@ function ClashBurst({ at, tokenSize }: { at: Pt; tokenSize: number }) {
     return [Math.cos(t), Math.sin(t)] as const;
   });
   return (
-    <g className="fx-burst" transform={`translate(${at[0]} ${at[1]})`} pointerEvents="none">
-      {spikes.map(([ux, uy], k) => (
-        <line
-          key={k}
-          x1={ux * r0}
-          y1={uy * r0}
-          x2={ux * r1}
-          y2={uy * r1}
-          stroke="#fff"
-          strokeWidth={tokenSize * 0.09}
-          strokeLinecap="round"
-        />
-      ))}
-      <circle r={r0 * 0.8} fill="#fff" opacity={0.85} />
+    <g transform={`translate(${at[0]} ${at[1]})`} pointerEvents="none">
+      <g className="fx-burst">
+        {spikes.map(([ux, uy], k) => (
+          <line
+            key={k}
+            x1={ux * r0}
+            y1={uy * r0}
+            x2={ux * r1}
+            y2={uy * r1}
+            stroke="#fff"
+            strokeWidth={tokenSize * 0.09}
+            strokeLinecap="round"
+          />
+        ))}
+        <circle r={r0 * 0.8} fill="#fff" opacity={0.85} />
+      </g>
     </g>
   );
 }
@@ -143,32 +162,51 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, onFloaterTap }: Repla
         const fill = fl.mist ? '#5d5648' : '#fff';
         const text = fl.mist ? '#f2eee3' : '#9c2f1d';
         return (
-          <g key={fl.id} className={`fx-floater${fl.mist ? ' fx-floater-mist' : ''}`} transform={`translate(${x} ${y})`}>
-            {fl.mist && <MistImpact at={[at[0] - x, at[1] - y]} tokenSize={tokenSize} />}
-            <g
-              className="fx-floater-pill"
-              onClick={onFloaterTap ? () => onFloaterTap(fl.slot) : undefined}
-            >
-              <rect
-                x={-w / 2}
-                y={-h / 2}
-                width={w}
-                height={h}
-                rx={h / 2}
-                fill={fill}
-                stroke={fl.mist ? 'rgba(255,255,255,0.55)' : 'rgba(74,68,58,0.35)'}
-                strokeWidth={tokenSize * 0.03}
-              />
-              <text
-                textAnchor="middle"
-                dominantBaseline="central"
-                fontSize={h * 0.62}
-                fontWeight={700}
-                fill={text}
-                pointerEvents="none"
+          <g
+            key={fl.id}
+            className={`fx-floater${fl.mist ? ' fx-floater-mist' : ''}${fl.linger ? ' fx-floater-linger' : ''}`}
+            transform={`translate(${x} ${y})`}
+          >
+            {/* the rise animation lives on this INNER group — see NOTE above */}
+            <g className="fx-floater-rise">
+              {fl.mist && !fl.linger && (
+                <MistImpact at={[at[0] - x, at[1] - y]} tokenSize={tokenSize} />
+              )}
+              <g
+                className="fx-floater-pill"
+                onClick={onFloaterTap ? () => onFloaterTap(fl.slot) : undefined}
               >
-                {fl.text}
-              </text>
+                {/* generous invisible tap zone (P9): pills are small at fit
+                    zoom — the hit target is ~2× the pill */}
+                <rect
+                  x={-w}
+                  y={-h * 1.4}
+                  width={w * 2}
+                  height={h * 2.8}
+                  fill="transparent"
+                  stroke="none"
+                />
+                <rect
+                  x={-w / 2}
+                  y={-h / 2}
+                  width={w}
+                  height={h}
+                  rx={h / 2}
+                  fill={fill}
+                  stroke={fl.mist ? 'rgba(255,255,255,0.55)' : 'rgba(74,68,58,0.35)'}
+                  strokeWidth={tokenSize * 0.03}
+                />
+                <text
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize={h * 0.62}
+                  fontWeight={700}
+                  fill={text}
+                  pointerEvents="none"
+                >
+                  {fl.text}
+                </text>
+              </g>
             </g>
           </g>
         );

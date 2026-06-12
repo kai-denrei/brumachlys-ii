@@ -112,6 +112,60 @@ describe('replay builder — grouping', () => {
     expect(frame.units.find((u) => u.id === 'pt')!.count).toBe(6);
   });
 
+  it('P9 brawl pacing: follow-up exchanges of the SAME brawl compress and accumulate totals', () => {
+    const units = [makeUnit('pt', 0, 2, 'tank'), makeUnit('ei', 1, 2, 'infantry')];
+    const exchange = (hiDmg: number, loDmg: number, hiAfter: number, loAfter: number): ResolutionEvent => ({
+      type: 'brawl-exchange',
+      cell: 2,
+      higherInitId: 'ei',
+      lowerInitId: 'pt',
+      higherInitDamageDealt: hiDmg,
+      lowerInitDamageDealt: loDmg,
+      higherInitCountAfter: hiAfter,
+      lowerInitCountAfter: loAfter,
+      higherInitBreakdown: bd({ damage: hiDmg }),
+      lowerInitBreakdown: bd({ damage: loDmg }),
+    });
+    const script = build(units, [exchange(4, 5, 5, 6), exchange(3, 1, 4, 3)]);
+    expect(script.slots.length).toBe(2);
+    // First exchange: full volley beat. Second (same cell + pair): compressed.
+    expect(script.frames[1]!.duration).toBe(800);
+    expect(script.frames[2]!.duration).toBe(350);
+    // Floaters show RUNNING totals: −4/−5, then −7/−6 — the sum stays readable.
+    expect(script.frames[1]!.floaters.map((f) => f.text)).toEqual(['−4', '−5']);
+    expect(script.frames[2]!.floaters.map((f) => f.text)).toEqual(['−7', '−6']);
+    // Camera framing: the brawl cell.
+    expect(script.frames[1]!.focus).toEqual([2]);
+    expect(script.frames[2]!.focus).toEqual([2]);
+  });
+
+  it('P9 brawl pacing: an intervening event breaks the chain (next brawl is a fresh beat)', () => {
+    const units = [
+      makeUnit('pt', 0, 2, 'tank'),
+      makeUnit('ei', 1, 2, 'infantry'),
+      makeUnit('pi', 0, 4),
+    ];
+    const exchange: ResolutionEvent = {
+      type: 'brawl-exchange',
+      cell: 2,
+      higherInitId: 'ei',
+      lowerInitId: 'pt',
+      higherInitDamageDealt: 4,
+      lowerInitDamageDealt: 5,
+      higherInitCountAfter: 5,
+      lowerInitCountAfter: 6,
+      higherInitBreakdown: bd({ damage: 4 }),
+      lowerInitBreakdown: bd(),
+    };
+    const move: ResolutionEvent = { type: 'move', unitId: 'pi', from: 4, to: 5, pathTaken: [5] };
+    const script = build(units, [exchange, move, exchange]);
+    const brawlFrames = script.frames.filter((f) => f.bursts.length > 0);
+    expect(brawlFrames.length).toBe(2);
+    expect(brawlFrames[0]!.duration).toBe(800);
+    expect(brawlFrames[1]!.duration).toBe(800); // chain broken — full beat again
+    expect(brawlFrames[1]!.floaters.map((f) => f.text)).toEqual(['−4', '−5']); // fresh totals
+  });
+
   it('stance events animate nothing but restyle the unit', () => {
     const script = build(
       [makeUnit('pi', 0, 2)],
@@ -130,6 +184,60 @@ describe('replay builder — grouping', () => {
     expect(script.slots[0]!.kind).toBe('fizzle');
     expect(script.frames[1]!.floaters[0]!.text).toBe('no target');
     expect(script.summary.fizzles).toBe(1);
+  });
+});
+
+describe('replay builder — camera focus (P9 auto-follow)', () => {
+  it('the establishing frame leaves the camera alone', () => {
+    const script = build([makeUnit('pi', 0, 2)], []);
+    expect(script.frames[0]!.focus).toEqual([]);
+  });
+
+  it('move frames focus the mover cell-by-cell', () => {
+    const script = build(
+      [makeUnit('pi', 0, 0)],
+      [{ type: 'move', unitId: 'pi', from: 0, to: 2, pathTaken: [1, 2] }],
+    );
+    expect(script.frames[1]!.focus).toEqual([1]);
+    expect(script.frames[2]!.focus).toEqual([2]);
+  });
+
+  it('volley frames frame attacker AND defender', () => {
+    const units = [makeUnit('pa', 0, 0, 'artillery'), makeUnit('er', 1, 4, 'ranger')];
+    const script = build(units, [
+      {
+        type: 'attack',
+        attackerId: 'pa',
+        defenderId: 'er',
+        attackerCell: 0,
+        defenderCell: 4,
+        damage: 6,
+        bonusB: 0,
+        defenderCountAfter: 4,
+        counterFired: false,
+        breakdown: bd({ damage: 6 }),
+      },
+    ]);
+    expect([...script.frames[1]!.focus].sort()).toEqual([0, 4]);
+  });
+
+  it('fire from the mist frames ONLY the defender — focus must not leak the source', () => {
+    const units = [makeUnit('pi', 0, 0), makeUnit('aa', 1, 4, 'artillery')];
+    const script = build(units, [
+      {
+        type: 'attack',
+        attackerId: 'aa',
+        defenderId: 'pi',
+        attackerCell: 4,
+        defenderCell: 0,
+        damage: 3,
+        bonusB: 0,
+        defenderCountAfter: 7,
+        counterFired: false,
+        breakdown: bd({ damage: 3 }),
+      },
+    ]);
+    expect(script.frames[1]!.focus).toEqual([0]); // never cell 4
   });
 });
 

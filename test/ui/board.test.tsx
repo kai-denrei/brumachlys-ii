@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { Board as BoardGraph, Cell, CellId } from '../../src/board/types';
 import type { UnitInstance } from '../../src/core/types';
-import { Board } from '../../src/ui/Board';
+import { Board, computeFollowView } from '../../src/ui/Board';
 import { PALETTE } from '../../src/ui/skin';
 
 afterEach(cleanup);
@@ -101,5 +101,45 @@ describe('Board', () => {
     const { container } = render(<Board board={makeBoard()} />);
     const grain = container.querySelector('.board-grain')!;
     expect(Number(grain.getAttribute('opacity'))).toBeLessThanOrEqual(0.05);
+  });
+});
+
+// --- P9 auto-follow camera math (pure) ---------------------------------------
+
+describe('computeFollowView', () => {
+  const bbox = { x: 0, y: 0, width: 100, height: 100 };
+  const ident = { k: 1, tx: 0, ty: 0 };
+
+  it('returns null for no points', () => {
+    expect(computeFollowView([], ident, bbox, 10)).toBeNull();
+  });
+
+  it('calm rule: stays put when the action is already comfortably in view', () => {
+    expect(computeFollowView([[50, 50]], ident, bbox, 10)).toBeNull();
+    // near the edge but margin still inside
+    expect(computeFollowView([[85, 85]], ident, bbox, 10)).toBeNull();
+  });
+
+  it('pans (keeping zoom) when the target is off-screen and fits at current zoom', () => {
+    const v = computeFollowView([[200, 50]], ident, bbox, 10)!;
+    expect(v).not.toBeNull();
+    expect(v.k).toBe(1); // zoom untouched
+    // the point lands at the viewBox center: k*px + tx = 50
+    expect(v.k * 200 + v.tx).toBeCloseTo(50);
+    expect(v.k * 50 + v.ty).toBeCloseTo(50);
+  });
+
+  it('zooms OUT to fit when the framed points exceed the viewport', () => {
+    const v = computeFollowView([[0, 0], [150, 0]], ident, bbox, 10)!;
+    expect(v.k).toBeCloseTo(100 / 170); // fit 170-wide box into 100
+    // box center (75, 0) lands at the viewBox center
+    expect(v.k * 75 + v.tx).toBeCloseTo(50);
+    expect(v.k * 0 + v.ty).toBeCloseTo(50);
+  });
+
+  it('never zooms IN to chase a tight cluster', () => {
+    const zoomedOut = { k: 0.6, tx: 0, ty: 0 };
+    const v = computeFollowView([[400, 400]], zoomedOut, bbox, 10)!;
+    expect(v.k).toBe(0.6);
   });
 });

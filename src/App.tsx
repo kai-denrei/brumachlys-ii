@@ -12,12 +12,22 @@
 // cell. `skip` jumps to the final frame and opens the summary. The breakdown
 // modal pauses playback while open.
 //
+// P9 camera + affordances:
+// - Auto-follow: each frame carries `focus` cells; the Board eases the view
+//   to keep them framed. A manual pan/pinch/wheel during playback SUSPENDS
+//   following for the rest of the current timeline slot (the user is looking
+//   at something); it resumes on the next event group, or immediately via
+//   the ⌖ recenter button in the replay dock.
+// - Last-volley linger: the most recent damage floaters stay on the board
+//   (settled, still tappable → breakdown) for ~2 s after their frame ends or
+//   until the next volley replaces them.
+//
 // ?autopilot=greedy (dev/demo flag, kept on purpose): faction 0 is planned by
 // the same greedy AI on commit-less rounds — auto-commits each planning phase
 // and auto-dismisses summaries, so a full game fast-forwards to the banner
 // organically. Useful for demos and for exercising long games by hand.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   findConvergences,
   movementCostsFor,
@@ -32,6 +42,7 @@ import type { Stance, UnitInstance } from './core/types';
 import { cellsWithin, graphDistance } from './board/geometry';
 import type { CellId } from './board/types';
 import { loadUnits } from './io/data-loader';
+import type { ReplayFrame } from './state/replay';
 import { PLAYER_FACTION, useAppStore } from './state/store';
 import { Board, type StancePopoverState } from './ui/Board';
 import { BottomDock } from './ui/BottomDock';
@@ -82,6 +93,14 @@ function BattleScreen() {
   const [frameIdx, setFrameIdx] = useState(0);
   const [paused, setPaused] = useState(false);
   const [breakdownSlot, setBreakdownSlot] = useState<number | null>(null);
+  // P9 auto-follow suspension: the slot during which the user grabbed the
+  // camera. Following resumes when playback moves to a different slot (the
+  // comparison below), or via the recenter button (clears + bumps the token).
+  const [suspendedAt, setSuspendedAt] = useState<number | null>(null);
+  const [recenterBump, setRecenterBump] = useState(0);
+  // P9 last-volley linger: the latest floaters stay tappable ~2 s.
+  const [linger, setLinger] = useState<{ floaters: ReplayFrame['floaters'] } | null>(null);
+  const lingerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // New script → restart playback.
   useEffect(() => {
@@ -89,6 +108,8 @@ function BattleScreen() {
     setPaused(false);
     setBreakdownSlot(null);
     setSheet(null);
+    setSuspendedAt(null);
+    setLinger(null);
   }, [script]);
 
   useEffect(() => {
@@ -110,6 +131,24 @@ function BattleScreen() {
     }, frame.duration / replaySpeed);
     return () => clearTimeout(t);
   }, [uiPhase, script, frameIdx, paused, breakdownSlot, replaySpeed, finishReplay]);
+
+  // P9 linger: when a frame lands floaters, hold them (settled, tappable)
+  // past the frame — replaced by the next volley's, expired after 2 s. The
+  // timer lives in a ref so unrelated frame advances don't clear it.
+  useEffect(() => {
+    if (uiPhase !== 'replay' || !script) return;
+    const fr = script.frames[Math.min(frameIdx, script.frames.length - 1)];
+    if (!fr || fr.floaters.length === 0) return;
+    setLinger({ floaters: fr.floaters });
+    if (lingerTimer.current) clearTimeout(lingerTimer.current);
+    lingerTimer.current = setTimeout(() => setLinger(null), 2000);
+  }, [uiPhase, script, frameIdx]);
+  useEffect(
+    () => () => {
+      if (lingerTimer.current) clearTimeout(lingerTimer.current);
+    },
+    [],
+  );
 
   // --- autopilot (dev/demo) ------------------------------------------------------
   useEffect(() => {
@@ -299,6 +338,24 @@ function BattleScreen() {
     ? script.frames[Math.min(frameIdx, script.frames.length - 1)]!
     : null;
 
+  // P9 auto-follow: suspended while the user's grab-slot is still playing;
+  // a new slot (or recenter) hands the camera back automatically.
+  const followSuspended =
+    frame !== null && suspendedAt !== null && frame.slot === suspendedAt;
+  const follow =
+    uiPhase === 'replay' && frame && !followSuspended && frame.focus.length > 0
+      ? { cells: frame.focus, token: frameIdx + recenterBump * 1_000_000 }
+      : null;
+
+  // P9 linger: the current frame's own floaters win; otherwise the last
+  // volley's pills stay on the board, settled but still breakdown-tappable.
+  const fxFloaters =
+    frame === null
+      ? []
+      : frame.floaters.length > 0
+        ? frame.floaters
+        : (linger?.floaters.map((f) => ({ ...f, linger: true })) ?? []);
+
   const own = units.filter((u) => u.faction === PLAYER_FACTION);
   const orderedIds = orderedUnitIds(orders);
 
@@ -324,12 +381,16 @@ function BattleScreen() {
               key: frameIdx,
               fx: {
                 arcs: frame.arcs,
-                floaters: frame.floaters,
+                floaters: fxFloaters,
                 bursts: frame.bursts,
                 kills: frame.kills,
               },
             }}
             onFloaterTap={(slot) => setBreakdownSlot(slot)}
+            follow={follow}
+            onUserPan={() => {
+              if (uiPhase === 'replay' && frame) setSuspendedAt(frame.slot);
+            }}
             className={replaySpeed === 2 ? 'board-replay-2x' : undefined}
           />
         ) : (
@@ -359,6 +420,14 @@ function BattleScreen() {
           onSpeed={setReplaySpeed}
           onTogglePause={() => setPaused((p) => !p)}
           onSlotTap={(slot) => setBreakdownSlot(slot)}
+          onRecenter={
+            followSuspended && uiPhase === 'replay'
+              ? () => {
+                  setSuspendedAt(null);
+                  setRecenterBump((b) => b + 1);
+                }
+              : null
+          }
         />
       ) : (
         <BottomDock

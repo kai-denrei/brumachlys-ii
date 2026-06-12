@@ -30,6 +30,15 @@
 // Output is a flat list of fixed-duration "frames" (move steps ~250 ms/cell,
 // volleys ~800 ms) plus a timeline of visible slots; the playback driver in
 // the UI just walks frames on a timer (durations divide by the speed factor).
+//
+// P9 pacing: repeated exchanges of the SAME brawl (same cell + pair) compress
+// to ~350 ms after the first, and their damage floaters show RUNNING TOTALS
+// (−5, −9, −12 …) so the sum stays readable instead of stacking pills.
+//
+// P9 camera: each frame carries `focus` — the cells the camera should keep
+// in view (mover's current cell; attacker+defender of a volley; just the
+// defender when the source is withheld, so auto-follow can't leak a mist
+// attacker's position; the brawl cell). The Board pans/zooms to frame them.
 
 import type { Board, CellId } from '../board/types';
 import { visibleCells } from '../core/fog';
@@ -95,6 +104,9 @@ export type ReplayFrame = {
   bursts: CellId[];
   /** Units fading out this frame (snapshot at death). */
   kills: UnitInstance[];
+  /** Cells the camera should keep in view this frame (auto-follow, P9).
+   *  Empty = leave the view alone. Never contains a withheld mist source. */
+  focus: CellId[];
 };
 
 export type RoundSummary = {
@@ -114,6 +126,8 @@ export type ReplayScript = {
 
 const MOVE_STEP_MS = 250;
 const VOLLEY_MS = 800;
+/** Follow-up exchanges of the SAME brawl compress (P9 pacing). */
+const BRAWL_FOLLOWUP_MS = 350;
 const FIZZLE_MS = 500;
 const ESTABLISH_MS = 350;
 
@@ -152,6 +166,7 @@ export function buildReplay(
     floaters: [] as Floater[],
     bursts: [] as CellId[],
     kills: [] as UnitInstance[],
+    focus: [] as CellId[],
   });
 
   // Establishing frame: the pre-round picture through the player's fog.
@@ -192,9 +207,16 @@ export function buildReplay(
   };
 
   // --- event walk --------------------------------------------------------------
+  // P9 brawl pacing: consecutive exchanges of the same brawl (same cell +
+  // same pair — the resolver emits them back-to-back) compress after the
+  // first and accumulate their floater totals. Any other event breaks the chain.
+  type BrawlChain = { key: string; cum: [number, number] };
+  let brawlChain: BrawlChain | null = null;
+
   let i = 0;
   while (i < events.length) {
     const ev = events[i]!;
+    if (ev.type !== 'brawl-exchange') brawlChain = null;
 
     if (ev.type === 'stance') {
       const u = sim.get(ev.unitId);
@@ -230,6 +252,7 @@ export function buildReplay(
           units: renderUnits(vis),
           fog: fogOf(vis),
           ...emptyFx(),
+          focus: [step], // camera follows the mover cell-by-cell
         });
       }
       i++;
@@ -319,6 +342,14 @@ export function buildReplay(
           actorFaction: mistSlot ? null : (att?.faction ?? null),
           strikes,
         });
+        // Camera target: attacker+defender of shown strikes (mist attacker
+        // cells are already null — only the impact is framed) + shown kills.
+        const focus = new Set<CellId>();
+        for (const s of strikes) {
+          if (s.attackerCell !== null) focus.add(s.attackerCell);
+          focus.add(s.defenderCell);
+        }
+        for (const k of fx.kills) focus.add(k.cell);
         const visAfter = vision(); // deaths may have shrunk player vision
         frames.push({
           duration: VOLLEY_MS,
@@ -326,6 +357,7 @@ export function buildReplay(
           units: renderUnits(visAfter),
           fog: fogOf(visAfter),
           ...fx,
+          focus: [...focus],
         });
       }
       i = j;
@@ -340,6 +372,15 @@ export function buildReplay(
       const fx = emptyFx();
       const strikes: Strike[] = [];
       const shownVictims = new Set<string>();
+      // P9 pacing: same brawl continuing? Compress + accumulate totals.
+      const chainKey = `${ev.cell}:${ev.higherInitId}:${ev.lowerInitId}`;
+      const prevChain: BrawlChain | null = brawlChain;
+      const followup = prevChain !== null && prevChain.key === chainKey;
+      const chain: BrawlChain =
+        followup && prevChain !== null ? prevChain : { key: chainKey, cum: [0, 0] };
+      brawlChain = chain;
+      chain.cum[0] += ev.higherInitDamageDealt;
+      chain.cum[1] += ev.lowerInitDamageDealt;
       // A brawl cell always contains both factions, so one side is the
       // player's and the cell is inside their vision; checked anyway.
       const shown = !!hi && !!lo && (vis.has(ev.cell) || hi.faction === player || lo.faction === player);
@@ -352,7 +393,7 @@ export function buildReplay(
           fx.floaters.push({
             id: `f${slots.length}-0`,
             cell: ev.cell,
-            text: `−${ev.higherInitDamageDealt}`,
+            text: `−${chain.cum[0]}`, // running brawl total (P9)
             mist: false,
             slot: slots.length,
           });
@@ -364,7 +405,7 @@ export function buildReplay(
             fx.floaters.push({
               id: `f${slots.length}-1`,
               cell: ev.cell,
-              text: `−${ev.lowerInitDamageDealt}`,
+              text: `−${chain.cum[1]}`, // running brawl total (P9)
               mist: false,
               slot: slots.length,
             });
@@ -389,11 +430,12 @@ export function buildReplay(
         });
         const visAfter = vision();
         frames.push({
-          duration: VOLLEY_MS,
+          duration: followup ? BRAWL_FOLLOWUP_MS : VOLLEY_MS,
           slot,
           units: renderUnits(visAfter),
           fog: fogOf(visAfter),
           ...fx,
+          focus: [ev.cell],
         });
       }
       i = j;
@@ -414,6 +456,7 @@ export function buildReplay(
           fog: fogOf(vis),
           ...emptyFx(),
           floaters: [{ id: `f${slot}-0`, cell: att.cell, text: 'no target', mist: false, slot }],
+          focus: [att.cell],
         });
       }
       i++;

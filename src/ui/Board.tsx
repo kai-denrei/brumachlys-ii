@@ -23,6 +23,18 @@
 //   the SVG (they don't anchor to board geometry).
 // - `focus` prop: when its token changes, the view pans (keeping zoom) so the
 //   given cell sits at the viewBox center — dock-chip "select + center".
+//
+// P9 camera:
+// - Pan fix: pointer deltas arrive in CLIENT px but the transform group lives
+//   in viewBox units — all gesture math converts via the 'meet' mapping so
+//   pan is 1:1 with the finger at any element size (the P6 bug scaled pan
+//   speed by the viewBox/client ratio).
+// - `follow` prop (replay auto-follow): when its token changes, the view
+//   eases (~380 ms rAF, easeOutCubic) to keep the given cells framed —
+//   pans, zooms OUT to fit only when needed, and stays put when the action
+//   is already comfortably on screen (computeFollowView, exported for
+//   tests). Any user gesture cancels the in-flight ease and fires
+//   `onUserPan` so the replay layer can suspend following.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Board as BoardGraph, CellId, Vec2 } from '../board/types';
@@ -77,6 +89,11 @@ export type BoardProps = {
   onFloaterTap?: (slot: number) => void;
   /** Pan so this cell is centered whenever `token` changes. */
   focus?: { cell: CellId; token: number } | null;
+  /** P9 replay auto-follow: ease the view so these cells are framed whenever
+   * `token` changes (pan; zoom out to fit only if needed). */
+  follow?: { cells: readonly CellId[]; token: number } | null;
+  /** The user panned/pinched/wheeled — replay suspends auto-follow on this. */
+  onUserPan?: () => void;
   /** Stance popover on the selected unit (§9.2); rendered inside the SVG. */
   stancePopover?: StancePopoverState | null;
   onCellTap?: (cellId: CellId) => void;
@@ -95,10 +112,52 @@ const MAX_ZOOM = 4;
 const TAP_SLOP_PX = 8;
 const LONG_PRESS_MS = 500;
 
-type View = { k: number; tx: number; ty: number };
+export type View = { k: number; tx: number; ty: number };
 
 function clampZoom(k: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k));
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+
+/** P9 auto-follow camera math (pure — exported for tests). The view that
+ * frames `pts` (board screen-space points) with `margin` around them: keeps
+ * the current zoom when the framed box fits at it (zooms OUT only), pans so
+ * the box center sits at the viewBox center. Returns null when the expanded
+ * box is already fully inside the current viewport — the calm rule: never
+ * micro-pan while the action is comfortably on screen. */
+export function computeFollowView(
+  pts: readonly Pt[],
+  view: View,
+  bbox: Box,
+  margin: number,
+): View | null {
+  if (pts.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of pts) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  minX -= margin;
+  minY -= margin;
+  maxX += margin;
+  maxY += margin;
+  // Current viewport in board screen coords.
+  const vx0 = (bbox.x - view.tx) / view.k;
+  const vy0 = (bbox.y - view.ty) / view.k;
+  const vx1 = vx0 + bbox.width / view.k;
+  const vy1 = vy0 + bbox.height / view.k;
+  if (minX >= vx0 && maxX <= vx1 && minY >= vy0 && maxY <= vy1) return null;
+  const fitK = Math.min(bbox.width / (maxX - minX), bbox.height / (maxY - minY));
+  const k = fitK < view.k ? clampZoom(fitK) : view.k; // zoom out only if needed
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  return { k, tx: bbox.x + bbox.width / 2 - k * cx, ty: bbox.y + bbox.height / 2 - k * cy };
 }
 
 const STANCES: readonly Stance[] = ['aggressive', 'defensive', 'hold-fire'];
@@ -112,6 +171,8 @@ export function Board({
   ghosts,
   replayFx = null,
   focus = null,
+  follow = null,
+  onUserPan,
   stancePopover = null,
   onCellTap,
   onUnitTap,
@@ -187,9 +248,74 @@ export function Board({
 
   // --- pan / pinch-zoom ------------------------------------------------------
   const [view, setView] = useState<View>({ k: 1, tx: 0, ty: 0 });
+  const viewRef = useRef(view);
+  viewRef.current = view;
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gestureMoved = useRef(0); // cumulative px since gesture start
   const wasPinch = useRef(false);
+  const panNotified = useRef(false); // onUserPan fired once per gesture
+
+  /** px per viewBox unit under preserveAspectRatio="meet" (P9 pan fix). */
+  function pxPerUnit(svg: SVGSVGElement): number {
+    const r = svg.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return 1; // jsdom / zero-size: identity
+    return Math.min(r.width / bbox.width, r.height / bbox.height);
+  }
+
+  /** Client coords → viewBox coords ('meet' letterboxes and centers). */
+  function clientToViewBox(svg: SVGSVGElement, cx: number, cy: number): { x: number; y: number } {
+    const r = svg.getBoundingClientRect();
+    const s = pxPerUnit(svg);
+    const ox = r.left + (r.width - bbox.width * s) / 2;
+    const oy = r.top + (r.height - bbox.height * s) / 2;
+    return { x: bbox.x + (cx - ox) / s, y: bbox.y + (cy - oy) / s };
+  }
+
+  // --- eased camera (P9): focus + follow share one rAF animation -------------
+  const viewAnim = useRef<number | null>(null);
+
+  function cancelViewAnim() {
+    if (viewAnim.current !== null) {
+      cancelAnimationFrame(viewAnim.current);
+      viewAnim.current = null;
+    }
+  }
+
+  /** Ease the view to `target` (~380 ms easeOutCubic) — calm, not a teleport.
+   * Retargeting mid-flight restarts from the current view, so per-step move
+   * follows chain into one continuous glide. */
+  function animateViewTo(target: View, duration = 380) {
+    cancelViewAnim();
+    if (typeof requestAnimationFrame !== 'function' || duration <= 0) {
+      setView(target);
+      return;
+    }
+    const from = viewRef.current;
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / duration);
+      const e = 1 - (1 - t) ** 3;
+      setView({
+        k: from.k + (target.k - from.k) * e,
+        tx: from.tx + (target.tx - from.tx) * e,
+        ty: from.ty + (target.ty - from.ty) * e,
+      });
+      viewAnim.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    viewAnim.current = requestAnimationFrame(step);
+  }
+
+  useEffect(() => cancelViewAnim, []); // unmount: drop an in-flight ease
+
+  /** A live gesture turned into a pan/pinch: cancel any camera ease and tell
+   * the replay layer once (auto-follow suspension). */
+  function userTookCamera() {
+    cancelViewAnim();
+    if (!panNotified.current) {
+      panNotified.current = true;
+      onUserPan?.();
+    }
+  }
 
   // --- long-press (§9.5) -----------------------------------------------------
   // Shares the pointer tap-guard state: same 8 px slop cancels; firing
@@ -225,10 +351,12 @@ export function Board({
     // click to the svg, which silences every cell/unit onClick — found by
     // the P7 Playwright pass; jsdom never reproduced it.
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    cancelViewAnim(); // finger down: the camera stops moving on its own
     if (pointers.current.size === 1) {
       gestureMoved.current = 0;
       wasPinch.current = false;
       longPressFired.current = false;
+      panNotified.current = false;
       if (onCellLongPress) {
         const cellId = cellAtTarget(e.target);
         if (cellId !== null) {
@@ -254,6 +382,7 @@ export function Board({
     gestureMoved.current += Math.hypot(cur.x - prev.x, cur.y - prev.y);
     if (gestureMoved.current > TAP_SLOP_PX || pointers.current.size > 1) {
       cancelLongPress();
+      userTookCamera();
       // The gesture is a pan/pinch, not a tap: NOW capture, so it keeps
       // tracking outside the svg. The tap guard is already tripped.
       if (!e.currentTarget.hasPointerCapture?.(e.pointerId)) {
@@ -262,8 +391,10 @@ export function Board({
     }
 
     if (pointers.current.size === 1) {
-      const dx = cur.x - prev.x;
-      const dy = cur.y - prev.y;
+      // P9 pan fix: client px → viewBox units, so pan is 1:1 at any zoom.
+      const s = pxPerUnit(e.currentTarget);
+      const dx = (cur.x - prev.x) / s;
+      const dy = (cur.y - prev.y) / s;
       setView((v) => ({ ...v, tx: v.tx + dx, ty: v.ty + dy }));
     } else if (pointers.current.size === 2) {
       const [idA, idB] = [...pointers.current.keys()] as [number, number];
@@ -272,7 +403,7 @@ export function Board({
       const dPrev = Math.hypot(prev.x - other.x, prev.y - other.y);
       const dCur = Math.hypot(cur.x - other.x, cur.y - other.y);
       if (dPrev > 1) {
-        const mid = { x: (cur.x + other.x) / 2, y: (cur.y + other.y) / 2 };
+        const mid = clientToViewBox(e.currentTarget, (cur.x + other.x) / 2, (cur.y + other.y) / 2);
         setView((v) => {
           const k2 = clampZoom(v.k * (dCur / dPrev));
           const f = k2 / v.k;
@@ -292,18 +423,18 @@ export function Board({
 
   function onWheel(e: React.WheelEvent<SVGSVGElement>) {
     if (!interactive) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    cancelViewAnim();
+    onUserPan?.(); // wheel zoom = the user took the camera (desktop replay)
+    const m = clientToViewBox(e.currentTarget, e.clientX, e.clientY);
     setView((v) => {
       const k2 = clampZoom(v.k * Math.exp(-e.deltaY * 0.0015));
       const f = k2 / v.k;
-      return { k: k2, tx: mx - (mx - v.tx) * f, ty: my - (my - v.ty) * f };
+      return { k: k2, tx: m.x - (m.x - v.tx) * f, ty: m.y - (m.y - v.ty) * f };
     });
   }
 
   // Dock-chip "select + center": pan (keep zoom) so focus.cell sits at the
-  // viewBox center. Runs only when the token changes.
+  // viewBox center. Runs only when the token changes. Eased since P9.
   const focusToken = focus?.token;
   useEffect(() => {
     if (!focus) return;
@@ -312,9 +443,25 @@ export function Board({
     const [px, py] = toScreen(cell.center);
     const cx = bbox.x + bbox.width / 2;
     const cy = bbox.y + bbox.height / 2;
-    setView((v) => ({ ...v, tx: cx - v.k * px, ty: cy - v.k * py }));
+    const v = viewRef.current;
+    animateViewTo({ k: v.k, tx: cx - v.k * px, ty: cy - v.k * py });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusToken]);
+
+  // P9 replay auto-follow: ease so the frame's focus cells stay framed.
+  // Retargets per token (per replay frame) — movers are chased step by step.
+  const followToken = follow?.token;
+  useEffect(() => {
+    if (!follow || follow.cells.length === 0) return;
+    const pts: Pt[] = [];
+    for (const id of follow.cells) {
+      const cell = board.cells.get(id);
+      if (cell) pts.push(toScreen(cell.center));
+    }
+    const target = computeFollowView(pts, viewRef.current, bbox, tokenSize * 2.2);
+    if (target) animateViewTo(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followToken]);
 
   /** A click counts as a tap only if the gesture didn't pan/pinch/long-press. */
   function tapGuard<T>(handler: ((arg: T) => void) | undefined): ((arg: T) => void) | undefined {
