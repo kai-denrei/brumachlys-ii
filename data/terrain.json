@@ -1,0 +1,8 @@
+{
+  "plains":    { "key": "plains",    "description": "Open ground.",                              "passable": ["personnel", "armored", "naval", "air"] },
+  "woods":     { "key": "woods",     "description": "Forest. Cover for personnel.",              "passable": ["personnel", "armored", "air"] },
+  "mountains": { "key": "mountains", "description": "High ground. Impassable to vehicles.",      "passable": ["personnel", "air"] },
+  "swamp":     { "key": "swamp",     "description": "Slow going for everyone.",                  "passable": ["personnel", "armored", "air"] },
+  "water":     { "key": "water",     "description": "Impassable to the land roster. Lakes render, shape the silhouette.", "passable": ["naval", "air"] },
+  "base":      { "key": "base",      "description": "Flavor structure. Anchors force placement, gives defense.",          "passable": ["personnel", "armored", "naval", "air"] }
+}

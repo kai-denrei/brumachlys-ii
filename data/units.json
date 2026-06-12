@@ -1,0 +1,178 @@
+{
+  "sniper": {
+    "key": "sniper",
+    "name": "Sniper",
+    "description": "Ranged personnel. Fires from distance 1-2; the premier ranged-class gang-up enabler.",
+    "cost": 0,
+    "movement": 6,
+    "initiative": 13,
+    "armor": 4,
+    "armorType": "personnel",
+    "minRange": 1,
+    "maxRange": 2,
+    "vision": 4,
+    "attackStrengths": { "personnel": 9, "armored": 2, "naval": 0, "air": 0 },
+    "terrainEffects": {
+      "plains":    { "movementCost": 3,  "attackBonus": 0, "armorBonus": 0 },
+      "woods":     { "movementCost": 4,  "attackBonus": 0, "armorBonus": 2 },
+      "mountains": { "movementCost": 6,  "attackBonus": 2, "armorBonus": 2 },
+      "swamp":     { "movementCost": 6,  "attackBonus": 0, "armorBonus": -1 },
+      "water":     { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "base":      { "movementCost": 2,  "attackBonus": 0, "armorBonus": 2 }
+    }
+  },
+  "humvee": {
+    "key": "humvee",
+    "name": "Humvee",
+    "description": "Fast light vehicle. Scout and harasser; fragile in a stand-up fight.",
+    "cost": 0,
+    "movement": 15,
+    "initiative": 12,
+    "armor": 4,
+    "armorType": "armored",
+    "minRange": 1,
+    "maxRange": 1,
+    "vision": 3,
+    "attackStrengths": { "personnel": 6, "armored": 3, "naval": 0, "air": 0 },
+    "terrainEffects": {
+      "plains":    { "movementCost": 3,  "attackBonus": 0, "armorBonus": 0 },
+      "woods":     { "movementCost": 6,  "attackBonus": 0, "armorBonus": 0 },
+      "mountains": { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "swamp":     { "movementCost": 9,  "attackBonus": 0, "armorBonus": -2 },
+      "water":     { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "base":      { "movementCost": 2,  "attackBonus": 0, "armorBonus": 1 }
+    }
+  },
+  "ranger": {
+    "key": "ranger",
+    "name": "Ranger",
+    "description": "Elite mobile personnel. Quick, hits personnel hard.",
+    "cost": 0,
+    "movement": 12,
+    "initiative": 11,
+    "armor": 5,
+    "armorType": "personnel",
+    "minRange": 1,
+    "maxRange": 1,
+    "vision": 3,
+    "attackStrengths": { "personnel": 7, "armored": 4, "naval": 0, "air": 0 },
+    "terrainEffects": {
+      "plains":    { "movementCost": 3,  "attackBonus": 0, "armorBonus": 0 },
+      "woods":     { "movementCost": 4,  "attackBonus": 0, "armorBonus": 2 },
+      "mountains": { "movementCost": 6,  "attackBonus": 2, "armorBonus": 2 },
+      "swamp":     { "movementCost": 6,  "attackBonus": 0, "armorBonus": -1 },
+      "water":     { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "base":      { "movementCost": 2,  "attackBonus": 0, "armorBonus": 2 }
+    }
+  },
+  "infantry": {
+    "key": "infantry",
+    "name": "Infantry",
+    "description": "Line trooper. Tough personnel backbone.",
+    "cost": 0,
+    "movement": 9,
+    "initiative": 8,
+    "armor": 6,
+    "armorType": "personnel",
+    "minRange": 1,
+    "maxRange": 1,
+    "vision": 2,
+    "attackStrengths": { "personnel": 6, "armored": 3, "naval": 0, "air": 0 },
+    "terrainEffects": {
+      "plains":    { "movementCost": 3,  "attackBonus": 0, "armorBonus": 0 },
+      "woods":     { "movementCost": 4,  "attackBonus": 0, "armorBonus": 2 },
+      "mountains": { "movementCost": 6,  "attackBonus": 2, "armorBonus": 2 },
+      "swamp":     { "movementCost": 6,  "attackBonus": 0, "armorBonus": -1 },
+      "water":     { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "base":      { "movementCost": 2,  "attackBonus": 0, "armorBonus": 2 }
+    }
+  },
+  "grenadier": {
+    "key": "grenadier",
+    "name": "Grenadier",
+    "description": "Anti-armor personnel. Slow, heavily protected, shreds vehicles.",
+    "cost": 0,
+    "movement": 6,
+    "initiative": 7,
+    "armor": 7,
+    "armorType": "personnel",
+    "minRange": 1,
+    "maxRange": 1,
+    "vision": 2,
+    "attackStrengths": { "personnel": 4, "armored": 7, "naval": 0, "air": 0 },
+    "terrainEffects": {
+      "plains":    { "movementCost": 3,  "attackBonus": 0, "armorBonus": 0 },
+      "woods":     { "movementCost": 4,  "attackBonus": 0, "armorBonus": 2 },
+      "mountains": { "movementCost": 6,  "attackBonus": 2, "armorBonus": 2 },
+      "swamp":     { "movementCost": 6,  "attackBonus": 0, "armorBonus": -1 },
+      "water":     { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "base":      { "movementCost": 2,  "attackBonus": 0, "armorBonus": 2 }
+    }
+  },
+  "tank": {
+    "key": "tank",
+    "name": "Tank",
+    "description": "Light tank. Fast armored chassis, strong all-rounder.",
+    "cost": 0,
+    "movement": 12,
+    "initiative": 6,
+    "armor": 5,
+    "armorType": "armored",
+    "minRange": 1,
+    "maxRange": 1,
+    "vision": 2,
+    "attackStrengths": { "personnel": 5, "armored": 6, "naval": 0, "air": 0 },
+    "terrainEffects": {
+      "plains":    { "movementCost": 3,  "attackBonus": 0, "armorBonus": 0 },
+      "woods":     { "movementCost": 6,  "attackBonus": 0, "armorBonus": 0 },
+      "mountains": { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "swamp":     { "movementCost": 9,  "attackBonus": 0, "armorBonus": -2 },
+      "water":     { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "base":      { "movementCost": 2,  "attackBonus": 0, "armorBonus": 1 }
+    }
+  },
+  "artillery": {
+    "key": "artillery",
+    "name": "Artillery",
+    "description": "Glass cannon. Fires at range 2-4; cannot counter or be countered by adjacent units.",
+    "cost": 0,
+    "movement": 6,
+    "initiative": 4,
+    "armor": 3,
+    "armorType": "armored",
+    "minRange": 2,
+    "maxRange": 4,
+    "vision": 1,
+    "attackStrengths": { "personnel": 8, "armored": 6, "naval": 0, "air": 0 },
+    "terrainEffects": {
+      "plains":    { "movementCost": 3,  "attackBonus": 0, "armorBonus": 0 },
+      "woods":     { "movementCost": 6,  "attackBonus": 0, "armorBonus": 0 },
+      "mountains": { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "swamp":     { "movementCost": 9,  "attackBonus": 0, "armorBonus": -2 },
+      "water":     { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "base":      { "movementCost": 2,  "attackBonus": 0, "armorBonus": 1 }
+    }
+  },
+  "heavytank": {
+    "key": "heavytank",
+    "name": "Heavy Tank",
+    "description": "Breakthrough armor. Slow, nearly blind, devastating.",
+    "cost": 0,
+    "movement": 9,
+    "initiative": 3,
+    "armor": 8,
+    "armorType": "armored",
+    "minRange": 1,
+    "maxRange": 1,
+    "vision": 1,
+    "attackStrengths": { "personnel": 7, "armored": 8, "naval": 0, "air": 0 },
+    "terrainEffects": {
+      "plains":    { "movementCost": 3,  "attackBonus": 0, "armorBonus": 0 },
+      "woods":     { "movementCost": 6,  "attackBonus": 0, "armorBonus": 0 },
+      "mountains": { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "swamp":     { "movementCost": 9,  "attackBonus": 0, "armorBonus": -2 },
+      "water":     { "movementCost": 99, "attackBonus": 0, "armorBonus": 0 },
+      "base":      { "movementCost": 2,  "attackBonus": 0, "armorBonus": 1 }
+    }
+  }
+}
