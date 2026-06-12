@@ -177,55 +177,109 @@ export function InfoSheet({
         </tbody>
       </table>
 
-      {occupant && occupantType && (
-        <div className="unit-card">
-          <div className="unit-card-head">
-            <svg viewBox="-20 -20 40 40" className="unit-card-token">
-              <UnitRenderer unit={occupant} x={0} y={0} size={30} />
-            </svg>
-            <div>
-              <div className="unit-card-name">{occupantType.name}</div>
-              <div className="unit-card-sub">
-                count {occupant.count} · {STANCE_LABEL[occupant.stance]}
-              </div>
-            </div>
-          </div>
-          <dl className="unit-card-stats">
-            <div>
-              <dt>initiative</dt>
-              <dd>{occupantType.initiative}</dd>
-            </div>
-            <div>
-              <dt>movement</dt>
-              <dd>{occupantType.movement}</dd>
-            </div>
-            <div>
-              <dt>armor</dt>
-              <dd>
-                {occupantType.armor} ({occupantType.armorType})
-              </dd>
-            </div>
-            <div>
-              <dt>range</dt>
-              <dd>
-                {occupantType.minRange === occupantType.maxRange
-                  ? occupantType.maxRange
-                  : `${occupantType.minRange}–${occupantType.maxRange}`}
-              </dd>
-            </div>
-            <div>
-              <dt>vision</dt>
-              <dd>{occupantType.vision}</dd>
-            </div>
-            <div>
-              <dt>atk vs pers / arm</dt>
-              <dd>
-                {occupantType.attackStrengths.personnel} / {occupantType.attackStrengths.armored}
-              </dd>
-            </div>
-          </dl>
-        </div>
-      )}
+      {occupant && occupantType && <UnitCard unit={occupant} unitType={occupantType} />}
     </SheetShell>
+  );
+}
+
+/** The unit-stats card — shared data shaping for the §9.5 info sheet and the
+ * v1.1 hover card: name, count, stance, init, armor (+type), range, vision,
+ * attack vs personnel/armored. (`movement` shown only in the full sheet.) */
+export function UnitCard({
+  unit,
+  unitType,
+  compact = false,
+}: {
+  unit: UnitInstance;
+  unitType: UnitType;
+  /** Hover-card mode: tighter — drops the movement row. */
+  compact?: boolean;
+}) {
+  return (
+    <div className={`unit-card${compact ? ' unit-card-compact' : ''}`}>
+      <div className="unit-card-head">
+        <svg viewBox="-20 -20 40 40" className="unit-card-token">
+          <UnitRenderer unit={unit} x={0} y={0} size={30} />
+        </svg>
+        <div>
+          <div className="unit-card-name">{unitType.name}</div>
+          <div className="unit-card-sub">
+            count {unit.count} · {STANCE_LABEL[unit.stance]}
+          </div>
+        </div>
+      </div>
+      <dl className="unit-card-stats">
+        <div>
+          <dt>initiative</dt>
+          <dd>{unitType.initiative}</dd>
+        </div>
+        {!compact && (
+          <div>
+            <dt>movement</dt>
+            <dd>{unitType.movement}</dd>
+          </div>
+        )}
+        <div>
+          <dt>armor</dt>
+          <dd>
+            {unitType.armor} ({unitType.armorType})
+          </dd>
+        </div>
+        <div>
+          <dt>range</dt>
+          <dd>
+            {unitType.minRange === unitType.maxRange
+              ? unitType.maxRange
+              : `${unitType.minRange}–${unitType.maxRange}`}
+          </dd>
+        </div>
+        <div>
+          <dt>vision</dt>
+          <dd>{unitType.vision}</dd>
+        </div>
+        <div>
+          <dt>atk vs pers / arm</dt>
+          <dd>
+            {unitType.attackStrengths.personnel} / {unitType.attackStrengths.armored}
+          </dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+/** v1.1 Feature A — compact hover card near a unit token (mouse only; the
+ * Board owns detection/dismissal, this is pure presentation). Position is
+ * fixed at hover time — any pan/zoom dismisses the card, so it never drifts. */
+export function UnitHoverCard({
+  unit,
+  unitType,
+  clientX,
+  clientY,
+}: {
+  unit: UnitInstance;
+  unitType: UnitType;
+  clientX: number;
+  clientY: number;
+}) {
+  // Clamp into the viewport; float above the token, below when near the top.
+  const w = 240;
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
+  const left = Math.max(8 + w / 2, Math.min(clientX, vw - w / 2 - 8));
+  const below = clientY < 230;
+  return (
+    <div
+      className="hover-card"
+      data-testid="unit-hover-card"
+      style={{
+        left,
+        top: clientY,
+        width: w,
+        transform: below ? 'translate(-50%, 22px)' : 'translate(-50%, calc(-100% - 22px))',
+      }}
+      role="tooltip"
+    >
+      <UnitCard unit={unit} unitType={unitType} compact />
+    </div>
   );
 }

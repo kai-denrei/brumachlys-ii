@@ -174,6 +174,45 @@ describe('validateOrder — move', () => {
   });
 });
 
+// --- validateOrder: vacancy moves (v1.1 Feature B, planning side) ----------------
+
+describe('validateOrder — move onto a vacating friendly cell (v1.1)', () => {
+  const b = lineBoard(4);
+  const a = unit('a', 0, 0);
+  const friend = unit('f', 0, 1);
+
+  it('allows ending on a friendly cell when the occupant has a queued move elsewhere', () => {
+    const allQueued: OrderQueues = {
+      f: { move: { kind: 'move', unitId: 'f', path: [2] } },
+    };
+    expect(validateOrder(ctx(b, [a, friend], { allQueued }), move('a', [1])).ok).toBe(true);
+  });
+
+  it('still rejects when the occupant has NO queued move', () => {
+    expect(reasonOf(validateOrder(ctx(b, [a, friend], { allQueued: {} }), move('a', [1])))).toBe(
+      'ends-on-friendly',
+    );
+  });
+
+  it("still rejects when the occupant's queued move loops back to its own cell", () => {
+    const allQueued: OrderQueues = {
+      f: { move: { kind: 'move', unitId: 'f', path: [2, 1] } }, // ends where it started
+    };
+    expect(reasonOf(validateOrder(ctx(b, [a, friend], { allQueued }), move('a', [1])))).toBe(
+      'ends-on-friendly',
+    );
+  });
+
+  it('omitting allQueued keeps strict §2.5 behavior', () => {
+    expect(reasonOf(validateOrder(ctx(b, [a, friend]), move('a', [1])))).toBe('ends-on-friendly');
+  });
+
+  it('mid-path friendlies remain pass-through regardless of their queues', () => {
+    const allQueued: OrderQueues = {};
+    expect(validateOrder(ctx(b, [a, friend], { allQueued }), move('a', [1, 2])).ok).toBe(true);
+  });
+});
+
 // --- validateOrder: attack (§2.3/§2.4 + planned end position) --------------------
 
 describe('validateOrder — attack', () => {

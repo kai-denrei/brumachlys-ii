@@ -118,10 +118,27 @@ export type RoundSummary = {
   fizzles: number;
 };
 
+// --- v1.1 skirmish log (Feature D) ----------------------------------------------
+// Human-readable battle-log lines derived HERE, inside the same fog-filtered
+// simulation that builds the frames — never from the raw event log. A line is
+// only emitted for events the frames actually show, so unseen moves/kills
+// never appear and fromMist strikes carry no attacker name/cell.
+
+/** One colored fragment of a log line. `f`: faction tint, or 'mist'. */
+export type LogSeg = { t: string; f?: FactionId | 'mist' };
+
+export type ReplayLogEntry = {
+  /** Append this line when playback reaches this frame index. */
+  atFrame: number;
+  segs: LogSeg[];
+};
+
 export type ReplayScript = {
   slots: TimelineSlot[];
   frames: ReplayFrame[];
   summary: RoundSummary;
+  /** v1.1 skirmish-log lines, fog-filtered, in playback order. */
+  log: ReplayLogEntry[];
 };
 
 const MOVE_STEP_MS = 250;
@@ -160,6 +177,23 @@ export function buildReplay(
   const slots: TimelineSlot[] = [];
   const frames: ReplayFrame[] = [];
   const summary: RoundSummary = { kills: [], damageDealt: [0, 0], fizzles: 0 };
+  const log: ReplayLogEntry[] = [];
+
+  const nameOf = (type: string | null): string =>
+    type === null ? '?' : (unitTypes[type]?.name ?? type);
+  const lastFrame = (): number => Math.max(0, frames.length - 1);
+  const logKills = (shown: readonly UnitInstance[], atFrame: number): void => {
+    for (const k of shown) {
+      log.push({
+        atFrame,
+        segs: [
+          { t: k.faction === player ? 'your ' : 'enemy ' },
+          { t: nameOf(k.type), f: k.faction },
+          { t: ' destroyed' },
+        ],
+      });
+    }
+  };
 
   const emptyFx = () => ({
     arcs: [] as ReplayFrame['arcs'],
@@ -243,6 +277,14 @@ export function buildReplay(
       }
       const slot = slots.length;
       slots.push({ kind: 'move', actorType: u.type, actorFaction: u.faction, strikes: [] });
+      // Skirmish log: AI movement the player can see. Own moves stay silent
+      // (the player gave the order) unless truncated — see path-truncated.
+      if (u.faction !== player) {
+        log.push({
+          atFrame: frames.length,
+          segs: [{ t: 'enemy ' }, { t: nameOf(u.type), f: u.faction }, { t: ' on the move' }],
+        });
+      }
       for (const step of ev.pathTaken) {
         u.cell = step; // player movers drag their vision along with them
         const vis = vision();
@@ -260,7 +302,24 @@ export function buildReplay(
     }
 
     if (ev.type === 'path-truncated') {
-      i++; // bookkeeping event — the move frames already show the real path
+      // The move frames already show the real path. Skirmish log: the player
+      // is told why THEIR OWN move stopped short; AI plans stay secret (a
+      // truncation reason would leak what the AI intended).
+      const u = sim.get(ev.unitId);
+      if (u && u.faction === player) {
+        const why: Record<string, string> = {
+          'enemy-contact': ' runs into the enemy',
+          'friendly-occupied': ' stops short — tile occupied',
+          'vacancy-failed': ' falls back — tile never cleared',
+          budget: ' halts — out of reach',
+          'invalid-step': ' halts — order failed',
+        };
+        log.push({
+          atFrame: lastFrame(),
+          segs: [{ t: nameOf(u.type), f: u.faction }, { t: why[ev.reason] ?? ' halts' }],
+        });
+      }
+      i++;
       continue;
     }
 
@@ -273,6 +332,7 @@ export function buildReplay(
       const att = sim.get(ev.attackerId);
       const def = sim.get(ev.defenderId);
       let j = i + 1;
+      let strikeLine: LogSeg[] | null = null;
 
       if (att && def) {
         const attackerSeen = seen(att.faction, ev.attackerCell, vis);
@@ -296,6 +356,20 @@ export function buildReplay(
             slot: slots.length,
           });
           summary.damageDealt[att.faction] += ev.damage;
+          // Skirmish log line: attacker withheld when the strike is from the
+          // mist — the defender (the player's own unit) is named, nothing else.
+          strikeLine = mist
+            ? [
+                { t: nameOf(def.type), f: def.faction },
+                { t: ` −${ev.damage} ` },
+                { t: 'from the mist', f: 'mist' },
+              ]
+            : [
+                { t: nameOf(att.type), f: att.faction },
+                { t: ' → ' },
+                { t: nameOf(def.type), f: def.faction },
+                { t: ` −${ev.damage}` },
+              ];
         }
         def.count = ev.defenderCountAfter;
 
@@ -322,6 +396,7 @@ export function buildReplay(
                 slot: slots.length,
               });
               summary.damageDealt[cAtt.faction] += ce.damage;
+              if (strikeLine) strikeLine.push({ t: ` / counter −${ce.damage}` });
             }
             cDef.count = ce.defenderCountAfter;
           }
@@ -359,6 +434,8 @@ export function buildReplay(
           ...fx,
           focus: [...focus],
         });
+        if (strikeLine) log.push({ atFrame: frames.length - 1, segs: strikeLine });
+        logKills(fx.kills, frames.length - 1);
       }
       i = j;
       continue;
@@ -437,6 +514,18 @@ export function buildReplay(
           ...fx,
           focus: [ev.cell],
         });
+        if (hi && lo) {
+          const segs: LogSeg[] = [
+            { t: 'brawl: ' },
+            { t: nameOf(hi.type), f: hi.faction },
+            { t: ' → ' },
+            { t: nameOf(lo.type), f: lo.faction },
+            { t: ` −${ev.higherInitDamageDealt}` },
+          ];
+          if (ev.lowerInitBreakdown) segs.push({ t: ` / counter −${ev.lowerInitDamageDealt}` });
+          log.push({ atFrame: frames.length - 1, segs });
+        }
+        logKills(fx.kills, frames.length - 1);
       }
       i = j;
       continue;
@@ -458,6 +547,10 @@ export function buildReplay(
           floaters: [{ id: `f${slot}-0`, cell: att.cell, text: 'no target', mist: false, slot }],
           focus: [att.cell],
         });
+        log.push({
+          atFrame: frames.length - 1,
+          segs: [{ t: nameOf(att.type), f: att.faction }, { t: ' holds fire — target lost' }],
+        });
       }
       i++;
       continue;
@@ -475,7 +568,7 @@ export function buildReplay(
     i++;
   }
 
-  return { slots, frames, summary };
+  return { slots, frames, summary, log };
 }
 
 function makeStrike(

@@ -72,7 +72,23 @@ export type OrderContext = {
    * one being replaced); other kinds interact: a queued move shifts the
    * attack-range origin, a queued hold-fire blocks attacks and vice versa. */
   queued?: UnitOrders;
+  /** v1.1 vacancy moves: ALL queued orders of the ordering faction, by unit
+   * id. A move may END on a friendly-occupied cell iff that friendly has a
+   * queued move whose destination is a DIFFERENT cell (a vacancy promise —
+   * the resolver bounces the mover back if the promise breaks). Omitting
+   * this disables the allowance (strict §2.5 behaviour). */
+  allQueued?: OrderQueues;
 };
+
+/** The vacancy-promise gate (v1.1): may `mover` plan to END on `occ`'s cell?
+ * True iff the occupant has a queued move whose destination differs from the
+ * cell it currently occupies. Exported so the store can re-validate
+ * dependents when the occupant's move is edited or removed. */
+export function occupantVacates(occ: UnitInstance, allQueued: OrderQueues | undefined): boolean {
+  const path = allQueued?.[occ.id]?.move?.path;
+  if (!path || path.length === 0) return false;
+  return path[path.length - 1] !== occ.cell;
+}
 
 /**
  * The cell a unit will occupy when Phase B fires, as far as planning can
@@ -144,8 +160,9 @@ function validateMove(
     const occ = occupant(units, step, unit.id);
     const isLast = i === path.length - 1;
     if (occ && occ.faction === unit.faction) {
-      // Friendly: pass-through fine, ending on it is not (§2.5).
-      if (isLast) return reject('ends-on-friendly');
+      // Friendly: pass-through fine, ending on it is not (§2.5) — UNLESS the
+      // occupant has a queued move elsewhere (v1.1 vacancy promise).
+      if (isLast && !occupantVacates(occ, ctx.allQueued)) return reject('ends-on-friendly');
     } else if (occ && visible.has(step) && !isLast) {
       // Visible enemy mid-path: the player KNOWS the move would stop short —
       // don't let them queue it. A visible enemy at the DESTINATION is a

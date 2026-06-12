@@ -9,13 +9,30 @@
 //      (orders may have been planned against stale fog): adjacency, terrain
 //      passability, budget, and the §2.5 conflict rules —
 //        • friendly mid-path: pass through; may not END on a friendly cell
-//          (back up one cell at a time; if none, stay put)
+//          (back up one cell at a time; if none, stay put) — UNLESS every
+//          friendly on the planned final cell still has a pending move
+//          elsewhere (v1.1 VACANCY PROMISE: the mover completes in, trusting
+//          the occupant to leave; settled at the end of Phase A)
 //        • enemy mid-path: surprise contact — stop one cell short
 //        • enemy at the planned destination at EXECUTION time: the move
 //          completes into the enemy's cell — a charge (even if the enemy was
 //          fog-hidden at planning time or arrived earlier this Phase A)
 //        • two units, same empty destination: the earlier (higher-init) mover
 //          claims it; the later one stops back (friendly) or charges (enemy)
+//   A-end. VACANCY SETTLEMENT (v1.1): invariant — max one same-faction unit
+//      per cell. If a promise broke (the occupant's move failed and it
+//      stayed), the INCOMING unit bounces back along its own resolved path to
+//      the first cell free of any living unit (last resort: its origin, even
+//      if occupied — which cascades). Conflicted cells are processed in
+//      ascending order, bouncers in init order; iterate until stable. Bounded:
+//      every bounce strictly shortens the bouncer's resolved path. Each
+//      bounce emits a `move` event (the walk back animates in the replay)
+//      plus `path-truncated` with reason 'vacancy-failed'.
+//      Decisions (deban): truncated moves never gamble on a promise — only a
+//      walk that COMPLETES to its planned cell can enter on one; the keeper
+//      of a conflicted cell is, in order, the unit standing on its own
+//      round-start cell, then a normal mover, then a promised entrant
+//      (ties: init order).
 //   A.5 Brawls (§2.6): every cell holding both factions repeats
 //      battleExchange(higherInit, lowerInit) until one side is at 0. B = 0,
 //      shared-cell terrain bonuses for both, stances ignored by OMITTING
@@ -132,6 +149,8 @@ export function resolveRound(
     alive().find((u) => u.cell === cell && u.faction !== faction);
   const friendlyAt = (cell: CellId, faction: FactionId, exceptId: string): UnitInstance | undefined =>
     alive().find((u) => u.cell === cell && u.faction === faction && u.id !== exceptId);
+  const friendliesAt = (cell: CellId, faction: FactionId, exceptId: string): UnitInstance[] =>
+    alive().filter((u) => u.cell === cell && u.faction === faction && u.id !== exceptId);
   const killUnit = (u: UnitInstance): void => {
     events.push({ type: 'kill', unitId: u.id, cell: u.cell, faction: u.faction });
     delete next.units[u.id];
@@ -146,6 +165,16 @@ export function resolveRound(
   }
 
   // ── A. Movement (§2.5) ────────────────────────────────────────────────────
+  /** Per-mover resolved-path record — the vacancy settlement's bounce data. */
+  type MoveRecord = {
+    origin: CellId;
+    pathTaken: CellId[]; // resolved forward path (trimmed when bounced)
+    planned: CellId;
+    promised: boolean; // entered its final cell on a vacancy promise
+  };
+  const moveRecords = new Map<string, MoveRecord>();
+  const executedMoves = new Set<string>();
+
   const movers = [...moveOf.keys()].map((id) => next.units[id]!).sort(cmpUnits);
   for (const u of movers) {
     const order = moveOf.get(u.id)!;
@@ -188,20 +217,42 @@ export function resolveRound(
       // the brawl resolves in Phase A.5.
     }
 
+    // v1.1 vacancy promise: a walk that COMPLETED to its planned final cell
+    // may stay on a friendly-occupied cell iff every friendly there has a
+    // still-pending move whose destination is a different cell. Truncated
+    // walks never gamble on a promise (deban decision).
+    const reachedPlanned = reason === null && pathTaken.length === order.path.length;
+    let promised = false;
+    if (reachedPlanned && pathTaken.length > 0) {
+      const occupants = friendliesAt(cur, u.faction, u.id);
+      promised =
+        occupants.length > 0 &&
+        occupants.every((f) => {
+          if (executedMoves.has(f.id)) return false; // its move already ran (or failed)
+          const m = moveOf.get(f.id);
+          if (!m || m.path.length === 0) return false;
+          return m.path[m.path.length - 1] !== f.cell; // pending move ELSEWHERE
+        });
+    }
+
     // May not END on a friendly-occupied cell: back up (if none, stay put).
     // Cells walked through earlier this slot can only be empty or friendly
     // (a mid-path enemy would have stopped the walk), so backing up is safe.
-    while (pathTaken.length > 0 && friendlyAt(pathTaken[pathTaken.length - 1]!, u.faction, u.id)) {
-      pathTaken.pop();
-      reason = 'friendly-occupied';
-      cur = pathTaken.length > 0 ? pathTaken[pathTaken.length - 1]! : u.cell;
+    if (!promised) {
+      while (pathTaken.length > 0 && friendlyAt(pathTaken[pathTaken.length - 1]!, u.faction, u.id)) {
+        pathTaken.pop();
+        reason = 'friendly-occupied';
+        cur = pathTaken.length > 0 ? pathTaken[pathTaken.length - 1]! : u.cell;
+      }
     }
 
+    const planned = order.path[order.path.length - 1]!;
+    moveRecords.set(u.id, { origin: u.cell, pathTaken: [...pathTaken], planned, promised });
+    executedMoves.add(u.id);
     if (cur !== u.cell) {
       events.push({ type: 'move', unitId: u.id, from: u.cell, to: cur, pathTaken: [...pathTaken] });
       u.cell = cur;
     }
-    const planned = order.path[order.path.length - 1]!;
     if (planned !== cur) {
       events.push({
         type: 'path-truncated',
@@ -210,6 +261,82 @@ export function resolveRound(
         actual: cur,
         reason: reason ?? 'invalid-step',
       });
+    }
+  }
+
+  // ── A-end. Vacancy settlement (v1.1) ──────────────────────────────────────
+  // Invariant: max one same-faction unit per cell. Broken promises bounce the
+  // INCOMING unit back along its own resolved path to the first cell free of
+  // any living unit (last resort: its origin, even if occupied — cascades).
+  // Bounded: every bounce strictly shortens the bouncer's resolved path.
+  {
+    let bounceBudget = 0;
+    for (const rec of moveRecords.values()) bounceBudget += rec.pathTaken.length;
+
+    /** Claim strength on a conflicted cell (lower keeps): standing on its own
+     *  round-start cell beats a normal mover beats a promised entrant. */
+    const claim = (u: UnitInstance): number => {
+      const rec = moveRecords.get(u.id);
+      if (!rec || u.cell === rec.origin) return 0;
+      return rec.promised ? 2 : 1;
+    };
+
+    const bounce = (u: UnitInstance): void => {
+      const rec = moveRecords.get(u.id);
+      if (!rec || rec.pathTaken.length === 0) return; // defensive — claim 0 never bounces
+      const from = u.cell;
+      const cells = rec.pathTaken;
+      const back: CellId[] = [];
+      let landing = rec.origin;
+      let landingIdx = -1;
+      for (let i = cells.length - 2; i >= -1; i--) {
+        const cell = i >= 0 ? cells[i]! : rec.origin;
+        back.push(cell);
+        const occupied = alive().some((o) => o.id !== u.id && o.cell === cell);
+        if (!occupied) {
+          landing = cell;
+          landingIdx = i;
+          break;
+        }
+        // i === -1: origin fallback even if occupied (cascade resolves it).
+      }
+      rec.pathTaken = landingIdx >= 0 ? cells.slice(0, landingIdx + 1) : [];
+      u.cell = landing;
+      events.push({ type: 'move', unitId: u.id, from, to: landing, pathTaken: back });
+      events.push({
+        type: 'path-truncated',
+        unitId: u.id,
+        planned: rec.planned,
+        actual: landing,
+        reason: 'vacancy-failed',
+      });
+    };
+
+    for (let iter = 0; iter <= bounceBudget; iter++) {
+      const groups = new Map<string, UnitInstance[]>();
+      for (const u of alive()) {
+        const key = `${u.cell}:${u.faction}`;
+        const g = groups.get(key);
+        if (g) g.push(u);
+        else groups.set(key, [u]);
+      }
+      const conflicted = [...groups.entries()]
+        .filter(([, g]) => g.length > 1)
+        .sort(([a], [b]) => {
+          const [ca, fa] = a.split(':').map(Number) as [number, number];
+          const [cb, fb] = b.split(':').map(Number) as [number, number];
+          return ca - cb || fa - fb;
+        });
+      if (conflicted.length === 0) break;
+      let bouncedAny = false;
+      for (const [, group] of conflicted) {
+        const sorted = [...group].sort((a, b) => claim(a) - claim(b) || cmpUnits(a, b));
+        for (const u of sorted.slice(1)) {
+          bounce(u);
+          bouncedAny = true;
+        }
+      }
+      if (!bouncedAny) break; // defensive — distinct origins make claim-0 ties impossible
     }
   }
 

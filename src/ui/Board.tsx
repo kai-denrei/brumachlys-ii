@@ -94,6 +94,10 @@ export type BoardProps = {
   follow?: { cells: readonly CellId[]; token: number } | null;
   /** The user panned/pinched/wheeled — replay suspends auto-follow on this. */
   onUserPan?: () => void;
+  /** v1.1 Feature A — a unit token was mouse-hovered (~250 ms, mouse pointers
+   * only; touch behavior unchanged). Fires with null on leave/pan/tap. The
+   * client coords are the token center at hover time. */
+  onUnitHover?: (hover: { unitId: string; clientX: number; clientY: number } | null) => void;
   /** Stance popover on the selected unit (§9.2); rendered inside the SVG. */
   stancePopover?: StancePopoverState | null;
   onCellTap?: (cellId: CellId) => void;
@@ -111,6 +115,7 @@ const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 4;
 const TAP_SLOP_PX = 8;
 const LONG_PRESS_MS = 500;
+const HOVER_DELAY_MS = 250; // v1.1: unit hover card (mouse only)
 
 export type View = { k: number; tx: number; ty: number };
 
@@ -173,6 +178,7 @@ export function Board({
   focus = null,
   follow = null,
   onUserPan,
+  onUnitHover,
   stancePopover = null,
   onCellTap,
   onUnitTap,
@@ -311,10 +317,68 @@ export function Board({
    * the replay layer once (auto-follow suspension). */
   function userTookCamera() {
     cancelViewAnim();
+    dismissHover(); // v1.1: panning dismisses the hover card
     if (!panNotified.current) {
       panNotified.current = true;
       onUserPan?.();
     }
+  }
+
+  // --- v1.1 Feature A: unit hover card (mouse only) ---------------------------
+  // Event delegation on the svg: pointerover resolves the token under the
+  // pointer; a 250 ms timer then fires onUnitHover with the token's CLIENT
+  // coords (computed once — pan/tap/leave dismiss, so the card never drifts).
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverShownRef = useRef<string | null>(null);
+  const hoverPendingRef = useRef<string | null>(null);
+
+  function dismissHover() {
+    if (hoverTimer.current !== null) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    hoverPendingRef.current = null;
+    if (hoverShownRef.current !== null) {
+      hoverShownRef.current = null;
+      onUnitHover?.(null);
+    }
+  }
+
+  useEffect(() => dismissHover, []); // unmount: drop a pending timer
+
+  function onSvgPointerOver(e: React.PointerEvent<SVGSVGElement>) {
+    if (!onUnitHover || !interactive || e.pointerType !== 'mouse') return;
+    const el = e.target instanceof Element ? e.target.closest('[data-unit-id]') : null;
+    const unitId = el?.getAttribute('data-unit-id') ?? null;
+    if (unitId === hoverShownRef.current || unitId === hoverPendingRef.current) return;
+    dismissHover(); // moved off the previous token (or onto a different one)
+    if (unitId === null) return;
+    const svg = e.currentTarget;
+    hoverPendingRef.current = unitId;
+    hoverTimer.current = setTimeout(() => {
+      hoverTimer.current = null;
+      hoverPendingRef.current = null;
+      const unit = units.find((u) => u.id === unitId);
+      const cell = unit ? board.cells.get(unit.cell) : undefined;
+      if (!unit || !cell) return;
+      // token center: board screen coords → viewBox (view transform) → client
+      const [sx, sy] = toScreen(cell.center);
+      const v = viewRef.current;
+      const r = svg.getBoundingClientRect();
+      const s = pxPerUnit(svg);
+      const ox = r.left + (r.width - bbox.width * s) / 2;
+      const oy = r.top + (r.height - bbox.height * s) / 2;
+      hoverShownRef.current = unitId;
+      onUnitHover({
+        unitId,
+        clientX: ox + (v.tx + v.k * sx - bbox.x) * s,
+        clientY: oy + (v.ty + v.k * sy - bbox.y) * s,
+      });
+    }, HOVER_DELAY_MS);
+  }
+
+  function onSvgPointerLeave(e: React.PointerEvent<SVGSVGElement>) {
+    if (e.pointerType === 'mouse') dismissHover();
   }
 
   // --- long-press (§9.5) -----------------------------------------------------
@@ -346,6 +410,7 @@ export function Board({
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (!interactive) return;
+    dismissHover(); // v1.1: any tap/press dismisses the hover card
     // NOTE: capture is DEFERRED until the gesture pans/pinches (see
     // onPointerMove). Capturing here retargets the browser's compatibility
     // click to the svg, which silences every cell/unit onClick — found by
@@ -424,6 +489,7 @@ export function Board({
   function onWheel(e: React.WheelEvent<SVGSVGElement>) {
     if (!interactive) return;
     cancelViewAnim();
+    dismissHover(); // v1.1: wheel zoom moves the board under the card
     onUserPan?.(); // wheel zoom = the user took the camera (desktop replay)
     const m = clientToViewBox(e.currentTarget, e.clientX, e.clientY);
     setView((v) => {
@@ -497,6 +563,8 @@ export function Board({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}
       onPointerCancel={onPointerEnd}
+      onPointerOver={onSvgPointerOver}
+      onPointerLeave={onSvgPointerLeave}
       onWheel={onWheel}
     >
       <defs>
@@ -526,6 +594,7 @@ export function Board({
                 <circle
                   key={`r${cell.id}`}
                   className="reach-tint"
+                  data-tint-cell={cell.id}
                   cx={cx}
                   cy={cy}
                   r={tokenSize * 0.55}

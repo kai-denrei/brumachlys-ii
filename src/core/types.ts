@@ -77,7 +77,8 @@ export type TruncationReason =
   | 'budget' // terrain cost exhausted the movement budget
   | 'enemy-contact' // mid-path enemy: surprise contact, stopped one cell short
   | 'friendly-occupied' // may not END on a friendly cell: backed up
-  | 'invalid-step'; // stale/illegal path step (re-validated at execution time)
+  | 'invalid-step' // stale/illegal path step (re-validated at execution time)
+  | 'vacancy-failed'; // v1.1: entered on a vacancy promise that broke — bounced back
 
 export type GameOverReason = 'annihilation' | 'mutual-annihilation' | 'round-limit';
 

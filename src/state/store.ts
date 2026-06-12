@@ -39,7 +39,7 @@ import { createRng } from '../core/rng';
 import { newGame } from '../core/setup';
 import { loadUnits } from '../io/data-loader';
 import { DONOR_ENTRIES, loadDonor } from '../io/donor-registry';
-import { buildReplay, type ReplayScript } from './replay';
+import { buildReplay, type ReplayLogEntry, type ReplayScript } from './replay';
 
 /** §6.4 standard army: one of each of the 8 types, initiative descending. */
 export const STANDARD_ARMY: readonly string[] = [
@@ -68,6 +68,55 @@ export type ReplaySlice = {
   round: number;
 };
 
+/** v1.1 skirmish log: one completed round's fog-filtered lines. */
+export type LoggedRound = { round: number; entries: ReplayLogEntry[] };
+
+/** v1.1: transient toast-level signal (dependent orders auto-removed). */
+export type OrderNotice = { text: string; token: number };
+
+/**
+ * v1.1 Feature B (dependent re-validation): after a queue edit/removal, every
+ * still-queued order is re-validated against the NEW queue state — a vacancy
+ * move whose occupant no longer vacates (move removed, replaced, or looped
+ * back) is auto-removed, cascading until stable. DECISION (documented):
+ * auto-remove + notice, rather than keeping invalid orders flagged in the
+ * order sheet — the resolver would only bounce them anyway, and a queue that
+ * is always-valid keeps ghosts honest about what will actually happen.
+ * Returns the settled queues and which orders were dropped.
+ */
+export function settleDependentOrders(
+  board: Board,
+  game: GameState,
+  queues: OrderQueues,
+): { queues: OrderQueues; dropped: { unitId: string; kind: OrderKind }[] } {
+  const types = loadUnits();
+  const units = Object.values(game.units).filter((u) => u.count > 0);
+  const visible = visibleCells(board, units, PLAYER_FACTION, types);
+  const known = units.filter((u) => u.faction === PLAYER_FACTION || visible.has(u.cell));
+  const dropped: { unitId: string; kind: OrderKind }[] = [];
+  let cur = queues;
+  for (let pass = 0; pass < 64; pass++) {
+    let removedThisPass = false;
+    for (const [unitId, uo] of Object.entries(cur)) {
+      for (const kind of ['move', 'attack', 'stance'] as const) {
+        const order = uo[kind];
+        if (!order) continue;
+        const verdict = validateOrder(
+          { board, units: known, unitTypes: types, visible, queued: cur[unitId], allQueued: cur },
+          order,
+        );
+        if (!verdict.ok) {
+          cur = removeOrder(cur, unitId, kind);
+          dropped.push({ unitId, kind });
+          removedThisPass = true;
+        }
+      }
+    }
+    if (!removedThisPass) break;
+  }
+  return { queues: cur, dropped };
+}
+
 export type AppState = {
   screen: Screen;
   donorId: string;
@@ -90,6 +139,11 @@ export type AppState = {
   orders: OrderQueues;
   /** Bumped by centerOn; the Board pans to `cell` when token changes. */
   focus: { cell: CellId; token: number } | null;
+  /** v1.1: transient signal when dependent orders were auto-removed. */
+  notice: OrderNotice | null;
+  /** v1.1 skirmish log: completed rounds' lines (current round streams from
+   * the replay script; it joins this history when the summary closes). */
+  battleLog: LoggedRound[];
 
   selectDonor: (donorId: string) => void;
   setSeed: (seed: number) => void;
@@ -106,6 +160,8 @@ export type AppState = {
   tryQueueOrder: (order: Order) => ValidationResult;
   removeUnitOrder: (unitId: string, kind: OrderKind) => void;
   clearOrders: () => void;
+  /** v1.1 internal: surface auto-removed dependent orders as a notice. */
+  signalDropped: (dropped: { unitId: string; kind: OrderKind }[]) => void;
 
   // --- game actions (P8) -------------------------------------------------------
   /** Commit the round: player orders (or the override — the ?autopilot=greedy
@@ -141,6 +197,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedUnitId: null,
   orders: {},
   focus: null,
+  notice: null,
+  battleLog: [],
 
   selectDonor: (donorId) => set({ donorId }),
   setSeed: (seed) => set({ seed: Math.trunc(seed) }),
@@ -159,6 +217,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedUnitId: null,
       orders: {},
       focus: null,
+      notice: null,
+      battleLog: [],
     });
   },
 
@@ -172,6 +232,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedUnitId: null,
       orders: {},
       focus: null,
+      notice: null,
+      battleLog: [],
     }),
 
   // --- planning actions --------------------------------------------------------
@@ -190,16 +252,47 @@ export const useAppStore = create<AppState>((set, get) => ({
     const known = units.filter((u) => u.faction === PLAYER_FACTION || visible.has(u.cell));
     const queued: UnitOrders | undefined = orders[order.unitId];
     const verdict = validateOrder(
-      { board, units: known, unitTypes: types, visible, queued },
+      { board, units: known, unitTypes: types, visible, queued, allQueued: orders },
       order,
     );
-    if (verdict.ok) set({ orders: queueOrder(orders, order) });
+    if (verdict.ok) {
+      // v1.1: a REPLACED move can strand dependents (e.g. a vacancy move onto
+      // this unit's cell) — settle the whole queue after the edit.
+      const settled = settleDependentOrders(board, game, queueOrder(orders, order));
+      set({ orders: settled.queues });
+      get().signalDropped(settled.dropped);
+    }
     return verdict;
   },
 
-  removeUnitOrder: (unitId, kind) => set((s) => ({ orders: removeOrder(s.orders, unitId, kind) })),
+  removeUnitOrder: (unitId, kind) => {
+    const { board, game, orders } = get();
+    const removed = removeOrder(orders, unitId, kind);
+    if (!board || !game) {
+      set({ orders: removed });
+      return;
+    }
+    const settled = settleDependentOrders(board, game, removed);
+    set({ orders: settled.queues });
+    get().signalDropped(settled.dropped);
+  },
 
-  clearOrders: () => set({ orders: {} }),
+  clearOrders: () => set({ orders: {}, notice: null }),
+
+  /** v1.1 internal: turn auto-removed dependents into the toast-level notice. */
+  signalDropped: (dropped) => {
+    if (dropped.length === 0) return;
+    const { game } = get();
+    const types = loadUnits();
+    const name = (unitId: string): string => {
+      const u = game?.units[unitId];
+      return (u && types[u.type]?.name) ?? unitId;
+    };
+    const text = dropped
+      .map((d) => `${name(d.unitId)} ${d.kind} order removed — its plan no longer holds`)
+      .join(' · ');
+    set((s) => ({ notice: { text, token: (s.notice?.token ?? 0) + 1 } }));
+  },
 
   // --- game actions (P8) ---------------------------------------------------------
 
@@ -239,6 +332,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       orders: {},
       selectedUnitId: null,
       focus: null,
+      notice: null,
     });
   },
 
@@ -264,9 +358,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => {
       if (s.uiPhase !== 'summary') return s;
       if (s.game?.outcome) return { ...s, uiPhase: 'over' as const };
-      // Back to planning; the replay script is spent. Planning fog recomputes
-      // from the advanced GameState in the selectors.
-      return { ...s, uiPhase: 'planning' as const, replay: null };
+      // Back to planning; the replay script is spent — its skirmish-log lines
+      // join the battle log history (the log persists across rounds, §v1.1 D).
+      const battleLog = s.replay
+        ? [...s.battleLog, { round: s.replay.round, entries: s.replay.script.log }]
+        : s.battleLog;
+      return { ...s, uiPhase: 'planning' as const, replay: null, battleLog };
     }),
 
   rematch: (seed) => {
@@ -274,3 +371,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().startBattle();
   },
 }));
+
+// Dev-only hook (vite strips this from production builds): lets Playwright
+// verification scripts drive precise scenarios. Not part of the app surface.
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__appStore = useAppStore;
+}

@@ -37,7 +37,7 @@ import {
   visibleCells,
 } from './core';
 import { findPath } from './core/pathing';
-import type { OrderKind } from './core/orders';
+import { occupantVacates, type OrderKind } from './core/orders';
 import type { Stance, UnitInstance } from './core/types';
 import { cellsWithin, graphDistance } from './board/geometry';
 import type { CellId } from './board/types';
@@ -47,7 +47,8 @@ import { PLAYER_FACTION, useAppStore } from './state/store';
 import { Board, type StancePopoverState } from './ui/Board';
 import { BottomDock } from './ui/BottomDock';
 import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/Replay';
-import { InfoSheet, OrderSheet } from './ui/Sheets';
+import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
+import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
 import { TopBar } from './ui/TopBar';
 import type { GhostOrder } from './ui/skin';
@@ -68,6 +69,8 @@ function BattleScreen() {
   const orders = useAppStore((s) => s.orders);
   const selectedUnitId = useAppStore((s) => s.selectedUnitId);
   const focus = useAppStore((s) => s.focus);
+  const notice = useAppStore((s) => s.notice);
+  const battleLog = useAppStore((s) => s.battleLog);
   const exitBattle = useAppStore((s) => s.exitBattle);
   const selectUnit = useAppStore((s) => s.selectUnit);
   const centerOn = useAppStore((s) => s.centerOn);
@@ -82,6 +85,16 @@ function BattleScreen() {
   const [sheet, setSheet] = useState<SheetState>(null);
   const types = useMemo(() => loadUnits(), []);
   const autopilot = useMemo(() => urlFlag('autopilot') === 'greedy', []);
+
+  // v1.1 Feature A: mouse-hover unit card (Board detects; this renders).
+  const [hover, setHover] = useState<{ unitId: string; clientX: number; clientY: number } | null>(
+    null,
+  );
+  // v1.1 Feature D: skirmish log — open by default on ≥700px viewports.
+  const logDefaultOpen = useMemo(
+    () => typeof window !== 'undefined' && window.innerWidth >= 700,
+    [],
+  );
 
   const units = useMemo(
     () => (game ? Object.values(game.units).filter((u) => u.count > 0) : []),
@@ -110,7 +123,11 @@ function BattleScreen() {
     setSheet(null);
     setSuspendedAt(null);
     setLinger(null);
+    setHover(null);
   }, [script]);
+
+  // Phase flips reuse the same <Board> instance — drop a stale hover card.
+  useEffect(() => setHover(null), [uiPhase]);
 
   useEffect(() => {
     if (uiPhase !== 'replay' || !script) return;
@@ -209,10 +226,15 @@ function BattleScreen() {
     knownUnits.find((u) => u.cell === cell && u.faction !== PLAYER_FACTION && u.count > 0);
 
   /** Pathing policy for planning (§2.5, mirrored in core validateOrder):
-   * friendlies traversable but not a destination; VISIBLE enemies block
-   * traversal but are charge destinations; hidden enemies don't exist. */
+   * friendlies traversable but not a destination — UNLESS they have a queued
+   * move elsewhere (v1.1 vacancy promise: the tile tints and is orderable);
+   * VISIBLE enemies block traversal but are charge destinations; hidden
+   * enemies don't exist. */
   const pathOpts = (unit: UnitInstance) => ({
-    canStopAt: (c: CellId) => !friendlyAt(c, unit.id),
+    canStopAt: (c: CellId) => {
+      const f = friendlyAt(c, unit.id);
+      return !f || occupantVacates(f, orders);
+    },
     canPassThrough: (c: CellId) => !visibleEnemyAt(c),
   });
 
@@ -314,7 +336,35 @@ function BattleScreen() {
       queueMoveTo(selected, cellId);
       return;
     }
+    // v1.1 (Feature C audit): a friendly-occupied cell used to fall through
+    // to deselect — a tap that landed on a friend's cell silently killed the
+    // plan, reading as "friendlies block movement". Behave like tapping the
+    // friend's token instead: switch selection.
+    const friend = friendlyAt(cellId);
+    if (friend) {
+      selectUnit(friend.id);
+      return;
+    }
     selectUnit(null); // tap elsewhere = deselect
+  }
+
+  /** v1.1 (Feature C root cause): ghost tokens render ABOVE cells and used to
+   * swallow taps on their destination cell — with a unit selected, tapping a
+   * cell covered by a friendly's queued-move ghost opened that friend's order
+   * sheet instead of queueing the selected unit's move. Now: with a DIFFERENT
+   * own unit selected, the tap falls through to the cell underneath; the
+   * order sheet still opens when nothing is selected (or for the selected
+   * unit's own ghost). */
+  function onGhostTap(unitId: string) {
+    if (selected && selected.id !== unitId) {
+      const path = orders[unitId]?.move?.path;
+      const dest = path && path.length > 0 ? path[path.length - 1] : undefined;
+      if (dest !== undefined) {
+        onCellTap(dest);
+        return;
+      }
+    }
+    setSheet({ kind: 'order', unitId });
   }
 
   // --- stance popover (§9.2) -----------------------------------------------------
@@ -368,6 +418,23 @@ function BattleScreen() {
   const phaseChip = uiPhase === 'planning' ? 'planning' : uiPhase === 'over' ? 'over' : 'replay';
   const topRound = replayActive && replay ? replay.round : game.round;
 
+  // v1.1 hover card: resolve the hovered unit against whatever the Board is
+  // rendering right now (fog-filtered frame units during replay) — both
+  // factions' visible units carry cards.
+  const hoverUnit = hover
+    ? (frame ? frame.units : boardUnits).find((u) => u.id === hover.unitId)
+    : undefined;
+  const hoverType = hoverUnit ? types[hoverUnit.type] : undefined;
+  const hoverCard =
+    hover && hoverUnit && hoverType ? (
+      <UnitHoverCard
+        unit={hoverUnit}
+        unitType={hoverType}
+        clientX={hover.clientX}
+        clientY={hover.clientY}
+      />
+    ) : null;
+
   return (
     <div className="app">
       <TopBar round={topRound} phase={phaseChip} onBack={exitBattle} />
@@ -391,6 +458,7 @@ function BattleScreen() {
             onUserPan={() => {
               if (uiPhase === 'replay' && frame) setSuspendedAt(frame.slot);
             }}
+            onUnitHover={setHover}
             className={replaySpeed === 2 ? 'board-replay-2x' : undefined}
           />
         ) : (
@@ -405,11 +473,27 @@ function BattleScreen() {
             stancePopover={stancePopover}
             onCellTap={onCellTap}
             onUnitTap={onUnitTap}
-            onGhostTap={(unitId) => setSheet({ kind: 'order', unitId })}
+            onGhostTap={onGhostTap}
+            onUnitHover={setHover}
             onCellLongPress={(cellId) => setSheet({ kind: 'info', cellId })}
           />
         )}
       </main>
+      <SkirmishLog
+        history={battleLog}
+        live={
+          replayActive && script && replay
+            ? { round: replay.round, entries: script.log, upToFrame: frameIdx }
+            : null
+        }
+        defaultOpen={logDefaultOpen}
+      />
+      {notice && !replayActive && (
+        <div className="order-notice" key={notice.token} role="status">
+          {notice.text}
+        </div>
+      )}
+      {hoverCard}
       {replayActive && script ? (
         <ReplayDock
           slots={script.slots}
