@@ -1,0 +1,10 @@
+{
+  "greedy": {
+    "damageDealt": 1.0,
+    "damageTaken": 0.85,
+    "terrainArmorBonus": 0.3,
+    "advance": 0.3,
+    "focusFire": 0.5,
+    "threatConcentration": 0.5
+  }
+}
