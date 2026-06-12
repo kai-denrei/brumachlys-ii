@@ -66,6 +66,7 @@ describe('game slice (P8)', () => {
       uiPhase: 'planning',
       replay: null,
       orders: {},
+      casualties: [],
     });
   });
 
@@ -165,5 +166,54 @@ describe('game slice (P8)', () => {
     expect(after.game!.round).toBe(1);
     expect(after.game!.outcome).toBeUndefined();
     expect(Object.values(after.game!.units).length).toBe(16);
+  });
+});
+
+describe('casualty recap (v1.3 Tweak C)', () => {
+  beforeEach(() => useAppStore.setState({ casualties: [] }));
+
+  it('witnessed kills join the recap when the summary closes (order of death)', () => {
+    seedGame(lineBoard(3), [unit('pt', 0, 1, 'tank'), unit('ei', 1, 2, 'infantry', 1)]);
+    s().tryQueueOrder({ kind: 'attack', unitId: 'pt', targetCell: 2 });
+    s().commit();
+    // The kill is in the fog-filtered summary — and not yet in the recap.
+    expect(s().replay!.script.summary.kills.map((k) => k.id)).toContain('ei');
+    expect(s().casualties).toEqual([]);
+    s().finishReplay();
+    s().closeSummary(); // → over (annihilation), recap still appended
+    expect(s().uiPhase).toBe('over');
+    expect(s().casualties).toEqual([{ type: 'infantry', faction: 1 }]);
+  });
+
+  it('sources the fog-filtered summary ONLY — what the summary withholds never appears', () => {
+    // Wiring test: a summary with one witnessed kill maps 1:1 into the recap;
+    // mist kills were never in summary.kills (replay-build §7 tests), so by
+    // construction they cannot land here.
+    useAppStore.setState({
+      uiPhase: 'summary',
+      game: null,
+      casualties: [{ type: 'sniper', faction: 0 }],
+      replay: {
+        round: 3,
+        script: {
+          slots: [],
+          frames: [],
+          log: [],
+          summary: { kills: [{ id: 'x', type: 'tank', faction: 1 }], damageDealt: [9, 0], fizzles: 0 },
+        },
+      },
+    });
+    s().closeSummary();
+    // persists across rounds: prior entries kept, new kill appended in order
+    expect(s().casualties).toEqual([
+      { type: 'sniper', faction: 0 },
+      { type: 'tank', faction: 1 },
+    ]);
+  });
+
+  it('resets on a new battle', () => {
+    useAppStore.setState({ casualties: [{ type: 'tank', faction: 1 }] });
+    s().rematch(99);
+    expect(s().casualties).toEqual([]);
   });
 });

@@ -45,6 +45,74 @@ const center = (board: Board, id: CellId, toScreen: ReplayFxProps['toScreen']): 
   return cell ? toScreen(cell.center) : null;
 };
 
+// --- v1.3 Tweak B: movement origin trails ----------------------------------
+// Thin dotted line along the resolved path from the ORIGIN cell + a subtle
+// ghost marker (hollow squircle) where the unit used to be. Lives in its own
+// persistent layer (NOT the per-frame-remounted fx group) so the ~1.6 s CSS
+// opacity fade survives frame advances. Fog honesty: paths arrive already
+// filtered by the replay builder (TrailFx) — this draws them verbatim.
+
+export type TrailMark = {
+  id: string;
+  faction: FactionId;
+  /** Witnessed path cells, origin first (state/replay.ts TrailFx). */
+  path: readonly CellId[];
+  /** The move finished — fade out (CSS transition on .fx-trail-fading). */
+  fading: boolean;
+};
+
+export function ReplayTrails({
+  board,
+  toScreen,
+  tokenSize,
+  trails,
+}: {
+  board: Board;
+  toScreen: ReplayFxProps['toScreen'];
+  tokenSize: number;
+  trails: readonly TrailMark[];
+}) {
+  return (
+    <g className="board-trails" pointerEvents="none">
+      {trails.map((t) => {
+        const pts = t.path
+          .map((c) => center(board, c, toScreen))
+          .filter((p): p is Pt => p !== null);
+        if (pts.length < 2) return null;
+        const [ox, oy] = pts[0]!;
+        const g = tokenSize * 0.62; // ghost marker edge (a shrunk silhouette)
+        const color = factionColor(t.faction);
+        return (
+          <g key={t.id} className={`fx-trail${t.fading ? ' fx-trail-fading' : ''}`}>
+            <polyline
+              className="fx-trail-line"
+              points={pts.map((p) => `${p[0]},${p[1]}`).join(' ')}
+              fill="none"
+              stroke={color}
+              strokeWidth={tokenSize * 0.07}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray={`${tokenSize * 0.035} ${tokenSize * 0.2}`}
+            />
+            <rect
+              className="fx-trail-ghost"
+              x={ox - g / 2}
+              y={oy - g / 2}
+              width={g}
+              height={g}
+              rx={g * 0.3}
+              fill="none"
+              stroke={color}
+              strokeWidth={tokenSize * 0.045}
+              opacity={0.55}
+            />
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 function FlashArc({
   board,
   toScreen,

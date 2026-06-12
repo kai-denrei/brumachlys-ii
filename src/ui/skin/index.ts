@@ -21,5 +21,5 @@ export {
   visionEdgeSegments,
 } from './EffectRenderer';
 export type { EffectRendererProps, GhostOrder } from './EffectRenderer';
-export { ReplayFx } from './ReplayFx';
-export type { ReplayFxData, ReplayFxProps } from './ReplayFx';
+export { ReplayFx, ReplayTrails } from './ReplayFx';
+export type { ReplayFxData, ReplayFxProps, TrailMark } from './ReplayFx';

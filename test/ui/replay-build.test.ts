@@ -241,6 +241,58 @@ describe('replay builder — camera focus (P9 auto-follow)', () => {
   });
 });
 
+describe('replay builder — movement origin trails (v1.3 Tweak B)', () => {
+  it("own move: frames carry a growing trail from the origin (id stable per slot)", () => {
+    const script = build(
+      [makeUnit('pi', 0, 0)],
+      [{ type: 'move', unitId: 'pi', from: 0, to: 2, pathTaken: [1, 2] }],
+    );
+    expect(script.frames[0]!.trails).toEqual([]); // establishing frame
+    expect(script.frames[1]!.trails).toEqual([{ id: 't0', faction: 0, path: [0, 1] }]);
+    expect(script.frames[2]!.trails).toEqual([{ id: 't0', faction: 0, path: [0, 1, 2] }]);
+  });
+
+  it('non-move frames carry no trails', () => {
+    const units = [makeUnit('pi', 0, 2), makeUnit('re', 1, 3, 'ranger')];
+    const script = build(units, [
+      {
+        type: 'attack',
+        attackerId: 'pi',
+        defenderId: 're',
+        attackerCell: 2,
+        defenderCell: 3,
+        damage: 5,
+        bonusB: 0,
+        defenderCountAfter: 4,
+        counterFired: false,
+        breakdown: bd(),
+      },
+    ]);
+    expect(script.frames[1]!.trails).toEqual([]);
+  });
+
+  it('AI move crossing vision: the trail holds ONLY witnessed cells — never the mist', () => {
+    // Player infantry at 0 sees 0..2; ranger walks 4→1 via [3,2,1]. Cells 4
+    // (origin) and 3 were never seen — the dotted line must not mark them.
+    const units = [makeUnit('pi', 0, 0), makeUnit('ai', 1, 4, 'ranger')];
+    const script = build(units, [
+      { type: 'move', unitId: 'ai', from: 4, to: 1, pathTaken: [3, 2, 1] },
+    ]);
+    // step onto 3 (fogged): nothing to draw yet
+    expect(script.frames[1]!.trails).toEqual([]);
+    // step onto 2 (visible): only one witnessed cell — still no line
+    expect(script.frames[2]!.trails).toEqual([]);
+    // step onto 1: trail spans the two witnessed cells only
+    expect(script.frames[3]!.trails).toEqual([{ id: 't0', faction: 1, path: [2, 1] }]);
+    for (const f of script.frames) {
+      for (const t of f.trails) {
+        expect(t.path).not.toContain(4);
+        expect(t.path).not.toContain(3);
+      }
+    }
+  });
+});
+
 describe('replay builder — player-fog filtering (§7)', () => {
   // Player infantry at 0: vision 2 → sees cells 0..2 only.
 

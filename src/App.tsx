@@ -46,12 +46,17 @@ import type { ReplayFrame } from './state/replay';
 import { PLAYER_FACTION, useAppStore } from './state/store';
 import { Board, type StancePopoverState } from './ui/Board';
 import { BottomDock } from './ui/BottomDock';
+import { CasualtyPanel } from './ui/CasualtyPanel';
 import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/Replay';
 import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
 import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
 import { TopBar } from './ui/TopBar';
-import type { GhostOrder } from './ui/skin';
+import type { GhostOrder, TrailMark } from './ui/skin';
+
+/** v1.3 Tweak B: a finished trail lingers (fading) this long before removal —
+ * the CSS opacity transition (~1.6 s) runs inside this window. */
+const TRAIL_LINGER_MS = 1900;
 
 type SheetState = { kind: 'order'; unitId: string } | { kind: 'info'; cellId: CellId } | null;
 
@@ -71,6 +76,7 @@ function BattleScreen() {
   const focus = useAppStore((s) => s.focus);
   const notice = useAppStore((s) => s.notice);
   const battleLog = useAppStore((s) => s.battleLog);
+  const casualties = useAppStore((s) => s.casualties);
   const exitBattle = useAppStore((s) => s.exitBattle);
   const selectUnit = useAppStore((s) => s.selectUnit);
   const centerOn = useAppStore((s) => s.centerOn);
@@ -114,6 +120,18 @@ function BattleScreen() {
   // P9 last-volley linger: the latest floaters stay tappable ~2 s.
   const [linger, setLinger] = useState<{ floaters: ReplayFrame['floaters'] } | null>(null);
   const lingerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // v1.3 Tweak B: movement origin trails. Frames carry the in-progress move's
+  // trail; when it stops appearing (move done) it flips to `fading` (CSS
+  // opacity transition) and is removed after TRAIL_LINGER_MS. Cleared at
+  // planning start. Multiple simultaneous (fading) trails are fine.
+  const [trails, setTrails] = useState<TrailMark[]>([]);
+  const trailTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  function clearTrails() {
+    for (const t of trailTimers.current.values()) clearTimeout(t);
+    trailTimers.current.clear();
+    setTrails((cur) => (cur.length === 0 ? cur : []));
+  }
 
   // New script → restart playback.
   useEffect(() => {
@@ -166,6 +184,45 @@ function BattleScreen() {
     },
     [],
   );
+
+  // v1.3 trails: sync with the current frame's active trails. A trail absent
+  // from the frame (its move completed) starts fading and self-removes; one
+  // still present is upserted with its latest (growing) path.
+  useEffect(() => {
+    if (uiPhase === 'planning' || !script) {
+      clearTrails(); // planning phase start: trails clear (Tweak B contract)
+      return;
+    }
+    const fr = script.frames[Math.min(frameIdx, script.frames.length - 1)];
+    if (!fr) return;
+    const live = new Map(fr.trails.map((t) => [t.id, t]));
+    setTrails((prev) => {
+      if (prev.length === 0 && live.size === 0) return prev;
+      const next: TrailMark[] = [];
+      for (const t of prev) {
+        if (live.has(t.id)) continue; // re-added below with the latest path
+        if (!t.fading) {
+          const timer = setTimeout(() => {
+            trailTimers.current.delete(t.id);
+            setTrails((cur) => cur.filter((x) => x.id !== t.id));
+          }, TRAIL_LINGER_MS);
+          trailTimers.current.set(t.id, timer);
+          next.push({ ...t, fading: true });
+        } else next.push(t);
+      }
+      for (const t of live.values()) {
+        const pending = trailTimers.current.get(t.id);
+        if (pending) {
+          clearTimeout(pending); // paused/replayed frame: back to active
+          trailTimers.current.delete(t.id);
+        }
+        next.push({ id: t.id, faction: t.faction, path: t.path, fading: false });
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uiPhase, script, frameIdx]);
+  useEffect(() => clearTrails, []); // unmount: drop pending removal timers
 
   // --- autopilot (dev/demo) ------------------------------------------------------
   useEffect(() => {
@@ -453,6 +510,7 @@ function BattleScreen() {
                 kills: frame.kills,
               },
             }}
+            trails={trails}
             onFloaterTap={(slot) => setBreakdownSlot(slot)}
             follow={follow}
             onUserPan={() => {
@@ -479,6 +537,7 @@ function BattleScreen() {
           />
         )}
       </main>
+      <CasualtyPanel casualties={casualties} unitTypes={types} />
       <SkirmishLog
         history={battleLog}
         live={

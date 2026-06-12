@@ -74,6 +74,12 @@ export type LoggedRound = { round: number; entries: ReplayLogEntry[] };
 /** v1.1: transient toast-level signal (dependent orders auto-removed). */
 export type OrderNotice = { text: string; token: number };
 
+/** v1.3 Tweak C: one witnessed casualty (chess-style recap row entry).
+ * FOG-HONEST by construction: entries come ONLY from the fog-filtered replay
+ * summary's kills (state/replay.ts withholds unseen deaths), never from the
+ * raw event log — a unit destroyed in the mist never lands here. */
+export type Casualty = { type: string; faction: FactionId };
+
 /**
  * v1.1 Feature B (dependent re-validation): after a queue edit/removal, every
  * still-queued order is re-validated against the NEW queue state — a vacancy
@@ -144,6 +150,9 @@ export type AppState = {
   /** v1.1 skirmish log: completed rounds' lines (current round streams from
    * the replay script; it joins this history when the summary closes). */
   battleLog: LoggedRound[];
+  /** v1.3 casualty recap: witnessed kills in order of death, battle-long.
+   * Appended when a round's summary closes; resets on a new battle. */
+  casualties: Casualty[];
 
   selectDonor: (donorId: string) => void;
   setSeed: (seed: number) => void;
@@ -199,6 +208,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   focus: null,
   notice: null,
   battleLog: [],
+  casualties: [],
 
   selectDonor: (donorId) => set({ donorId }),
   setSeed: (seed) => set({ seed: Math.trunc(seed) }),
@@ -219,6 +229,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       focus: null,
       notice: null,
       battleLog: [],
+      casualties: [],
     });
   },
 
@@ -234,6 +245,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       focus: null,
       notice: null,
       battleLog: [],
+      casualties: [],
     }),
 
   // --- planning actions --------------------------------------------------------
@@ -357,13 +369,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   closeSummary: () =>
     set((s) => {
       if (s.uiPhase !== 'summary') return s;
-      if (s.game?.outcome) return { ...s, uiPhase: 'over' as const };
+      // v1.3 Tweak C: the round's WITNESSED kills (fog-filtered summary —
+      // mist kills were never in it) join the battle-long casualty recap.
+      const casualties = s.replay
+        ? [
+            ...s.casualties,
+            ...s.replay.script.summary.kills.map((k) => ({ type: k.type, faction: k.faction })),
+          ]
+        : s.casualties;
+      if (s.game?.outcome) return { ...s, uiPhase: 'over' as const, casualties };
       // Back to planning; the replay script is spent — its skirmish-log lines
       // join the battle log history (the log persists across rounds, §v1.1 D).
       const battleLog = s.replay
         ? [...s.battleLog, { round: s.replay.round, entries: s.replay.script.log }]
         : s.battleLog;
-      return { ...s, uiPhase: 'planning' as const, replay: null, battleLog };
+      return { ...s, uiPhase: 'planning' as const, replay: null, battleLog, casualties };
     }),
 
   rematch: (seed) => {

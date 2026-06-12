@@ -45,6 +45,7 @@ import {
   GrainFilterDef,
   GrainOverlay,
   ReplayFx,
+  ReplayTrails,
   StanceIcon,
   UnitRenderer,
   VisionEdge,
@@ -52,6 +53,7 @@ import {
   type GhostOrder,
   type Pt,
   type ReplayFxData,
+  type TrailMark,
 } from './skin';
 
 export type BoardHighlights = {
@@ -85,6 +87,9 @@ export type BoardProps = {
   /** Layer-3 replay effects (§9.4), drawn by skin/ReplayFx. `key` remounts
    * the fx group per replay frame so CSS animations restart. */
   replayFx?: { key: number; fx: ReplayFxData } | null;
+  /** v1.3 Tweak B: movement origin trails — persistent layer (fades via CSS,
+   * so NOT part of the per-frame-remounted replayFx group). */
+  trails?: readonly TrailMark[];
   /** Tap a floating damage number → breakdown modal for its slot (§9.4). */
   onFloaterTap?: (slot: number) => void;
   /** Pan so this cell is centered whenever `token` changes. */
@@ -165,6 +170,56 @@ export function computeFollowView(
   return { k, tx: bbox.x + bbox.width / 2 - k * cx, ty: bbox.y + bbox.height / 2 - k * cy };
 }
 
+// --- v1.3 Tweak A: co-located token stagger ---------------------------------
+// During replay two units can transiently share a cell (vacancy walk-ins,
+// brawl frames). Whenever 2+ tokens occupy one cell in a rendered frame they
+// spread within it: 2 = small up-left / down-right diagonal, 3+ = a ring;
+// staggered tokens shrink to 0.8 so both silhouettes read. Slot assignment is
+// by unitId hash (stable ranking), so tokens never swap corners between
+// frames; the offsets ride the token transform, which the 0.25s CSS
+// transition already animates — the spread/merge glides.
+
+export type StaggerSlot = { dx: number; dy: number; scale: number };
+
+function unitIdHash(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+/** Pure (exported for tests): within-cell offsets for `unitIds` sharing a
+ * cell. Deterministic in the SET of ids — frame order doesn't matter. */
+export function staggerLayout(
+  unitIds: readonly string[],
+  tokenSize: number,
+): Map<string, StaggerSlot> {
+  const out = new Map<string, StaggerSlot>();
+  if (unitIds.length <= 1) {
+    for (const id of unitIds) out.set(id, { dx: 0, dy: 0, scale: 1 });
+    return out;
+  }
+  const ranked = [...unitIds].sort((a, b) => {
+    const ha = unitIdHash(a);
+    const hb = unitIdHash(b);
+    return ha !== hb ? ha - hb : a < b ? -1 : 1;
+  });
+  if (ranked.length === 2) {
+    // Diagonal pair: up-left / down-right, ~touching at 0.8 scale (0.30 — the
+    // v1.3 visual pass found 0.27 left the corners overlapping the count pip).
+    const d = tokenSize * 0.3;
+    out.set(ranked[0]!, { dx: -d, dy: -d, scale: 0.8 });
+    out.set(ranked[1]!, { dx: d, dy: d, scale: 0.8 });
+    return out;
+  }
+  // 3+: ring, first slot at 12 o'clock.
+  const r = tokenSize * 0.42;
+  ranked.forEach((id, k) => {
+    const t = -Math.PI / 2 + (2 * Math.PI * k) / ranked.length;
+    out.set(id, { dx: Math.cos(t) * r, dy: Math.sin(t) * r, scale: 0.8 });
+  });
+  return out;
+}
+
 const STANCES: readonly Stance[] = ['aggressive', 'defensive', 'hold-fire'];
 
 export function Board({
@@ -175,6 +230,7 @@ export function Board({
   selectedUnitId = null,
   ghosts,
   replayFx = null,
+  trails,
   focus = null,
   follow = null,
   onUserPan,
@@ -539,6 +595,22 @@ export function Board({
   }
 
   const unitById = useMemo(() => new Map(units.map((u) => [u.id, u])), [units]);
+
+  // v1.3 Tweak A: per-unit stagger slots for cells holding 2+ tokens.
+  const staggerByUnit = useMemo(() => {
+    const byCell = new Map<CellId, string[]>();
+    for (const u of unitById.values()) {
+      const ids = byCell.get(u.cell);
+      if (ids) ids.push(u.id);
+      else byCell.set(u.cell, [u.id]);
+    }
+    const out = new Map<string, StaggerSlot>();
+    for (const ids of byCell.values()) {
+      if (ids.length < 2) continue;
+      for (const [id, slot] of staggerLayout(ids, tokenSize)) out.set(id, slot);
+    }
+    return out;
+  }, [unitById, tokenSize]);
   const reachable = highlights?.reachable;
   const reachAlpha = (id: CellId): number | null => {
     if (!reachable) return null;
@@ -635,18 +707,23 @@ export function Board({
             onGhostTap={tapGuard(onGhostTap)}
           />
         )}
+        {trails && trails.length > 0 && (
+          <ReplayTrails board={board} toScreen={toScreen} tokenSize={tokenSize} trails={trails} />
+        )}
         <g className="board-units">
           {[...unitById.values()].map((unit) => {
             const cell = board.cells.get(unit.cell);
             if (!cell) return null;
             const [x, y] = toScreen(cell.center);
+            const slot = staggerByUnit.get(unit.id);
             return (
               <UnitRenderer
                 key={unit.id}
                 unit={unit}
-                x={x}
-                y={y}
+                x={x + (slot?.dx ?? 0)}
+                y={y + (slot?.dy ?? 0)}
                 size={tokenSize}
+                scale={slot?.scale}
                 selected={unit.id === selectedUnitId}
                 onTap={tapGuard(onUnitTap)}
               />

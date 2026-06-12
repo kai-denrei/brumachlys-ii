@@ -756,6 +756,20 @@ body {
   }
 }
 
+/* --- v1.3 Tweak B: movement origin trails ----------------------------------- */
+/* Persistent layer (NOT remounted per frame): the dotted path + origin ghost
+   hold at 0.7 while the move animates, then fade out over ~1.6 s once the
+   move completes (.fx-trail-fading flips opacity; App removes after 1.9 s). */
+
+.fx-trail {
+  opacity: 0.7;
+  transition: opacity 1.6s ease;
+}
+
+.fx-trail-fading {
+  opacity: 0;
+}
+
 /* kill fade: the dead token sinks into the mist */
 .fx-kill {
   animation: fx-kill-fade 0.75s ease-in forwards;
@@ -1404,4 +1418,39 @@ body {
     width: 40vw;
     min-width: 156px;
   }
+}
+
+/* --- v1.3 Tweak C: casualty recap (chess-style captured pieces) ------------- */
+/* Top-LEFT below the top bar — the skirmish chip/log owns the top-RIGHT; at
+   390px the panel caps at 45vw so the two never meet. Paper-translucent
+   backing (same recipe as the top bar) so it stays legible over board fog.
+   Purely informational: pointer-events none, never steals a board tap. */
+
+.casualty-panel {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 3.2rem);
+  left: 0.5rem;
+  z-index: 18; /* over the board, under sheets/scrims (z 20+) */
+  max-width: 45vw;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0.22rem 0.3rem;
+  background: var(--bar-bg);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(74, 68, 58, 0.12);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.casualty-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+}
+
+.casualty-icon {
+  width: 15px;
+  height: 15px;
+  display: block;
 }

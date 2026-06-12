@@ -88,6 +88,18 @@ export type Floater = {
   slot: number;
 };
 
+/** v1.3 Tweak B — a move's origin trail: the cells the player SAW the mover
+ *  occupy, origin first. Built inside the same fog-filtered walk as the
+ *  frames (a step the player never saw is simply absent), so the dotted line
+ *  can never trace a path through the mist. One trail per move slot; frames
+ *  carry it while the move animates, and the UI lets it linger/fade after. */
+export type TrailFx = {
+  id: string;
+  faction: FactionId;
+  /** Witnessed path cells, origin first (≥2 cells or the trail is dropped). */
+  path: CellId[];
+};
+
 export type ReplayFrame = {
   /** ms at 1× speed. */
   duration: number;
@@ -104,6 +116,8 @@ export type ReplayFrame = {
   bursts: CellId[];
   /** Units fading out this frame (snapshot at death). */
   kills: UnitInstance[];
+  /** v1.3: active movement origin trails (fog-filtered, see TrailFx). */
+  trails: TrailFx[];
   /** Cells the camera should keep in view this frame (auto-follow, P9).
    *  Empty = leave the view alone. Never contains a withheld mist source. */
   focus: CellId[];
@@ -200,6 +214,7 @@ export function buildReplay(
     floaters: [] as Floater[],
     bursts: [] as CellId[],
     kills: [] as UnitInstance[],
+    trails: [] as TrailFx[],
     focus: [] as CellId[],
   });
 
@@ -285,15 +300,26 @@ export function buildReplay(
           segs: [{ t: 'enemy ' }, { t: nameOf(u.type), f: u.faction }, { t: ' on the move' }],
         });
       }
+      // v1.3 Tweak B: origin trail — only cells the player saw the mover on.
+      // Own moves are fully witnessed; for AI movers each cell is included
+      // iff it was inside the player's vision AT THAT STEP (same rule that
+      // gates the token render), so the trail never dips into the mist.
+      const trailPath: CellId[] = [];
+      if (seen(u.faction, ev.from, visBefore)) trailPath.push(ev.from);
       for (const step of ev.pathTaken) {
         u.cell = step; // player movers drag their vision along with them
         const vis = vision();
+        if (seen(u.faction, step, vis)) trailPath.push(step);
         frames.push({
           duration: MOVE_STEP_MS,
           slot,
           units: renderUnits(vis),
           fog: fogOf(vis),
           ...emptyFx(),
+          trails:
+            trailPath.length >= 2
+              ? [{ id: `t${slot}`, faction: u.faction, path: [...trailPath] }]
+              : [],
           focus: [step], // camera follows the mover cell-by-cell
         });
       }

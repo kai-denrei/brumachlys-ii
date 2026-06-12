@@ -23,6 +23,9 @@ export type UnitRendererProps = {
   size: number;
   /** Layer-1 selection: the token lifts slightly (§9.2). */
   selected?: boolean;
+  /** v1.3 Tweak A (co-located stagger): shrink the whole token. Rides the
+   * positioning transform so the 0.25s CSS transition animates it. */
+  scale?: number;
   /** Glyph-only token (timeline strip chips): no count pip, no stance
    * stroke styling — squircle + glyph at tiny sizes. */
   minimal?: boolean;
@@ -35,6 +38,7 @@ export const UnitRenderer = memo(function UnitRenderer({
   y,
   size,
   selected = false,
+  scale = 1,
   minimal = false,
   onTap,
 }: UnitRendererProps) {
@@ -55,7 +59,7 @@ export const UnitRenderer = memo(function UnitRenderer({
       className={`unit-token unit-faction-${unit.faction}${selected ? ' unit-selected' : ''}`}
       data-unit-id={unit.id}
       data-unit-type={unit.type}
-      transform={`translate(${x} ${y})${selected ? ` translate(0 ${-size * 0.14})` : ''}`}
+      transform={`translate(${x} ${y})${scale !== 1 ? ` scale(${scale})` : ''}${selected ? ` translate(0 ${-size * 0.14})` : ''}`}
       onClick={onTap ? () => onTap(unit.id) : undefined}
     >
       {selected && <ellipse cx={0} cy={size * 0.5} rx={h * 0.9} ry={h * 0.3} fill="rgba(74,68,58,0.18)" />}
