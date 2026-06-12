@@ -30,7 +30,9 @@ function iconUnit(c: Casualty, k: number): UnitInstance {
   };
 }
 
-function CasualtyRow({
+/** Exported (v1.4): the game-over banner's recap reuses this exact icon
+ * vocabulary for its losses/destroyed rows. */
+export function CasualtyRow({
   row,
   label,
   unitTypes,

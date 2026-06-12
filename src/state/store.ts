@@ -39,7 +39,12 @@ import { createRng } from '../core/rng';
 import { newGame } from '../core/setup';
 import { loadUnits } from '../io/data-loader';
 import { DONOR_ENTRIES, loadDonor } from '../io/donor-registry';
-import { buildReplay, type ReplayLogEntry, type ReplayScript } from './replay';
+import {
+  buildReplay,
+  type ReplayLogEntry,
+  type ReplayScript,
+  type TimelineSlot,
+} from './replay';
 
 /** §6.4 standard army: one of each of the 8 types, initiative descending. */
 export const STANDARD_ARMY: readonly string[] = [
@@ -79,6 +84,54 @@ export type OrderNotice = { text: string; token: number };
  * summary's kills (state/replay.ts withholds unseen deaths), never from the
  * raw event log — a unit destroyed in the mist never lands here. */
 export type Casualty = { type: string; faction: FactionId };
+
+/** v1.4 battle recap (game-over dashboard): battle-long totals, accumulated
+ * round by round when each summary closes — same moment the casualty recap
+ * accrues, same source: the FOG-FILTERED replay script (state/replay.ts).
+ *
+ * FOG HONESTY, field by field:
+ * - `dealt`  = summary.damageDealt[player]: built only from strikes the replay
+ *   SHOWED; the player's own strikes are always shown, so this is exactly the
+ *   damage the player watched land.
+ * - `taken`  = summary.damageDealt[enemy]: enemy strikes enter the summary
+ *   only when shown — a strike on the player's own unit always is (impact +
+ *   floater render even when the source hides in the mist), so taken damage
+ *   is complete WITHOUT revealing attackers.
+ * - `fizzles`: only lost-target fizzles whose actor the player could see.
+ * - `brawls`: counted from the script's brawl slots (countWitnessedBrawls) —
+ *   a brawl always involves a player unit, so all real brawls are witnessed.
+ * - `rounds`: the last resolved round number — public knowledge.
+ * Enemy units destroyed are NOT here: the dashboard reuses `casualties`
+ * (witnessed kills only) for both icon rows. */
+export type BattleRecap = {
+  rounds: number;
+  dealt: number;
+  taken: number;
+  fizzles: number;
+  brawls: number;
+};
+
+export const EMPTY_RECAP: BattleRecap = { rounds: 0, dealt: 0, taken: 0, fizzles: 0, brawls: 0 };
+
+/** v1.4: distinct brawls in one round's replay script. The builder emits one
+ * slot per brawl EXCHANGE, back-to-back per brawl (same P9 chain rule that
+ * compresses follow-up frames): consecutive brawl slots whose strikes carry
+ * the same cell + pair are one brawl; any other slot kind breaks the chain. */
+export function countWitnessedBrawls(slots: readonly TimelineSlot[]): number {
+  let brawls = 0;
+  let prevKey: string | null = null;
+  for (const slot of slots) {
+    if (slot.kind !== 'brawl') {
+      prevKey = null;
+      continue;
+    }
+    const s = slot.strikes[0];
+    const key = s ? `${s.defenderCell}:${s.attackerId}:${s.defenderId}` : '?';
+    if (key !== prevKey) brawls++;
+    prevKey = key;
+  }
+  return brawls;
+}
 
 /**
  * v1.1 Feature B (dependent re-validation): after a queue edit/removal, every
@@ -168,6 +221,9 @@ export type AppState = {
   /** v1.3 casualty recap: witnessed kills in order of death, battle-long.
    * Appended when a round's summary closes; resets on a new battle. */
   casualties: Casualty[];
+  /** v1.4 battle recap: fog-honest battle-long totals (see BattleRecap).
+   * Accumulated when each round's summary closes; resets on a new battle. */
+  recap: BattleRecap;
 
   selectDonor: (donorId: string) => void;
   setSeed: (seed: number) => void;
@@ -224,6 +280,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   notice: null,
   battleLog: [],
   casualties: [],
+  recap: EMPTY_RECAP,
 
   selectDonor: (donorId) => set({ donorId }),
   setSeed: (seed) => set({ seed: Math.trunc(seed) }),
@@ -252,6 +309,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       notice: null,
       battleLog: [],
       casualties: [],
+      recap: EMPTY_RECAP,
     });
   },
 
@@ -268,6 +326,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       notice: null,
       battleLog: [],
       casualties: [],
+      recap: EMPTY_RECAP,
     }),
 
   // --- planning actions --------------------------------------------------------
@@ -435,13 +494,25 @@ export const useAppStore = create<AppState>((set, get) => ({
             ...s.replay.script.summary.kills.map((k) => ({ type: k.type, faction: k.faction })),
           ]
         : s.casualties;
-      if (s.game?.outcome) return { ...s, uiPhase: 'over' as const, casualties };
+      // v1.4 battle recap: accumulate the round's fog-filtered totals
+      // alongside the casualties (same source, same moment — see BattleRecap
+      // for the per-field fog-honesty argument).
+      const recap = s.replay
+        ? {
+            rounds: s.replay.round,
+            dealt: s.recap.dealt + s.replay.script.summary.damageDealt[PLAYER_FACTION],
+            taken: s.recap.taken + s.replay.script.summary.damageDealt[1],
+            fizzles: s.recap.fizzles + s.replay.script.summary.fizzles,
+            brawls: s.recap.brawls + countWitnessedBrawls(s.replay.script.slots),
+          }
+        : s.recap;
+      if (s.game?.outcome) return { ...s, uiPhase: 'over' as const, casualties, recap };
       // Back to planning; the replay script is spent — its skirmish-log lines
       // join the battle log history (the log persists across rounds, §v1.1 D).
       const battleLog = s.replay
         ? [...s.battleLog, { round: s.replay.round, entries: s.replay.script.log }]
         : s.battleLog;
-      return { ...s, uiPhase: 'planning' as const, replay: null, battleLog, casualties };
+      return { ...s, uiPhase: 'planning' as const, replay: null, battleLog, casualties, recap };
     }),
 
   rematch: (seed) => {

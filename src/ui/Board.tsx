@@ -38,7 +38,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Board as BoardGraph, CellId, Vec2 } from '../board/types';
+import { orderedUnitIds } from '../core/orders';
 import type { FactionId, Stance, UnitInstance } from '../core/types';
+import { PLAYER_FACTION, useAppStore } from '../state/store';
 import {
   CellRenderer,
   EffectRenderer,
@@ -608,6 +610,29 @@ export function Board({
 
   const unitById = useMemo(() => new Map(units.map((u) => [u.id, u])), [units]);
 
+  // --- v1.4: idle "awaiting orders" pulse --------------------------------------
+  // Own units with NO queued order get a slow breathing halo during the
+  // planning phase — an on-board echo of the hollow dock chips. The Board
+  // reads the order queues straight from the store (one narrow, additive
+  // subscription; the selector returns null outside battle-planning so the
+  // start-screen previews and every non-planning render bail before any
+  // per-unit work). Hard gates: never during replay (`replayFx` is the replay
+  // branch's marker prop), never on silhouettes/non-interactive previews,
+  // never for enemy tokens (faction check below). The halo unmounts the
+  // instant ANY order kind (move / attack / stance) is queued for the unit —
+  // queue edits re-render through this same subscription.
+  const planningOrders = useAppStore((s) =>
+    s.screen === 'battle' && s.uiPhase === 'planning' ? s.orders : null,
+  );
+  const pulseEligible =
+    interactive && !silhouette && replayFx === null && planningOrders !== null;
+  const orderedIds = useMemo(
+    () => (pulseEligible && planningOrders ? orderedUnitIds(planningOrders) : null),
+    [pulseEligible, planningOrders],
+  );
+  const idlePulse = (unit: UnitInstance): boolean =>
+    orderedIds !== null && unit.faction === PLAYER_FACTION && !orderedIds.has(unit.id);
+
   // v1.3 Tweak A: per-unit stagger slots for cells holding 2+ tokens.
   const staggerByUnit = useMemo(() => {
     const byCell = new Map<CellId, string[]>();
@@ -750,6 +775,7 @@ export function Board({
                 size={tokenSize}
                 scale={slot?.scale}
                 selected={unit.id === selectedUnitId}
+                pulse={idlePulse(unit)}
                 onTap={tapGuard(onUnitTap)}
               />
             );

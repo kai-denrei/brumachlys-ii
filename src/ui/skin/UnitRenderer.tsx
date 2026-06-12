@@ -29,6 +29,12 @@ export type UnitRendererProps = {
   /** Glyph-only token (timeline strip chips): no count pip, no stance
    * stroke styling — squircle + glyph at tiny sizes. */
   minimal?: boolean;
+  /** v1.4: idle "awaiting orders" cue (planning phase, own unordered units
+   * only — the Board decides). A soft faction-color halo breathing on a ~2 s
+   * period behind the token: a nudge, not an alarm — deliberately unlike the
+   * red threat-ring vocabulary (faster ring-pulse on target cells). Under
+   * prefers-reduced-motion the CSS swaps it for a static dotted outline. */
+  pulse?: boolean;
   onTap?: (unitId: string) => void;
 };
 
@@ -40,6 +46,7 @@ export const UnitRenderer = memo(function UnitRenderer({
   selected = false,
   scale = 1,
   minimal = false,
+  pulse = false,
   onTap,
 }: UnitRendererProps) {
   const color = factionColor(unit.faction);
@@ -63,6 +70,20 @@ export const UnitRenderer = memo(function UnitRenderer({
       onClick={onTap ? () => onTap(unit.id) : undefined}
     >
       {selected && <ellipse cx={0} cy={size * 0.5} rx={h * 0.9} ry={h * 0.3} fill="rgba(74,68,58,0.18)" />}
+      {pulse && (
+        <g className="idle-pulse" pointerEvents="none" aria-hidden="true">
+          {/* pathLength normalizes the circumference so the reduced-motion
+              dotted outline (CSS stroke-dasharray) is size-independent. */}
+          <circle
+            className="idle-pulse-halo"
+            r={size * 0.74}
+            pathLength={100}
+            fill="none"
+            stroke={color}
+            strokeWidth={size * 0.07}
+          />
+        </g>
+      )}
       <rect
         className="unit-body"
         x={-h}

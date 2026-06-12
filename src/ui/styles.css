@@ -193,6 +193,43 @@ body {
   font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* v1.4: idle "awaiting orders" cue — a soft faction-color halo breathing on a
+   2 s period behind own unordered tokens (planning only; Board gates it).
+   Deliberately calm next to the threat vocabulary: the .target-ring below is
+   a crisp 1.1 s enemy-color ring; this is a slow, low-opacity exhale. */
+.idle-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: idle-breathe 2s ease-in-out infinite;
+}
+
+@keyframes idle-breathe {
+  0%,
+  100% {
+    opacity: 0.1;
+    transform: scale(0.97);
+  }
+  50% {
+    opacity: 0.42;
+    transform: scale(1.06);
+  }
+}
+
+/* Reduced motion: no breathing — a static dotted outline carries the same
+   "no orders yet" signal. Dash units are pathLength-normalized (=100). */
+@media (prefers-reduced-motion: reduce) {
+  .idle-pulse {
+    animation: none;
+    opacity: 0.4;
+    transform: none;
+  }
+
+  .idle-pulse-halo {
+    /* 20 even dashes around the pathLength-100 circle — no seam. */
+    stroke-dasharray: 2.2 2.8;
+  }
+}
+
 .target-ring {
   animation: ring-pulse 1.1s ease-in-out infinite;
   transform-box: fill-box;
@@ -1148,6 +1185,76 @@ body {
 
 .banner-leave {
   padding: 0.6rem;
+}
+
+/* --- v1.4: battle recap dashboard inside the banner -------------------------
+   Two compact icon rows (CasualtyPanel vocabulary) + a 5-stat grid in the
+   round-summary card style. Sized so VICTORY banner + recap + seed + actions
+   fit a 390×844 viewport without scrolling; icon rows wrap when an army's
+   worth of casualties piles up. */
+
+.banner-recap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  text-align: left;
+}
+
+.recap-icon-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.recap-icon-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.3rem 0.55rem;
+  min-height: 1.6rem;
+}
+
+.recap-icon-label {
+  flex: none;
+  width: 6.6rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.recap-icon-row .casualty-row {
+  gap: 2px;
+}
+
+.recap-icon-row .casualty-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.recap-none {
+  font-size: 0.7rem;
+  opacity: 0.45;
+}
+
+.recap-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.35rem;
+}
+
+.recap-cell {
+  border: 1px solid rgba(74, 68, 58, 0.08);
+  padding: 0.35rem 0.1rem;
+}
+
+.recap-cell .summary-num {
+  font-size: 1.05rem;
+}
+
+.recap-cell .summary-label {
+  font-size: 0.56rem;
 }
 
 /* --- v1.2: rules modal (full-screen sheet behind the TopBar "i") ----------- */

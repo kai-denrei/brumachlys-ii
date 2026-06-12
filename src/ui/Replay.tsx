@@ -9,10 +9,12 @@
 // actorType null (rendered as a "?" chip) and its strikes carry null attacker
 // fields; nothing here can resurrect a hidden position.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FactionId, GameOutcome, UnitInstance, UnitType } from '../core/types';
+import { loadUnits } from '../io/data-loader';
 import type { RoundSummary, Strike, TimelineSlot } from '../state/replay';
-import type { ReplaySpeed } from '../state/store';
+import { PLAYER_FACTION, useAppStore, type ReplaySpeed } from '../state/store';
+import { CasualtyRow } from './CasualtyPanel';
 import { UnitRenderer, factionColor } from './skin';
 
 // --- timeline strip + speed control (§9.4) -------------------------------------
@@ -337,6 +339,67 @@ export function SummarySheet({
 
 // --- game-over banner + New Battle (§2.8, §9.6, §4.3) ------------------------------
 
+/** v1.4 battle recap dashboard inside the banner: rounds fought, the two
+ * chess-style icon rows (CasualtyPanel's exact vocabulary — fallen vs enemy
+ * destroyed), and the fog-honest battle totals. Data comes straight from the
+ * store: `casualties` (witnessed kills only — a mist kill never lands there)
+ * and `recap` (accumulated per round from the fog-filtered replay summaries;
+ * see BattleRecap in state/store.ts for the field-by-field honesty argument).
+ * Card style matches the round-summary sheet (.summary-cell), compacted so
+ * the banner stays inside a 390×844 viewport without scrolling. */
+function BannerRecap() {
+  const recap = useAppStore((s) => s.recap);
+  const casualties = useAppStore((s) => s.casualties);
+  const types = useMemo(() => loadUnits(), []);
+  const fallen = casualties.filter((c) => c.faction === PLAYER_FACTION);
+  const destroyed = casualties.filter((c) => c.faction !== PLAYER_FACTION);
+
+  const stats: { num: number; label: string; color?: string }[] = [
+    { num: recap.rounds, label: 'rounds' },
+    { num: recap.dealt, label: 'dmg dealt', color: factionColor(0) },
+    { num: recap.taken, label: 'dmg taken', color: factionColor(1) },
+    { num: recap.fizzles, label: 'fizzles' },
+    { num: recap.brawls, label: 'brawls' },
+  ];
+
+  return (
+    <div className="banner-recap" data-testid="battle-recap">
+      <div className="recap-icon-rows">
+        <div className="recap-icon-row">
+          <span className="recap-icon-label" style={{ color: factionColor(PLAYER_FACTION) }}>
+            your losses
+          </span>
+          {fallen.length > 0 ? (
+            <CasualtyRow row={fallen} label="your fallen units" unitTypes={types} />
+          ) : (
+            <span className="recap-none">none</span>
+          )}
+        </div>
+        <div className="recap-icon-row">
+          <span className="recap-icon-label" style={{ color: factionColor(1) }}>
+            enemy destroyed
+          </span>
+          {destroyed.length > 0 ? (
+            <CasualtyRow row={destroyed} label="enemy units destroyed" unitTypes={types} />
+          ) : (
+            <span className="recap-none">none seen</span>
+          )}
+        </div>
+      </div>
+      <div className="recap-grid">
+        {stats.map((s) => (
+          <div className="summary-cell recap-cell" key={s.label}>
+            <span className="summary-num" style={s.color ? { color: s.color } : undefined}>
+              {s.num}
+            </span>
+            <span className="summary-label">{s.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function outcomeText(outcome: GameOutcome): { title: string; sub: string } {
   if (outcome.winner === 0) return { title: 'VICTORY', sub: 'The mist parts. The field is yours.' };
   if (outcome.winner === 1) return { title: 'DEFEAT', sub: 'Your army is lost to the mist.' };
@@ -366,6 +429,7 @@ export function GameOverBanner({
           {title}
         </h2>
         <p className="banner-sub">{sub}</p>
+        <BannerRecap />
         <div className="seed-row">
           <label className="seed-label" htmlFor="banner-seed">
             seed
