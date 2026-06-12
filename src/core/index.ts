@@ -18,7 +18,27 @@ export type {
   UnitInstance,
   UnitType,
 } from './types';
-export type { Order } from './orders';
+export type {
+  AttackOrder,
+  MoveOrder,
+  Order,
+  OrderContext,
+  OrderKind,
+  OrderQueues,
+  OrderRejection,
+  StanceOrder,
+  UnitOrders,
+  ValidationResult,
+} from './orders';
+export {
+  findConvergences,
+  flattenOrders,
+  orderedUnitIds,
+  plannedEndCell,
+  queueOrder,
+  removeOrder,
+  validateOrder,
+} from './orders';
 export { createRng, fnv1a32, initTieKey } from './rng';
 export type { Rng } from './rng';
 

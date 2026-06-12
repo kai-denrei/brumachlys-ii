@@ -322,3 +322,273 @@ body {
     width: 100%;
   }
 }
+
+/* --- P7: layer 1 — can-decide (§9.2) ------------------------------------- */
+
+.stance-option {
+  cursor: pointer;
+}
+
+.stance-disabled {
+  cursor: default;
+}
+
+/* --- P7: layer 2 — ghost orders (§9.3) ------------------------------------ */
+
+.ghost-token {
+  cursor: pointer;
+}
+
+.attack-marker {
+  cursor: pointer;
+}
+
+/* Convergence warning: two friendly moves ending on one cell → amber flash. */
+.ghost-converging .ghost-trail,
+.ghost-converging .unit-body {
+  animation: converge-flash 0.9s ease-in-out infinite;
+}
+
+/* Only the amber frames are declared; the 50% frame falls back to the
+   element's own (faction-color) attribute value, so CSS interpolates
+   amber -> base -> amber without needing to know the base color. */
+@keyframes converge-flash {
+  0%,
+  100% {
+    stroke: #e8a13b;
+  }
+}
+
+/* The ghost token body flashes its FILL amber too — stroke alone is subtle
+   at phone size. */
+.ghost-converging .ghost-token .unit-body {
+  animation: converge-fill-flash 0.9s ease-in-out infinite;
+}
+
+@keyframes converge-fill-flash {
+  0%,
+  100% {
+    fill: #e8a13b;
+  }
+}
+
+/* --- P7: bottom sheets (§9.3 order details, §9.5 info) --------------------- */
+
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(74, 68, 58, 0.25);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  z-index: 20;
+}
+
+.bottom-sheet {
+  background: #fbf9f2;
+  border-radius: 18px 18px 0 0;
+  padding: 0.4rem 1rem calc(env(safe-area-inset-bottom) + 1rem);
+  box-shadow: 0 -6px 24px rgba(74, 68, 58, 0.2);
+  max-height: 60vh;
+  overflow-y: auto;
+  animation: sheet-up 0.18s ease-out;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(40%);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.sheet-grab {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(74, 68, 58, 0.25);
+  margin: 0.25rem auto 0.5rem;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.sheet-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+}
+
+.sheet-close {
+  border: none;
+  background: none;
+  color: var(--ink);
+  opacity: 0.55;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.sheet-empty {
+  font-size: 0.8rem;
+  opacity: 0.6;
+  margin: 0.25rem 0;
+}
+
+.order-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.order-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.5rem 0.65rem;
+}
+
+.order-kind {
+  font-weight: 700;
+  font-size: 0.78rem;
+  width: 3.4rem;
+  flex: none;
+}
+
+.order-detail {
+  flex: 1;
+  font-size: 0.78rem;
+  opacity: 0.75;
+  min-width: 0;
+}
+
+.sheet-button {
+  border: 1.5px solid rgba(74, 68, 58, 0.25);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  flex: none;
+}
+
+.sheet-button-danger {
+  border-color: rgba(200, 80, 60, 0.4);
+  color: #c0503c;
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+}
+
+.sheet-actions .sheet-button {
+  flex: 1;
+  padding: 0.55rem;
+}
+
+/* terrain table (§9.5) */
+.terrain-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.terrain-table th {
+  text-align: center;
+  font-weight: 600;
+  opacity: 0.55;
+  padding: 0.2rem 0.3rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.terrain-table td {
+  text-align: center;
+  padding: 0.3rem;
+  background: #fff;
+  border-bottom: 2px solid #fbf9f2;
+  font-variant-numeric: tabular-nums;
+}
+
+.terrain-table td:first-child {
+  text-align: left;
+  font-weight: 600;
+  border-radius: 8px 0 0 8px;
+}
+
+.terrain-table td:last-child {
+  border-radius: 0 8px 8px 0;
+}
+
+/* unit card (§9.5) */
+.unit-card {
+  margin-top: 0.75rem;
+  background: #fff;
+  border-radius: 12px;
+  padding: 0.6rem 0.7rem;
+}
+
+.unit-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.45rem;
+}
+
+.unit-card-token {
+  width: 38px;
+  height: 38px;
+  flex: none;
+}
+
+.unit-card-name {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.unit-card-sub {
+  font-size: 0.72rem;
+  opacity: 0.65;
+}
+
+.unit-card-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem 0.8rem;
+  margin: 0;
+}
+
+.unit-card-stats > div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.74rem;
+}
+
+.unit-card-stats dt {
+  opacity: 0.6;
+}
+
+.unit-card-stats dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- P7: dock chip filled/hollow ------------------------------------------ */
+
+.dock-chip-filled {
+  background: rgba(232, 128, 107, 0.18);
+}

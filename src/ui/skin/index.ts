@@ -10,3 +10,13 @@ export type { CellRendererProps } from './CellRenderer';
 export { UnitRenderer } from './UnitRenderer';
 export type { UnitRendererProps } from './UnitRenderer';
 export { GrainFilterDef, GrainOverlay, GRAIN_FILTER_ID, GRAIN_OPACITY } from './GrainFilter';
+export {
+  EffectRenderer,
+  HoldFireIcon,
+  ShieldIcon,
+  StanceIcon,
+  SwordIcon,
+  VisionEdge,
+  visionEdgeSegments,
+} from './EffectRenderer';
+export type { EffectRendererProps, GhostOrder } from './EffectRenderer';

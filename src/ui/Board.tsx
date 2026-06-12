@@ -7,20 +7,36 @@
 // y-UP. SVG is y-down — the projection flips y per point (not via a mirroring
 // group transform), so text/glyphs never render mirrored.
 //
-// P7 hooks shipped now (visual treatments implemented, logic wired later):
-// `highlights.reachable` (tint, alpha scaled by remaining-budget fraction when
-// a Map is given), `highlights.targets` (pulsing ring), `selectedUnitId`
-// (token lift + ground shadow).
+// P7 feedback layers:
+// - Layer 1 (§9.2): `highlights.reachable` (budget-graded tint),
+//   `highlights.targets` (ring pulse), `highlights.visionEdge` (faint contour
+//   via skin/VisionEdge), `selectedUnitId` (token lift), and the stance
+//   popover (`stancePopover` prop) anchored to the selected token.
+// - Layer 2 (§9.3): `ghosts` rendered by skin/EffectRenderer in a dedicated
+//   layer ABOVE grain/highlights and BELOW units; `onGhostTap` opens the
+//   order sheet.
+// - §9.5: long-press (500 ms, same 8 px slop as the tap guard) on any cell or
+//   unit token → `onCellLongPress(cellId)`.
+// - Overlay UI decision: the stance popover renders INSIDE the SVG (in the
+//   pan/zoom group), so it tracks the token under pan/pinch for free — no
+//   toClient transform sync needed. Bottom sheets are ordinary DOM outside
+//   the SVG (they don't anchor to board geometry).
+// - `focus` prop: when its token changes, the view pans (keeping zoom) so the
+//   given cell sits at the viewBox center — dock-chip "select + center".
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Board as BoardGraph, CellId, Vec2 } from '../board/types';
-import type { FactionId, UnitInstance } from '../core/types';
+import type { FactionId, Stance, UnitInstance } from '../core/types';
 import {
   CellRenderer,
+  EffectRenderer,
   GrainFilterDef,
   GrainOverlay,
+  StanceIcon,
   UnitRenderer,
+  VisionEdge,
   factionColor,
+  type GhostOrder,
   type Pt,
 } from './skin';
 
@@ -30,6 +46,16 @@ export type BoardHighlights = {
   reachable?: ReadonlySet<CellId> | ReadonlyMap<CellId, number>;
   /** Attackable targets: pulsing ring (§9.2). */
   targets?: ReadonlySet<CellId>;
+  /** Selected unit's vision set — its edge renders as a faint contour (§9.2). */
+  visionEdge?: ReadonlySet<CellId>;
+};
+
+export type StancePopoverState = {
+  /** Stance shown as active: the queued one if any, else the unit's current. */
+  active: Stance;
+  /** §2.4: hold-fire is blocked while an explicit attack is queued. */
+  holdFireDisabled: boolean;
+  onPick: (stance: Stance) => void;
 };
 
 export type BoardProps = {
@@ -40,8 +66,16 @@ export type BoardProps = {
   fog?: ReadonlySet<CellId>;
   highlights?: BoardHighlights;
   selectedUnitId?: string | null;
+  /** Layer-2 queued-order ghosts (§9.3), drawn by skin/EffectRenderer. */
+  ghosts?: readonly GhostOrder[];
+  /** Pan so this cell is centered whenever `token` changes. */
+  focus?: { cell: CellId; token: number } | null;
+  /** Stance popover on the selected unit (§9.2); rendered inside the SVG. */
+  stancePopover?: StancePopoverState | null;
   onCellTap?: (cellId: CellId) => void;
   onUnitTap?: (unitId: string) => void;
+  onGhostTap?: (unitId: string) => void;
+  onCellLongPress?: (cellId: CellId) => void;
   /** Disable pan/zoom (start-screen previews). */
   interactive?: boolean;
   className?: string;
@@ -52,6 +86,7 @@ const PAD = 14;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 4;
 const TAP_SLOP_PX = 8;
+const LONG_PRESS_MS = 500;
 
 type View = { k: number; tx: number; ty: number };
 
@@ -59,14 +94,21 @@ function clampZoom(k: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k));
 }
 
+const STANCES: readonly Stance[] = ['aggressive', 'defensive', 'hold-fire'];
+
 export function Board({
   board,
   units = [],
   fog,
   highlights,
   selectedUnitId = null,
+  ghosts,
+  focus = null,
+  stancePopover = null,
   onCellTap,
   onUnitTap,
+  onGhostTap,
+  onCellLongPress,
   interactive = true,
   className,
 }: BoardProps) {
@@ -140,15 +182,58 @@ export function Board({
   const gestureMoved = useRef(0); // cumulative px since gesture start
   const wasPinch = useRef(false);
 
+  // --- long-press (§9.5) -----------------------------------------------------
+  // Shares the pointer tap-guard state: same 8 px slop cancels; firing
+  // suppresses the synthetic click that follows pointer release.
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+
+  function cancelLongPress() {
+    if (longPressTimer.current !== null) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }
+
+  /** Cell under a pointer-down target: a cell polygon's group, or a unit
+   * token's group mapped to the unit's cell. */
+  function cellAtTarget(target: EventTarget | null): CellId | null {
+    if (!(target instanceof Element)) return null;
+    const cellEl = target.closest('[data-cell-id]');
+    if (cellEl) return Number(cellEl.getAttribute('data-cell-id'));
+    const unitEl = target.closest('[data-unit-id]');
+    if (unitEl) {
+      const unit = units.find((u) => u.id === unitEl.getAttribute('data-unit-id'));
+      if (unit) return unit.cell;
+    }
+    return null;
+  }
+
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (!interactive) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    // NOTE: capture is DEFERRED until the gesture pans/pinches (see
+    // onPointerMove). Capturing here retargets the browser's compatibility
+    // click to the svg, which silences every cell/unit onClick — found by
+    // the P7 Playwright pass; jsdom never reproduced it.
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size === 1) {
       gestureMoved.current = 0;
       wasPinch.current = false;
+      longPressFired.current = false;
+      if (onCellLongPress) {
+        const cellId = cellAtTarget(e.target);
+        if (cellId !== null) {
+          cancelLongPress();
+          longPressTimer.current = setTimeout(() => {
+            longPressTimer.current = null;
+            longPressFired.current = true;
+            onCellLongPress(cellId);
+          }, LONG_PRESS_MS);
+        }
+      }
     } else {
       wasPinch.current = true;
+      cancelLongPress();
     }
   }
 
@@ -158,6 +243,14 @@ export function Board({
     if (!prev) return;
     const cur = { x: e.clientX, y: e.clientY };
     gestureMoved.current += Math.hypot(cur.x - prev.x, cur.y - prev.y);
+    if (gestureMoved.current > TAP_SLOP_PX || pointers.current.size > 1) {
+      cancelLongPress();
+      // The gesture is a pan/pinch, not a tap: NOW capture, so it keeps
+      // tracking outside the svg. The tap guard is already tripped.
+      if (!e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+      }
+    }
 
     if (pointers.current.size === 1) {
       const dx = cur.x - prev.x;
@@ -183,7 +276,10 @@ export function Board({
 
   function onPointerEnd(e: React.PointerEvent<SVGSVGElement>) {
     pointers.current.delete(e.pointerId);
+    cancelLongPress();
   }
+
+  useEffect(() => cancelLongPress, []); // unmount: drop a pending timer
 
   function onWheel(e: React.WheelEvent<SVGSVGElement>) {
     if (!interactive) return;
@@ -197,11 +293,25 @@ export function Board({
     });
   }
 
-  /** A click counts as a tap only if the gesture didn't pan/pinch. */
+  // Dock-chip "select + center": pan (keep zoom) so focus.cell sits at the
+  // viewBox center. Runs only when the token changes.
+  const focusToken = focus?.token;
+  useEffect(() => {
+    if (!focus) return;
+    const cell = board.cells.get(focus.cell);
+    if (!cell) return;
+    const [px, py] = toScreen(cell.center);
+    const cx = bbox.x + bbox.width / 2;
+    const cy = bbox.y + bbox.height / 2;
+    setView((v) => ({ ...v, tx: cx - v.k * px, ty: cy - v.k * py }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusToken]);
+
+  /** A click counts as a tap only if the gesture didn't pan/pinch/long-press. */
   function tapGuard<T>(handler: ((arg: T) => void) | undefined): ((arg: T) => void) | undefined {
     if (!handler) return undefined;
     return (arg: T) => {
-      if (gestureMoved.current > TAP_SLOP_PX || wasPinch.current) return;
+      if (gestureMoved.current > TAP_SLOP_PX || wasPinch.current || longPressFired.current) return;
       handler(arg);
     };
   }
@@ -212,10 +322,15 @@ export function Board({
     if (!reachable) return null;
     if (reachable instanceof Map) {
       const f = reachable.get(id);
-      return f === undefined ? null : 0.14 + 0.22 * Math.min(1, Math.max(0, f));
+      // 0.22..0.52: the P7 visual pass measured 0.14-base tint as nearly
+      // invisible on pale-green plains at phone size.
+      return f === undefined ? null : 0.22 + 0.3 * Math.min(1, Math.max(0, f));
     }
-    return (reachable as ReadonlySet<CellId>).has(id) ? 0.24 : null;
+    return (reachable as ReadonlySet<CellId>).has(id) ? 0.32 : null;
   };
+
+  const selectedUnit = selectedUnitId !== null ? unitById.get(selectedUnitId) : undefined;
+  const selectedCell = selectedUnit ? board.cells.get(selectedUnit.cell) : undefined;
 
   return (
     <svg
@@ -245,7 +360,7 @@ export function Board({
           ))}
         </g>
         <GrainOverlay {...bbox} />
-        {(reachable || highlights?.targets) && (
+        {(reachable || highlights?.targets || highlights?.visionEdge) && (
           <g className="board-highlights" pointerEvents="none">
             {cells.map((cell) => {
               const alpha = reachAlpha(cell.id);
@@ -263,6 +378,9 @@ export function Board({
                 />
               );
             })}
+            {highlights?.visionEdge && (
+              <VisionEdge board={board} toScreen={toScreen} cellSet={highlights.visionEdge} />
+            )}
             {highlights?.targets &&
               [...highlights.targets].map((id) => {
                 const cell = board.cells.get(id);
@@ -283,6 +401,15 @@ export function Board({
               })}
           </g>
         )}
+        {ghosts && ghosts.length > 0 && (
+          <EffectRenderer
+            board={board}
+            toScreen={toScreen}
+            tokenSize={tokenSize}
+            ghosts={ghosts}
+            onGhostTap={tapGuard(onGhostTap)}
+          />
+        )}
         <g className="board-units">
           {[...unitById.values()].map((unit) => {
             const cell = board.cells.get(unit.cell);
@@ -301,7 +428,63 @@ export function Board({
             );
           })}
         </g>
+        {stancePopover && selectedUnit && selectedCell && (
+          <StancePopover
+            anchor={toScreen(selectedCell.center)}
+            tokenSize={tokenSize}
+            state={stancePopover}
+            tapGuard={tapGuard}
+          />
+        )}
       </g>
     </svg>
+  );
+}
+
+/** §9.2 stance popover: 3 icon buttons (sword / shield / crossed) floating
+ * above the selected token, inside the SVG so it pans/zooms with the board. */
+function StancePopover({
+  anchor,
+  tokenSize,
+  state,
+  tapGuard,
+}: {
+  anchor: Pt;
+  tokenSize: number;
+  state: StancePopoverState;
+  tapGuard: <T>(h: ((arg: T) => void) | undefined) => ((arg: T) => void) | undefined;
+}) {
+  const r = tokenSize * 0.44;
+  const gap = r * 2.5;
+  const y = anchor[1] - tokenSize * 1.55;
+  const pick = tapGuard(state.onPick);
+  return (
+    <g className="stance-popover">
+      {STANCES.map((stance, i) => {
+        const x = anchor[0] + (i - 1) * gap;
+        const active = stance === state.active;
+        const disabled = stance === 'hold-fire' && state.holdFireDisabled;
+        return (
+          <g
+            key={stance}
+            className={`stance-option stance-${stance}${active ? ' stance-active' : ''}${disabled ? ' stance-disabled' : ''}`}
+            data-stance={stance}
+            transform={`translate(${x} ${y})`}
+            opacity={disabled ? 0.35 : 1}
+            onClick={disabled || !pick ? undefined : () => pick(stance)}
+          >
+            <circle
+              r={r}
+              fill={active ? factionColor(0) : '#fff'}
+              stroke={active ? '#fff' : 'rgba(74,68,58,0.45)'}
+              strokeWidth={r * 0.1}
+            />
+            <g pointerEvents="none">
+              <StanceIcon stance={stance} size={r * 1.35} stroke={active ? '#fff' : '#6b6356'} />
+            </g>
+          </g>
+        );
+      })}
+    </g>
   );
 }
