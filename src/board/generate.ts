@@ -89,15 +89,23 @@ export function extractCells(mesh: Mesh): Map<CellId, Cell> {
 }
 
 /**
- * P1 board generation: uniform all-plains board, no donor (spec §12 P1).
- * Pure and deterministic: same (seed, targetCells) → identical Board.
- * The P2 donor signature `generateBoard(donorMap, seed, targetCells)` (§3.3)
- * will wrap this same mesh→cells core.
+ * The shared mesh→cells core: generate + relax the mesh, extract game-facing
+ * cells (all plains). Both the uniform P1 board and the P2 donor pipeline
+ * (donor.ts) build on this. Pure and deterministic.
  */
-export function generateBoard(seed: number, targetCells: number): Board {
+export function generateCells(seed: number, targetCells: number): Map<CellId, Cell> {
   const r = poissonRadiusFor(targetCells);
   const mesh = generateMesh({ seed, r });
   relax(mesh, { n_iters: RELAX_ITERS, SIDE_LENGTH: SIDE_LENGTH_FACTOR * r });
-  const cells = extractCells(mesh);
-  return { cells, seed, donorMapId: 'uniform' };
+  return extractCells(mesh);
+}
+
+/**
+ * Donor-less board generation: uniform all-plains board (spec §12 P1; kept as
+ * the test/dev variant). Pure and deterministic: same (seed, targetCells) →
+ * identical Board. The spec §3.3 signature `generateBoard(donorMap, seed,
+ * targetCells)` lives in donor.ts.
+ */
+export function generateUniformBoard(seed: number, targetCells: number): Board {
+  return { cells: generateCells(seed, targetCells), seed, donorMapId: 'uniform' };
 }

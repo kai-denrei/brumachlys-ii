@@ -1,7 +1,7 @@
 // geometry.test.ts — graphDistance / angleAt / cellsWithin (spec §13.2 vectors).
 
 import { describe, expect, it } from 'vitest';
-import { generateBoard } from '../../src/board/generate';
+import { generateUniformBoard } from '../../src/board/generate';
 import { angleAt, cellsWithin, graphDistance } from '../../src/board/geometry';
 import type { Board, Cell, CellId, Vec2 } from '../../src/board/types';
 
@@ -58,7 +58,7 @@ describe('angleAt (§13.2 vectors)', () => {
 });
 
 describe('graphDistance (§13.2)', () => {
-  const board = generateBoard(7, 150);
+  const board = generateUniformBoard(7, 150);
   const ids = [...board.cells.keys()];
   const first = ids[0]!;
 
@@ -94,7 +94,7 @@ describe('graphDistance (§13.2)', () => {
 });
 
 describe('cellsWithin (§3.2)', () => {
-  const board = generateBoard(7, 150);
+  const board = generateUniformBoard(7, 150);
   const from = [...board.cells.keys()][0]!;
 
   it('hops 0 -> just the cell itself', () => {

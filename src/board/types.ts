@@ -25,6 +25,11 @@ export type Cell = {
 export type Board = {
   /** Only playable cells (deleted cells absent). */
   cells: Map<CellId, Cell>;
+  /** The seed that actually produced the board (requested seed + k when the
+   * §4.1 connectivity guard retried). */
   seed: number;
   donorMapId: string;
+  /** §4.1 step 7 (P2): cell nearest each faction's first donor base (or first
+   * start unit). [faction0, faction1]. Absent on donor-less uniform boards. */
+  placementAnchors?: [CellId, CellId];
 };

@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map id="55480">
+  <name>vietFort</name>
+  <initialCredits>200</initialCredits>
+  <perBaseCredits>50</perBaseCredits>
+  <width>18</width>
+  <height>18</height>
+  <maxPlayers>2</maxPlayers>
+  <url>http://weewar.com/map/55480</url>
+  <thumbnail>http://weewar.com/images/maps/boardThumb_55480_ir3.png</thumbnail>
+  <preview>http://weewar.com/images/maps/preview_55480_ir3.png</preview>
+  <revision>2</revision>
+  <creator>lukeisheretic</creator>
+  <creatorProfile>http://weewar.com/user/lukeisheretic</creatorProfile>
+  <terrains>
+    <terrain x="0" y="0" type="Woods" />
+    <terrain x="0" y="1" type="Woods" />
+    <terrain x="0" y="2" type="Woods" />
+    <terrain x="0" y="3" type="Woods" />
+    <terrain x="0" y="10" type="Swamp" />
+    <terrain x="0" y="11" type="Swamp" />
+    <terrain x="0" y="12" type="Swamp" />
+    <terrain x="0" y="13" type="Swamp" />
+    <terrain x="0" y="14" type="Swamp" />
+    <terrain x="0" y="15" type="Woods" />
+    <terrain startFaction="0" x="0" y="16" type="Airfield" />
+    <terrain x="0" y="17" type="Woods" />
+    <terrain x="1" y="0" type="Woods" />
+    <terrain x="1" y="1" type="Mountains" />
+    <terrain x="1" y="2" type="Woods" />
+    <terrain x="1" y="3" type="Woods" />
+    <terrain x="1" y="4" type="Woods" />
+    <terrain x="1" y="5" type="Woods" />
+    <terrain x="1" y="10" type="Swamp" />
+    <terrain x="1" y="11" type="Swamp" />
+    <terrain x="1" y="12" type="Swamp" />
+    <terrain x="1" y="13" type="Swamp" />
+    <terrain x="1" y="14" type="Swamp" />
+    <terrain x="1" y="15" type="Woods" />
+    <terrain x="1" y="16" type="Woods" />
+    <terrain x="1" y="17" type="Woods" />
+    <terrain x="2" y="0" type="Plains" />
+    <terrain x="2" y="1" type="Plains" />
+    <terrain x="2" y="2" type="Mountains" />
+    <terrain x="2" y="3" type="Mountains" />
+    <terrain x="2" y="4" type="Woods" />
+    <terrain x="2" y="5" type="Woods" />
+    <terrain x="2" y="6" type="Woods" />
+    <terrain x="2" y="7" type="Desert" />
+    <terrain x="2" y="10" type="Plains" />
+    <terrain x="2" y="11" type="Plains" />
+    <terrain x="2" y="12" type="Plains" />
+    <terrain x="2" y="13" type="Plains" />
+    <terrain x="2" y="14" type="Swamp" />
+    <terrain x="2" y="15" type="Swamp" />
+    <terrain x="2" y="16" type="Woods" />
+    <terrain x="2" y="17" type="Swamp" />
+    <terrain x="3" y="0" type="Plains" />
+    <terrain startFaction="0" x="3" y="1" type="Base" />
+    <terrain startUnit="Heavy Tank" startUnitOwner="0" x="3" y="2" type="Plains" />
+    <terrain x="3" y="3" type="Woods" />
+    <terrain x="3" y="4" type="Woods" />
+    <terrain x="3" y="5" type="Woods" />
+    <terrain x="3" y="6" type="Woods" />
+    <terrain x="3" y="7" type="Desert" />
+    <terrain x="3" y="8" type="Plains" />
+    <terrain x="3" y="9" type="Plains" />
+    <terrain x="3" y="10" type="Plains" />
+    <terrain x="3" y="11" type="Water" />
+    <terrain x="3" y="12" type="Plains" />
+    <terrain startUnit="Anti Aircraft" startUnitOwner="0" x="3" y="13" type="Plains" />
+    <terrain startUnit="Heavy Tank" startUnitOwner="0" x="3" y="14" type="Plains" />
+    <terrain startUnit="Berserker" startUnitOwner="0" x="3" y="15" type="Swamp" />
+    <terrain x="3" y="16" type="Swamp" />
+    <terrain x="3" y="17" type="Swamp" />
+    <terrain x="4" y="0" type="Plains" />
+    <terrain startFaction="0" x="4" y="1" type="Base" />
+    <terrain x="4" y="2" type="Plains" />
+    <terrain x="4" y="3" type="Woods" />
+    <terrain x="4" y="4" type="Woods" />
+    <terrain x="4" y="5" type="Woods" />
+    <terrain x="4" y="6" type="Woods" />
+    <terrain x="4" y="7" type="Woods" />
+    <terrain x="4" y="8" type="Desert" />
+    <terrain x="4" y="9" type="Plains" />
+    <terrain x="4" y="10" type="Plains" />
+    <terrain x="4" y="11" type="Water" />
+    <terrain startFaction="0" x="4" y="12" type="Base" />
+    <terrain startUnit="Battleship" startUnitOwner="0" x="4" y="13" type="Water" />
+    <terrain x="4" y="14" type="Repairshop" />
+    <terrain startUnit="Heavy Tank" startUnitOwner="0" x="4" y="15" type="Plains" />
+    <terrain x="4" y="16" type="Swamp" />
+    <terrain x="4" y="17" type="Swamp" />
+    <terrain x="5" y="0" type="Plains" />
+    <terrain x="5" y="1" type="Plains" />
+    <terrain startUnit="Trooper" startUnitOwner="0" x="5" y="2" type="Plains" />
+    <terrain x="5" y="3" type="Desert" />
+    <terrain x="5" y="4" type="Woods" />
+    <terrain x="5" y="5" type="Woods" />
+    <terrain x="5" y="6" type="Mountains" />
+    <terrain x="5" y="7" type="Woods" />
+    <terrain x="5" y="8" type="Desert" />
+    <terrain startUnit="Trooper" startUnitOwner="0" x="5" y="9" type="Plains" />
+    <terrain x="5" y="10" type="Plains" />
+    <terrain x="5" y="11" type="Water" />
+    <terrain startFaction="0" x="5" y="12" type="Base" />
+    <terrain startFaction="0" x="5" y="13" type="Base" />
+    <terrain startUnit="Anti Aircraft" startUnitOwner="0" x="5" y="14" type="Plains" />
+    <terrain x="5" y="15" type="Plains" />
+    <terrain x="5" y="16" type="Swamp" />
+    <terrain x="5" y="17" type="Swamp" />
+    <terrain x="6" y="0" type="Plains" />
+    <terrain x="6" y="1" type="Water" />
+    <terrain x="6" y="2" type="Water" />
+    <terrain x="6" y="3" type="Desert" />
+    <terrain x="6" y="4" type="Desert" />
+    <terrain x="6" y="5" type="Woods" />
+    <terrain x="6" y="6" type="Mountains" />
+    <terrain x="6" y="7" type="Woods" />
+    <terrain x="6" y="8" type="Desert" />
+    <terrain x="6" y="9" type="Desert" />
+    <terrain x="6" y="10" type="Plains" />
+    <terrain x="6" y="11" type="Plains" />
+    <terrain x="6" y="12" type="Water" />
+    <terrain x="6" y="13" type="Water" />
+    <terrain x="6" y="14" type="Plains" />
+    <terrain x="6" y="15" type="Swamp" />
+    <terrain x="6" y="16" type="Swamp" />
+    <terrain x="6" y="17" type="Swamp" />
+    <terrain x="7" y="0" type="Water" />
+    <terrain x="7" y="1" type="Plains" />
+    <terrain x="7" y="2" type="Plains" />
+    <terrain x="7" y="3" type="Plains" />
+    <terrain x="7" y="4" type="Desert" />
+    <terrain x="7" y="5" type="Desert" />
+    <terrain x="7" y="6" type="Woods" />
+    <terrain x="7" y="7" type="Mountains" />
+    <terrain x="7" y="8" type="Woods" />
+    <terrain x="7" y="9" type="Woods" />
+    <terrain x="7" y="10" type="Desert" />
+    <terrain x="7" y="11" type="Plains" />
+    <terrain x="7" y="12" type="Plains" />
+    <terrain x="7" y="13" type="Plains" />
+    <terrain x="7" y="14" type="Plains" />
+    <terrain x="7" y="15" type="Swamp" />
+    <terrain x="7" y="16" type="Swamp" />
+    <terrain x="7" y="17" type="Swamp" />
+    <terrain x="8" y="0" type="Plains" />
+    <terrain x="8" y="1" type="Woods" />
+    <terrain x="8" y="2" type="Plains" />
+    <terrain x="8" y="3" type="Woods" />
+    <terrain x="8" y="4" type="Plains" />
+    <terrain x="8" y="5" type="Woods" />
+    <terrain x="8" y="6" type="Desert" />
+    <terrain x="8" y="7" type="Woods" />
+    <terrain x="8" y="8" type="Mountains" />
+    <terrain x="8" y="9" type="Woods" />
+    <terrain x="8" y="10" type="Desert" />
+    <terrain x="8" y="11" type="Desert" />
+    <terrain startUnit="Trooper" startUnitOwner="0" x="8" y="12" type="Plains" />
+    <terrain x="8" y="13" type="Plains" />
+    <terrain x="8" y="14" type="Plains" />
+    <terrain x="8" y="15" type="Woods" />
+    <terrain x="8" y="16" type="Swamp" />
+    <terrain x="8" y="17" type="Woods" />
+    <terrain x="9" y="0" type="Woods" />
+    <terrain x="9" y="1" type="Woods" />
+    <terrain x="9" y="2" type="Woods" />
+    <terrain x="9" y="3" type="Woods" />
+    <terrain x="9" y="4" type="Woods" />
+    <terrain x="9" y="5" type="Plains" />
+    <terrain x="9" y="6" type="Desert" />
+    <terrain x="9" y="7" type="Desert" />
+    <terrain x="9" y="8" type="Woods" />
+    <terrain x="9" y="9" type="Mountains" />
+    <terrain x="9" y="10" type="Woods" />
+    <terrain x="9" y="11" type="Woods" />
+    <terrain x="9" y="12" type="Desert" />
+    <terrain x="9" y="13" type="Woods" />
+    <terrain x="9" y="14" type="Woods" />
+    <terrain x="9" y="15" type="Woods" />
+    <terrain x="9" y="16" type="Woods" />
+    <terrain x="9" y="17" type="Woods" />
+    <terrain x="10" y="0" type="Woods" />
+    <terrain x="10" y="1" type="Swamp" />
+    <terrain x="10" y="2" type="Woods" />
+    <terrain x="10" y="3" type="Plains" />
+    <terrain x="10" y="4" type="Plains" />
+    <terrain x="10" y="5" type="Plains" />
+    <terrain startUnit="Trooper" startUnitOwner="1" x="10" y="6" type="Plains" />
+    <terrain x="10" y="7" type="Desert" />
+    <terrain x="10" y="8" type="Woods" />
+    <terrain x="10" y="9" type="Woods" />
+    <terrain x="10" y="10" type="Woods" />
+    <terrain x="10" y="11" type="Woods" />
+    <terrain x="10" y="12" type="Desert" />
+    <terrain x="10" y="13" type="Plains" />
+    <terrain x="10" y="14" type="Woods" />
+    <terrain x="10" y="15" type="Plains" />
+    <terrain x="10" y="16" type="Woods" />
+    <terrain x="10" y="17" type="Plains" />
+    <terrain x="11" y="0" type="Swamp" />
+    <terrain x="11" y="1" type="Swamp" />
+    <terrain x="11" y="2" type="Swamp" />
+    <terrain x="11" y="3" type="Plains" />
+    <terrain x="11" y="4" type="Water" />
+    <terrain x="11" y="5" type="Water" />
+    <terrain x="11" y="6" type="Plains" />
+    <terrain x="11" y="7" type="Plains" />
+    <terrain x="11" y="8" type="Desert" />
+    <terrain x="11" y="9" type="Woods" />
+    <terrain x="11" y="10" type="Mountains" />
+    <terrain x="11" y="11" type="Woods" />
+    <terrain x="11" y="12" type="Desert" />
+    <terrain x="11" y="13" type="Desert" />
+    <terrain x="11" y="14" type="Plains" />
+    <terrain x="11" y="15" type="Plains" />
+    <terrain x="11" y="16" type="Plains" />
+    <terrain x="11" y="17" type="Plains" />
+    <terrain x="12" y="0" type="Swamp" />
+    <terrain x="12" y="1" type="Swamp" />
+    <terrain x="12" y="2" type="Swamp" />
+    <terrain startUnit="Anti Aircraft" startUnitOwner="1" x="12" y="3" type="Plains" />
+    <terrain startFaction="1" x="12" y="4" type="Base" />
+    <terrain startFaction="1" x="12" y="5" type="Base" />
+    <terrain x="12" y="6" type="Water" />
+    <terrain x="12" y="7" type="Plains" />
+    <terrain x="12" y="8" type="Desert" />
+    <terrain x="12" y="9" type="Desert" />
+    <terrain x="12" y="10" type="Woods" />
+    <terrain x="12" y="11" type="Mountains" />
+    <terrain x="12" y="12" type="Woods" />
+    <terrain x="12" y="13" type="Desert" />
+    <terrain x="12" y="14" type="Plains" />
+    <terrain x="12" y="15" type="Water" />
+    <terrain x="12" y="16" type="Water" />
+    <terrain x="12" y="17" type="Water" />
+    <terrain x="13" y="0" type="Swamp" />
+    <terrain x="13" y="1" type="Swamp" />
+    <terrain startUnit="Heavy Tank" startUnitOwner="1" x="13" y="2" type="Plains" />
+    <terrain x="13" y="3" type="Repairshop" />
+    <terrain startUnit="Battleship" startUnitOwner="1" x="13" y="4" type="Water" />
+    <terrain startFaction="1" x="13" y="5" type="Base" />
+    <terrain x="13" y="6" type="Water" />
+    <terrain x="13" y="7" type="Plains" />
+    <terrain startUnit="Trooper" startUnitOwner="1" x="13" y="8" type="Plains" />
+    <terrain x="13" y="9" type="Desert" />
+    <terrain x="13" y="10" type="Woods" />
+    <terrain x="13" y="11" type="Mountains" />
+    <terrain x="13" y="12" type="Woods" />
+    <terrain x="13" y="13" type="Desert" />
+    <terrain x="13" y="14" type="Water" />
+    <terrain x="13" y="15" type="Plains" />
+    <terrain x="13" y="16" type="Plains" />
+    <terrain x="13" y="17" type="Plains" />
+    <terrain x="14" y="0" type="Swamp" />
+    <terrain x="14" y="1" type="Swamp" />
+    <terrain startUnit="Berserker" startUnitOwner="1" x="14" y="2" type="Swamp" />
+    <terrain startUnit="Heavy Tank" startUnitOwner="1" x="14" y="3" type="Plains" />
+    <terrain startUnit="Anti Aircraft" startUnitOwner="1" x="14" y="4" type="Plains" />
+    <terrain x="14" y="5" type="Plains" />
+    <terrain x="14" y="6" type="Water" />
+    <terrain x="14" y="7" type="Plains" />
+    <terrain x="14" y="8" type="Plains" />
+    <terrain x="14" y="9" type="Desert" />
+    <terrain x="14" y="10" type="Woods" />
+    <terrain x="14" y="11" type="Woods" />
+    <terrain x="14" y="12" type="Woods" />
+    <terrain x="14" y="13" type="Plains" />
+    <terrain startUnit="Trooper" startUnitOwner="1" x="14" y="14" type="Plains" />
+    <terrain x="14" y="15" type="Plains" />
+    <terrain startFaction="1" x="14" y="16" type="Base" />
+    <terrain x="14" y="17" type="Plains" />
+    <terrain x="15" y="0" type="Swamp" />
+    <terrain x="15" y="1" type="Woods" />
+    <terrain x="15" y="2" type="Swamp" />
+    <terrain x="15" y="3" type="Swamp" />
+    <terrain x="15" y="4" type="Plains" />
+    <terrain x="15" y="5" type="Swamp" />
+    <terrain x="15" y="6" type="Plains" />
+    <terrain x="15" y="7" type="Plains" />
+    <terrain x="15" y="10" type="Woods" />
+    <terrain x="15" y="11" type="Woods" />
+    <terrain x="15" y="12" type="Woods" />
+    <terrain x="15" y="13" type="Woods" />
+    <terrain x="15" y="14" type="Plains" />
+    <terrain startUnit="Heavy Tank" startUnitOwner="1" x="15" y="15" type="Plains" />
+    <terrain startFaction="1" x="15" y="16" type="Base" />
+    <terrain x="15" y="17" type="Plains" />
+    <terrain x="16" y="0" type="Woods" />
+    <terrain x="16" y="1" type="Woods" />
+    <terrain x="16" y="2" type="Woods" />
+    <terrain x="16" y="3" type="Swamp" />
+    <terrain x="16" y="4" type="Swamp" />
+    <terrain x="16" y="5" type="Plains" />
+    <terrain x="16" y="6" type="Plains" />
+    <terrain x="16" y="7" type="Plains" />
+    <terrain x="16" y="12" type="Woods" />
+    <terrain x="16" y="13" type="Woods" />
+    <terrain x="16" y="14" type="Woods" />
+    <terrain x="16" y="15" type="Woods" />
+    <terrain x="16" y="16" type="Plains" />
+    <terrain x="16" y="17" type="Woods" />
+    <terrain x="17" y="0" type="Woods" />
+    <terrain startFaction="1" x="17" y="1" type="Airfield" />
+    <terrain x="17" y="2" type="Woods" />
+    <terrain x="17" y="3" type="Swamp" />
+    <terrain x="17" y="4" type="Swamp" />
+    <terrain x="17" y="5" type="Plains" />
+    <terrain x="17" y="6" type="Plains" />
+    <terrain x="17" y="7" type="Plains" />
+    <terrain x="17" y="14" type="Woods" />
+    <terrain x="17" y="15" type="Woods" />
+    <terrain x="17" y="16" type="Woods" />
+    <terrain x="17" y="17" type="Woods" />
+  </terrains>
+</map>
+

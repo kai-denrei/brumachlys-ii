@@ -1,7 +1,7 @@
-// board.test.ts — generateBoard contract (spec §3.2, §3.3, §13.2 vectors).
+// board.test.ts — generateUniformBoard contract (spec §3.2, §3.3, §13.2 vectors).
 
 import { describe, expect, it } from 'vitest';
-import { generateBoard } from '../../src/board/generate';
+import { generateUniformBoard } from '../../src/board/generate';
 import type { Board } from '../../src/board/types';
 
 // Serialize a Board's deterministic surface for deep-equality.
@@ -20,22 +20,22 @@ function snapshot(board: Board) {
   };
 }
 
-describe('generateBoard determinism (§13.2)', () => {
-  it('generateBoard(7, 150) twice -> deep-equal (ids, centers, polygons, neighbors)', () => {
-    const a = generateBoard(7, 150);
-    const b = generateBoard(7, 150);
+describe('generateUniformBoard determinism (§13.2)', () => {
+  it('generateUniformBoard(7, 150) twice -> deep-equal (ids, centers, polygons, neighbors)', () => {
+    const a = generateUniformBoard(7, 150);
+    const b = generateUniformBoard(7, 150);
     expect(snapshot(a)).toEqual(snapshot(b));
   });
 
   it('different seed -> different board', () => {
-    const a = generateBoard(7, 150);
-    const c = generateBoard(8, 150);
+    const a = generateUniformBoard(7, 150);
+    const c = generateUniformBoard(8, 150);
     expect(JSON.stringify(snapshot(a))).not.toBe(JSON.stringify(snapshot(c)));
   });
 });
 
 describe('board structure', () => {
-  const board = generateBoard(7, 150);
+  const board = generateUniformBoard(7, 150);
 
   it('cell ids are stable generation-order indices, map key === cell.id', () => {
     const ids = [...board.cells.keys()];
@@ -110,7 +110,7 @@ describe('targetCells honored within ±40% (§13.2)', () => {
     [42, 150],
     [1337, 150],
   ])('seed %i, targetCells %i', (seed, target) => {
-    const board = generateBoard(seed, target);
+    const board = generateUniformBoard(seed, target);
     expect(board.cells.size).toBeGreaterThanOrEqual(Math.ceil(target * 0.6));
     expect(board.cells.size).toBeLessThanOrEqual(Math.floor(target * 1.4));
   });

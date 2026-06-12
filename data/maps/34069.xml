@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map id="34069">
+  <name>spooner hell</name>
+  <initialCredits>200</initialCredits>
+  <perBaseCredits>100</perBaseCredits>
+  <width>10</width>
+  <height>30</height>
+  <maxPlayers>2</maxPlayers>
+  <url>http://weewar.com/map/34069</url>
+  <thumbnail>http://weewar.com/images/maps/boardThumb_34069_ir5.png</thumbnail>
+  <preview>http://weewar.com/images/maps/preview_34069_ir5.png</preview>
+  <revision>1</revision>
+  <creator>flaxmanspoonman</creator>
+  <creatorProfile>http://weewar.com/user/flaxmanspoonman</creatorProfile>
+  <terrains>
+    <terrain x="0" y="0" type="Harbor" />
+    <terrain startUnit="Speedboat" startUnitOwner="1" x="0" y="1" type="Water" />
+    <terrain x="0" y="2" type="Mountains" />
+    <terrain x="0" y="3" type="Mountains" />
+    <terrain x="0" y="4" type="Base" />
+    <terrain x="0" y="5" type="Base" />
+    <terrain x="0" y="6" type="Plains" />
+    <terrain x="0" y="7" type="Plains" />
+    <terrain x="0" y="8" type="Plains" />
+    <terrain x="0" y="9" type="Plains" />
+    <terrain x="0" y="10" type="Plains" />
+    <terrain x="0" y="11" type="Plains" />
+    <terrain x="0" y="12" type="Plains" />
+    <terrain x="0" y="13" type="Woods" />
+    <terrain x="0" y="14" type="Desert" />
+    <terrain x="0" y="15" type="Desert" />
+    <terrain x="0" y="16" type="Desert" />
+    <terrain x="0" y="17" type="Woods" />
+    <terrain x="0" y="18" type="Plains" />
+    <terrain x="0" y="19" type="Plains" />
+    <terrain x="0" y="20" type="Plains" />
+    <terrain x="0" y="21" type="Plains" />
+    <terrain x="0" y="22" type="Plains" />
+    <terrain x="0" y="23" type="Plains" />
+    <terrain x="0" y="24" type="Plains" />
+    <terrain startUnit="Jet" startUnitOwner="0" x="0" y="25" type="Plains" />
+    <terrain x="0" y="26" type="Airfield" />
+    <terrain x="0" y="27" type="Woods" />
+    <terrain x="0" y="28" type="Woods" />
+    <terrain x="0" y="29" type="Woods" />
+    <terrain x="1" y="0" type="Mountains" />
+    <terrain x="1" y="1" type="Mountains" />
+    <terrain startUnit="Speedboat" startUnitOwner="1" x="1" y="2" type="Water" />
+    <terrain x="1" y="3" type="Water" />
+    <terrain x="1" y="4" type="Mountains" />
+    <terrain x="1" y="5" type="Base" />
+    <terrain x="1" y="6" type="Plains" />
+    <terrain x="1" y="7" type="Plains" />
+    <terrain x="1" y="8" type="Plains" />
+    <terrain x="1" y="9" type="Plains" />
+    <terrain x="1" y="10" type="Plains" />
+    <terrain x="1" y="11" type="Plains" />
+    <terrain x="1" y="12" type="Plains" />
+    <terrain x="1" y="13" type="Woods" />
+    <terrain x="1" y="14" type="Desert" />
+    <terrain x="1" y="15" type="Desert" />
+    <terrain x="1" y="16" type="Desert" />
+    <terrain x="1" y="17" type="Woods" />
+    <terrain x="1" y="18" type="Plains" />
+    <terrain x="1" y="19" type="Plains" />
+    <terrain x="1" y="20" type="Plains" />
+    <terrain x="1" y="21" type="Plains" />
+    <terrain x="1" y="22" type="Plains" />
+    <terrain x="1" y="23" type="Plains" />
+    <terrain x="1" y="24" type="Plains" />
+    <terrain startUnit="Bomber" startUnitOwner="0" x="1" y="25" type="Plains" />
+    <terrain x="1" y="26" type="Airfield" />
+    <terrain x="1" y="27" type="Woods" />
+    <terrain x="1" y="28" type="Repairshop" />
+    <terrain x="1" y="29" type="Woods" />
+    <terrain x="2" y="0" type="Mountains" />
+    <terrain x="2" y="1" type="Mountains" />
+    <terrain x="2" y="2" type="Water" />
+    <terrain x="2" y="3" type="Water" />
+    <terrain x="2" y="4" type="Mountains" />
+    <terrain x="2" y="5" type="Mountains" />
+    <terrain x="2" y="6" type="Plains" />
+    <terrain x="2" y="7" type="Plains" />
+    <terrain x="2" y="8" type="Plains" />
+    <terrain x="2" y="9" type="Plains" />
+    <terrain x="2" y="10" type="Plains" />
+    <terrain x="2" y="11" type="Plains" />
+    <terrain x="2" y="12" type="Plains" />
+    <terrain x="2" y="13" type="Swamp" />
+    <terrain x="2" y="14" type="Woods" />
+    <terrain x="2" y="15" type="Woods" />
+    <terrain x="2" y="16" type="Woods" />
+    <terrain x="2" y="17" type="Swamp" />
+    <terrain x="2" y="18" type="Plains" />
+    <terrain x="2" y="19" type="Plains" />
+    <terrain x="2" y="20" type="Plains" />
+    <terrain x="2" y="21" type="Plains" />
+    <terrain x="2" y="22" type="Plains" />
+    <terrain x="2" y="23" type="Plains" />
+    <terrain x="2" y="24" type="Plains" />
+    <terrain x="2" y="25" type="Plains" />
+    <terrain x="2" y="26" type="Plains" />
+    <terrain startUnit="Trooper" startUnitOwner="0" x="2" y="27" type="Plains" />
+    <terrain x="2" y="28" type="Woods" />
+    <terrain startFaction="0" x="2" y="29" type="Base" />
+    <terrain x="3" y="0" type="Base" />
+    <terrain x="3" y="1" type="Desert" />
+    <terrain x="3" y="2" type="Mountains" />
+    <terrain x="3" y="3" type="Water" />
+    <terrain x="3" y="4" type="Mountains" />
+    <terrain x="3" y="5" type="Water" />
+    <terrain x="3" y="6" type="Mountains" />
+    <terrain x="3" y="7" type="Mountains" />
+    <terrain x="3" y="8" type="Plains" />
+    <terrain x="3" y="9" type="Plains" />
+    <terrain x="3" y="10" type="Plains" />
+    <terrain x="3" y="11" type="Swamp" />
+    <terrain x="3" y="12" type="Swamp" />
+    <terrain x="3" y="13" type="Mountains" />
+    <terrain x="3" y="14" type="Swamp" />
+    <terrain x="3" y="15" type="Swamp" />
+    <terrain x="3" y="16" type="Swamp" />
+    <terrain x="3" y="17" type="Mountains" />
+    <terrain x="3" y="18" type="Swamp" />
+    <terrain x="3" y="19" type="Mountains" />
+    <terrain x="3" y="20" type="Plains" />
+    <terrain x="3" y="21" type="Plains" />
+    <terrain x="3" y="22" type="Plains" />
+    <terrain x="3" y="23" type="Plains" />
+    <terrain x="3" y="24" type="Plains" />
+    <terrain x="3" y="25" type="Plains" />
+    <terrain x="3" y="26" type="Plains" />
+    <terrain x="3" y="27" type="Plains" />
+    <terrain startUnit="DFA" startUnitOwner="0" x="3" y="28" type="Desert" />
+    <terrain x="3" y="29" type="Base" />
+    <terrain x="4" y="0" type="Base" />
+    <terrain x="4" y="1" type="Desert" />
+    <terrain x="4" y="2" type="Mountains" />
+    <terrain x="4" y="3" type="Mountains" />
+    <terrain x="4" y="4" type="Water" />
+    <terrain x="4" y="5" type="Mountains" />
+    <terrain x="4" y="6" type="Water" />
+    <terrain x="4" y="7" type="Water" />
+    <terrain x="4" y="8" type="Mountains" />
+    <terrain x="4" y="9" type="Mountains" />
+    <terrain x="4" y="10" type="Mountains" />
+    <terrain x="4" y="11" type="Mountains" />
+    <terrain x="4" y="12" type="Mountains" />
+    <terrain x="4" y="13" type="Water" />
+    <terrain x="4" y="14" type="Mountains" />
+    <terrain x="4" y="15" type="Swamp" />
+    <terrain x="4" y="16" type="Mountains" />
+    <terrain x="4" y="17" type="Water" />
+    <terrain x="4" y="18" type="Mountains" />
+    <terrain x="4" y="19" type="Water" />
+    <terrain x="4" y="20" type="Mountains" />
+    <terrain x="4" y="21" type="Mountains" />
+    <terrain x="4" y="22" type="Mountains" />
+    <terrain x="4" y="23" type="Mountains" />
+    <terrain x="4" y="24" type="Mountains" />
+    <terrain x="4" y="25" type="Mountains" />
+    <terrain x="4" y="26" type="Plains" />
+    <terrain x="4" y="27" type="Plains" />
+    <terrain x="4" y="28" type="Desert" />
+    <terrain x="4" y="29" type="Base" />
+    <terrain x="5" y="0" type="Base" />
+    <terrain x="5" y="1" type="Desert" />
+    <terrain x="5" y="2" type="Plains" />
+    <terrain x="5" y="3" type="Plains" />
+    <terrain x="5" y="4" type="Mountains" />
+    <terrain x="5" y="5" type="Mountains" />
+    <terrain x="5" y="6" type="Mountains" />
+    <terrain x="5" y="7" type="Water" />
+    <terrain x="5" y="8" type="Mountains" />
+    <terrain x="5" y="9" type="Water" />
+    <terrain x="5" y="10" type="Water" />
+    <terrain x="5" y="11" type="Water" />
+    <terrain x="5" y="12" type="Water" />
+    <terrain x="5" y="13" type="Mountains" />
+    <terrain x="5" y="14" type="Mountains" />
+    <terrain x="5" y="15" type="Swamp" />
+    <terrain x="5" y="16" type="Mountains" />
+    <terrain x="5" y="17" type="Mountains" />
+    <terrain x="5" y="18" type="Water" />
+    <terrain x="5" y="19" type="Mountains" />
+    <terrain x="5" y="20" type="Water" />
+    <terrain x="5" y="21" type="Water" />
+    <terrain x="5" y="22" type="Water" />
+    <terrain x="5" y="23" type="Water" />
+    <terrain x="5" y="24" type="Water" />
+    <terrain x="5" y="25" type="Water" />
+    <terrain x="5" y="26" type="Mountains" />
+    <terrain x="5" y="27" type="Mountains" />
+    <terrain x="5" y="28" type="Desert" />
+    <terrain x="5" y="29" type="Base" />
+    <terrain x="6" y="0" type="Base" />
+    <terrain startUnit="DFA" startUnitOwner="1" x="6" y="1" type="Desert" />
+    <terrain x="6" y="2" type="Plains" />
+    <terrain x="6" y="3" type="Plains" />
+    <terrain x="6" y="4" type="Plains" />
+    <terrain x="6" y="5" type="Plains" />
+    <terrain x="6" y="6" type="Mountains" />
+    <terrain x="6" y="7" type="Mountains" />
+    <terrain x="6" y="8" type="Water" />
+    <terrain x="6" y="9" type="Mountains" />
+    <terrain x="6" y="10" type="Mountains" />
+    <terrain x="6" y="11" type="Mountains" />
+    <terrain x="6" y="12" type="Mountains" />
+    <terrain x="6" y="13" type="Swamp" />
+    <terrain x="6" y="14" type="Swamp" />
+    <terrain x="6" y="15" type="Woods" />
+    <terrain x="6" y="16" type="Swamp" />
+    <terrain x="6" y="17" type="Swamp" />
+    <terrain x="6" y="18" type="Mountains" />
+    <terrain x="6" y="19" type="Mountains" />
+    <terrain x="6" y="20" type="Mountains" />
+    <terrain x="6" y="21" type="Mountains" />
+    <terrain x="6" y="22" type="Water" />
+    <terrain x="6" y="23" type="Mountains" />
+    <terrain x="6" y="24" type="Mountains" />
+    <terrain x="6" y="25" type="Mountains" />
+    <terrain x="6" y="26" type="Water" />
+    <terrain x="6" y="27" type="Water" />
+    <terrain x="6" y="28" type="Mountains" />
+    <terrain x="6" y="29" type="Base" />
+    <terrain startFaction="1" x="7" y="0" type="Base" />
+    <terrain x="7" y="1" type="Woods" />
+    <terrain startUnit="Trooper" startUnitOwner="1" x="7" y="2" type="Plains" />
+    <terrain x="7" y="3" type="Plains" />
+    <terrain x="7" y="4" type="Plains" />
+    <terrain x="7" y="5" type="Plains" />
+    <terrain x="7" y="6" type="Plains" />
+    <terrain x="7" y="7" type="Plains" />
+    <terrain x="7" y="8" type="Mountains" />
+    <terrain x="7" y="9" type="Mountains" />
+    <terrain x="7" y="10" type="Mountains" />
+    <terrain x="7" y="11" type="Plains" />
+    <terrain x="7" y="12" type="Swamp" />
+    <terrain x="7" y="13" type="Woods" />
+    <terrain x="7" y="14" type="Woods" />
+    <terrain x="7" y="15" type="Desert" />
+    <terrain x="7" y="16" type="Woods" />
+    <terrain x="7" y="17" type="Woods" />
+    <terrain x="7" y="18" type="Swamp" />
+    <terrain x="7" y="19" type="Plains" />
+    <terrain x="7" y="20" type="Mountains" />
+    <terrain x="7" y="21" type="Plains" />
+    <terrain x="7" y="22" type="Mountains" />
+    <terrain x="7" y="23" type="Plains" />
+    <terrain x="7" y="24" type="Mountains" />
+    <terrain x="7" y="25" type="Mountains" />
+    <terrain x="7" y="26" type="Water" />
+    <terrain x="7" y="27" type="Water" />
+    <terrain x="7" y="28" type="Mountains" />
+    <terrain x="7" y="29" type="Mountains" />
+    <terrain x="8" y="0" type="Woods" />
+    <terrain x="8" y="1" type="Repairshop" />
+    <terrain x="8" y="2" type="Woods" />
+    <terrain x="8" y="3" type="Airfield" />
+    <terrain startUnit="Bomber" startUnitOwner="1" x="8" y="4" type="Plains" />
+    <terrain x="8" y="5" type="Plains" />
+    <terrain x="8" y="6" type="Plains" />
+    <terrain x="8" y="7" type="Plains" />
+    <terrain x="8" y="8" type="Plains" />
+    <terrain x="8" y="9" type="Plains" />
+    <terrain x="8" y="10" type="Plains" />
+    <terrain x="8" y="11" type="Plains" />
+    <terrain x="8" y="12" type="Plains" />
+    <terrain x="8" y="13" type="Woods" />
+    <terrain x="8" y="14" type="Desert" />
+    <terrain x="8" y="15" type="Desert" />
+    <terrain x="8" y="16" type="Desert" />
+    <terrain x="8" y="17" type="Woods" />
+    <terrain x="8" y="18" type="Plains" />
+    <terrain x="8" y="19" type="Plains" />
+    <terrain x="8" y="20" type="Plains" />
+    <terrain x="8" y="21" type="Plains" />
+    <terrain x="8" y="22" type="Plains" />
+    <terrain x="8" y="23" type="Plains" />
+    <terrain x="8" y="24" type="Plains" />
+    <terrain x="8" y="25" type="Base" />
+    <terrain x="8" y="26" type="Mountains" />
+    <terrain x="8" y="27" type="Mountains" />
+    <terrain startUnit="Speedboat" startUnitOwner="0" x="8" y="28" type="Water" />
+    <terrain x="8" y="29" type="Mountains" />
+    <terrain x="9" y="0" type="Woods" />
+    <terrain x="9" y="1" type="Woods" />
+    <terrain x="9" y="2" type="Woods" />
+    <terrain x="9" y="3" type="Airfield" />
+    <terrain startUnit="Jet" startUnitOwner="1" x="9" y="4" type="Plains" />
+    <terrain x="9" y="5" type="Plains" />
+    <terrain x="9" y="6" type="Plains" />
+    <terrain x="9" y="7" type="Plains" />
+    <terrain x="9" y="8" type="Plains" />
+    <terrain x="9" y="9" type="Plains" />
+    <terrain x="9" y="10" type="Plains" />
+    <terrain x="9" y="11" type="Plains" />
+    <terrain x="9" y="12" type="Plains" />
+    <terrain x="9" y="13" type="Woods" />
+    <terrain x="9" y="14" type="Desert" />
+    <terrain x="9" y="15" type="Desert" />
+    <terrain x="9" y="16" type="Desert" />
+    <terrain x="9" y="17" type="Woods" />
+    <terrain x="9" y="18" type="Plains" />
+    <terrain x="9" y="19" type="Plains" />
+    <terrain x="9" y="20" type="Plains" />
+    <terrain x="9" y="21" type="Plains" />
+    <terrain x="9" y="22" type="Plains" />
+    <terrain x="9" y="23" type="Plains" />
+    <terrain x="9" y="24" type="Plains" />
+    <terrain x="9" y="25" type="Base" />
+    <terrain x="9" y="26" type="Base" />
+    <terrain x="9" y="27" type="Mountains" />
+    <terrain startUnit="Speedboat" startUnitOwner="0" x="9" y="28" type="Water" />
+    <terrain x="9" y="29" type="Harbor" />
+  </terrains>
+</map>
+

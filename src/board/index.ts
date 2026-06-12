@@ -2,7 +2,9 @@
 // Public surface: game code should need only these.
 
 export type { Board, Cell, CellId, TerrainKey, Vec2 } from './types';
-export { generateBoard, extractCells, poissonRadiusFor } from './generate';
+export { generateUniformBoard, generateCells, extractCells, poissonRadiusFor } from './generate';
+export { generateBoard, placeForce, targetCellsFor } from './donor';
+export type { DonorMap, DonorTile, FactionId } from './donor';
 export { graphDistance, angleAt, cellsWithin } from './geometry';
 
 // Mesh internals — exposed for the P2 donor pipeline and tests, not for game logic.
