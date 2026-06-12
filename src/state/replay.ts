@@ -110,6 +110,15 @@ export type ReplayFrame = {
   units: UnitInstance[];
   /** Cells NOT visible to the player right now (Board `fog` prop shape). */
   fog: ReadonlySet<CellId>;
+  /** E1 discovery (addendum §A): cells the player has EVER seen, as of this
+   *  frame — accumulates frame-by-frame as own units move, never shrinks.
+   *  Board tiers: fog ∧ ¬discovered = dark, fog ∧ discovered = memory. */
+  discovered: ReadonlySet<CellId>;
+  /** E1 ignition delta: cells that turned dark → live ON this frame (their
+   *  first time ever inside the player's vision) — the UI soft-ignites them
+   *  (~0.4 s). Ascending cell ids. live → memory needs no delta: it falls
+   *  out of `fog`+`discovered` as the wake closes behind the advance. */
+  ignite: CellId[];
   arcs: { from: CellId; to: CellId; faction: FactionId }[];
   floaters: Floater[];
   /** Brawl clash burst cells. */
@@ -153,6 +162,9 @@ export type ReplayScript = {
   summary: RoundSummary;
   /** v1.1 skirmish-log lines, fog-filtered, in playback order. */
   log: ReplayLogEntry[];
+  /** E1: the player's accumulated discovery at playback end (initial set ∪
+   *  every frame's vision) — the store folds this into GameState.discovered. */
+  discovered: ReadonlySet<CellId>;
 };
 
 const MOVE_STEP_MS = 250;
@@ -168,6 +180,9 @@ export function buildReplay(
   events: readonly ResolutionEvent[],
   unitTypes: Readonly<Record<string, UnitType>>,
   player: FactionId,
+  /** E1: the player's discovery set entering the round (GameState.discovered).
+   *  Absent ⇒ empty — everything outside the establishing vision is dark. */
+  discoveredAtStart?: ReadonlySet<CellId>,
 ): ReplayScript {
   // --- simulation state ------------------------------------------------------
   const sim = new Map<string, UnitInstance>(
@@ -179,6 +194,22 @@ export function buildReplay(
     const fog = new Set<CellId>();
     for (const id of board.cells.keys()) if (!vis.has(id)) fog.add(id);
     return fog;
+  };
+  // E1 discovery: accumulates across frames; each frame's fog fields come
+  // from ONE place so discovery and ignition can never drift apart.
+  let disc: ReadonlySet<CellId> = new Set(discoveredAtStart);
+  const fogFields = (
+    vis: ReadonlySet<CellId>,
+  ): Pick<ReplayFrame, 'fog' | 'discovered' | 'ignite'> => {
+    const ignite: CellId[] = [];
+    for (const c of vis) if (!disc.has(c)) ignite.push(c);
+    if (ignite.length > 0) {
+      ignite.sort((a, b) => a - b);
+      const next = new Set(disc);
+      for (const c of ignite) next.add(c);
+      disc = next;
+    }
+    return { fog: fogOf(vis), discovered: disc, ignite };
   };
   /** The player can "see" a unit: own units always, others by cell fog. */
   const seen = (faction: FactionId, cell: CellId, vis: ReadonlySet<CellId>): boolean =>
@@ -225,7 +256,7 @@ export function buildReplay(
       duration: ESTABLISH_MS,
       slot: -1,
       units: renderUnits(vis),
-      fog: fogOf(vis),
+      ...fogFields(vis),
       ...emptyFx(),
     });
   }
@@ -314,7 +345,7 @@ export function buildReplay(
           duration: MOVE_STEP_MS,
           slot,
           units: renderUnits(vis),
-          fog: fogOf(vis),
+          ...fogFields(vis),
           ...emptyFx(),
           trails:
             trailPath.length >= 2
@@ -456,7 +487,7 @@ export function buildReplay(
           duration: VOLLEY_MS,
           slot,
           units: renderUnits(visAfter),
-          fog: fogOf(visAfter),
+          ...fogFields(visAfter),
           ...fx,
           focus: [...focus],
         });
@@ -536,7 +567,7 @@ export function buildReplay(
           duration: followup ? BRAWL_FOLLOWUP_MS : VOLLEY_MS,
           slot,
           units: renderUnits(visAfter),
-          fog: fogOf(visAfter),
+          ...fogFields(visAfter),
           ...fx,
           focus: [ev.cell],
         });
@@ -568,7 +599,7 @@ export function buildReplay(
           duration: FIZZLE_MS,
           slot,
           units: renderUnits(vis),
-          fog: fogOf(vis),
+          ...fogFields(vis),
           ...emptyFx(),
           floaters: [{ id: `f${slot}-0`, cell: att.cell, text: 'no target', mist: false, slot }],
           focus: [att.cell],
@@ -594,7 +625,7 @@ export function buildReplay(
     i++;
   }
 
-  return { slots, frames, summary, log };
+  return { slots, frames, summary, log, discovered: disc };
 }
 
 function makeStrike(

@@ -63,7 +63,15 @@ export type { GangUpBreakdown, GangUpClass, GangUpContribution } from './combat/
 export { IMPASSABLE, findPath, movementCostsFor, reachableCells } from './pathing';
 export type { MovementCosts, PathOpts, PathResult } from './pathing';
 
-export { visibleCells } from './fog';
+export {
+  DARK_ASSUMED_TERRAIN,
+  accumulateDiscovery,
+  assumedTerrainView,
+  fogTier,
+  seedDiscovery,
+  visibleCells,
+} from './fog';
+export type { FogTier } from './fog';
 
 export { ROUND_LIMIT, resolveRound } from './resolver';
 export type { OrdersByFaction, ResolveResult } from './resolver';

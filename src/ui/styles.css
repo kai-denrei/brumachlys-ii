@@ -168,6 +168,21 @@ body {
   cursor: pointer;
 }
 
+/* E1 discovery fog: dark → live soft ignite (~0.4 s). The cover path is
+   rendered only while the App keeps the cell in its ignite set (500 ms). */
+.dark-cover-ignite {
+  animation: ignite-fade 0.4s ease-out forwards;
+}
+
+@keyframes ignite-fade {
+  from {
+    opacity: 0.92;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 .unit-token {
   cursor: pointer;
   /* P8 replay hook: resolved moves animate by transitioning this transform. */

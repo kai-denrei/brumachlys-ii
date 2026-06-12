@@ -33,7 +33,7 @@ import {
   validateOrder,
 } from '../core/orders';
 import { weewar } from '../core/combat/weewar';
-import { visibleCells } from '../core/fog';
+import { accumulateDiscovery, assumedTerrainView, seedDiscovery, visibleCells } from '../core/fog';
 import { resolveRound } from '../core/resolver';
 import { createRng } from '../core/rng';
 import { newGame } from '../core/setup';
@@ -99,6 +99,13 @@ export function settleDependentOrders(
   const units = Object.values(game.units).filter((u) => u.count > 0);
   const visible = visibleCells(board, units, PLAYER_FACTION, types);
   const known = units.filter((u) => u.faction === PLAYER_FACTION || visible.has(u.cell));
+  // E1: re-validate against the player's BELIEVED terrain (dark ⇒ plains),
+  // same lens tryQueueOrder used to admit the order in the first place.
+  const assumedTerrain = assumedTerrainView(
+    board,
+    game.discovered?.[PLAYER_FACTION] ?? new Set(),
+    visible,
+  );
   const dropped: { unitId: string; kind: OrderKind }[] = [];
   let cur = queues;
   for (let pass = 0; pass < 64; pass++) {
@@ -108,7 +115,15 @@ export function settleDependentOrders(
         const order = uo[kind];
         if (!order) continue;
         const verdict = validateOrder(
-          { board, units: known, unitTypes: types, visible, queued: cur[unitId], allQueued: cur },
+          {
+            board,
+            units: known,
+            unitTypes: types,
+            visible,
+            queued: cur[unitId],
+            allQueued: cur,
+            assumedTerrain,
+          },
           order,
         );
         if (!verdict.ok) {
@@ -217,7 +232,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   startBattle: () => {
     const { donorId, seed } = get();
     const board = generateBoard(loadDonor(donorId), seed);
-    const game = newGame(board, STANDARD_ARMY, loadUnits(), seed);
+    const types = loadUnits();
+    const base = newGame(board, STANDARD_ARMY, types, seed);
+    // E1 (addendum §A): initial discovery = each faction's starting vision
+    // union. newGame is frozen core surface — the store seeds the field.
+    const game: GameState = {
+      ...base,
+      discovered: seedDiscovery(board, Object.values(base.units), types),
+    };
     set({
       board,
       game,
@@ -263,8 +285,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     // The player's KNOWN units: own + visible enemies (spec §7 planning fog).
     const known = units.filter((u) => u.faction === PLAYER_FACTION || visible.has(u.cell));
     const queued: UnitOrders | undefined = orders[order.unitId];
+    // E1: moves validate against BELIEVED terrain — optimistic plains for
+    // dark cells, remembered truth for memory (the resolver re-checks truth).
     const verdict = validateOrder(
-      { board, units: known, unitTypes: types, visible, queued, allQueued: orders },
+      {
+        board,
+        units: known,
+        unitTypes: types,
+        visible,
+        queued,
+        allQueued: orders,
+        assumedTerrain: assumedTerrainView(
+          board,
+          game.discovered?.[PLAYER_FACTION] ?? new Set(),
+          visible,
+        ),
+      },
       order,
     );
     if (verdict.ok) {
@@ -335,10 +371,32 @@ export const useAppStore = create<AppState>((set, get) => ({
       types,
       weewar,
     );
-    const script = buildReplay(game.board, baseUnits, events, types, PLAYER_FACTION);
+    const script = buildReplay(
+      game.board,
+      baseUnits,
+      events,
+      types,
+      PLAYER_FACTION,
+      game.discovered?.[PLAYER_FACTION],
+    );
+
+    // E1 discovery accrual (addendum §A): the player's set ran frame-by-frame
+    // through the replay build; both factions then take the NEW round-start
+    // vision. Accumulating only — discovered never shrinks.
+    const survivors = Object.values(state.units).filter((u) => u.count > 0);
+    const discovered: Record<FactionId, ReadonlySet<CellId>> = {
+      0: accumulateDiscovery(
+        script.discovered,
+        visibleCells(game.board, survivors, 0, types),
+      ),
+      1: accumulateDiscovery(
+        game.discovered?.[1],
+        visibleCells(game.board, survivors, 1, types),
+      ),
+    };
 
     set({
-      game: state,
+      game: { ...state, discovered },
       replay: { script, round: game.round },
       uiPhase: 'replay',
       orders: {},

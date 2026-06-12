@@ -3,7 +3,14 @@
 // the faction's living units.
 
 import { describe, expect, test } from 'vitest';
-import { visibleCells } from '../../src/core/fog';
+import {
+  DARK_ASSUMED_TERRAIN,
+  accumulateDiscovery,
+  assumedTerrainView,
+  fogTier,
+  seedDiscovery,
+  visibleCells,
+} from '../../src/core/fog';
 import { loadUnits } from '../../src/io/data-loader';
 import { lineBoard, makeUnit } from './synthetic';
 
@@ -67,5 +74,89 @@ describe('visibleCells (spec §7)', () => {
     const hidden = makeUnit('h', 1, 6);
     const v = visibleCells(board, [friendly, hidden], 0, unitTypes);
     expect(v.has(hidden.cell)).toBe(false);
+  });
+});
+
+// --- E1 discovery fog (conquest addendum §A) ----------------------------------
+
+describe('fogTier (E1 tier vectors)', () => {
+  const discovered = new Set([0, 1, 2, 3]);
+  const visible = new Set([2, 3, 4]);
+
+  test('visible cell → live (even if also discovered)', () => {
+    expect(fogTier(2, discovered, visible)).toBe('live');
+    expect(fogTier(3, discovered, visible)).toBe('live');
+  });
+
+  test('visible but not yet in the discovered set → still live', () => {
+    expect(fogTier(4, discovered, visible)).toBe('live');
+  });
+
+  test('discovered, not visible → memory', () => {
+    expect(fogTier(0, discovered, visible)).toBe('memory');
+    expect(fogTier(1, discovered, visible)).toBe('memory');
+  });
+
+  test('never seen → dark', () => {
+    expect(fogTier(9, discovered, visible)).toBe('dark');
+  });
+
+  test('empty sets: everything dark', () => {
+    expect(fogTier(0, new Set(), new Set())).toBe('dark');
+  });
+});
+
+describe('accumulateDiscovery (never shrinks)', () => {
+  test('union of prior and visible, as a NEW set', () => {
+    const prior = new Set([0, 1]);
+    const next = accumulateDiscovery(prior, [2, 3]);
+    expect([...next].sort()).toEqual([0, 1, 2, 3]);
+    expect(next).not.toBe(prior);
+    expect(prior.size).toBe(2); // input untouched
+  });
+
+  test('shrinking vision NEVER shrinks discovery', () => {
+    let disc: ReadonlySet<number> = new Set<number>();
+    disc = accumulateDiscovery(disc, [0, 1, 2, 3, 4]); // wide vision
+    disc = accumulateDiscovery(disc, [2]); // unit died — vision collapsed
+    disc = accumulateDiscovery(disc, []); // no vision at all
+    expect([...disc].sort()).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  test('absent prior (legacy GameState) treated as empty', () => {
+    expect([...accumulateDiscovery(undefined, [5])]).toEqual([5]);
+  });
+});
+
+describe('seedDiscovery (initial discovery = starting vision unions)', () => {
+  test('each faction starts having discovered exactly its own vision union', () => {
+    const a = makeUnit('a', 0, 0); // infantry vision 2 → 0..2
+    const e = makeUnit('e', 1, 9); // infantry vision 2 → 7..9
+    const seeded = seedDiscovery(board, [a, e], unitTypes);
+    expect([...seeded[0]].sort()).toEqual([0, 1, 2]);
+    expect([...seeded[1]].sort()).toEqual([7, 8, 9]);
+  });
+});
+
+describe('assumedTerrainView (planning-side believed terrain)', () => {
+  // 0:plains 1:mountains 2:water 3:plains — mountains/water hidden unless seen
+  const terra = lineBoard(['plains', 'mountains', 'water', 'plains']);
+
+  test('dark cells are assumed optimistic plains', () => {
+    const view = assumedTerrainView(terra, new Set(), new Set());
+    expect(DARK_ASSUMED_TERRAIN).toBe('plains');
+    expect(view(1)).toBe('plains'); // truth: mountains — never seen
+    expect(view(2)).toBe('plains'); // truth: water — never seen
+  });
+
+  test('memory cells use remembered TRUE terrain', () => {
+    const view = assumedTerrainView(terra, new Set([1]), new Set());
+    expect(view(1)).toBe('mountains');
+    expect(view(2)).toBe('plains'); // still dark
+  });
+
+  test('live cells are truth', () => {
+    const view = assumedTerrainView(terra, new Set(), new Set([2]));
+    expect(view(2)).toBe('water');
   });
 });

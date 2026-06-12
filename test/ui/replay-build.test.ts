@@ -426,3 +426,76 @@ describe('replay builder — player-fog filtering (§7)', () => {
     expect(script.frames[2]!.fog.has(4)).toBe(false);
   });
 });
+
+// --- E1 discovery fog: replay ignition (conquest addendum §A) ------------------
+
+describe('replay builder — discovery ignition (E1)', () => {
+  // Player infantry (vision 2) at cell 2: round-start discovery = cells 0..4.
+  const startDisc = new Set([0, 1, 2, 3, 4]);
+
+  it('frames carry per-step ignition deltas as own units advance into the dark', () => {
+    const units = [makeUnit('pi', 0, 2)];
+    const events: ResolutionEvent[] = [
+      { type: 'move', unitId: 'pi', from: 2, to: 5, pathTaken: [3, 4, 5] },
+    ];
+    const script = buildReplay(plains(12), units, events, types, 0, startDisc);
+    // establish + 3 move frames; establishing vision was already discovered
+    expect(script.frames.length).toBe(4);
+    expect(script.frames[0]!.ignite).toEqual([]);
+    // pi at 3 → vision 1..5: cell 5 ignites; at 4 → 6; at 5 → 7
+    expect(script.frames[1]!.ignite).toEqual([5]);
+    expect(script.frames[2]!.ignite).toEqual([6]);
+    expect(script.frames[3]!.ignite).toEqual([7]);
+  });
+
+  it('discovery accumulates frame-by-frame and NEVER shrinks', () => {
+    const units = [makeUnit('pi', 0, 2)];
+    const events: ResolutionEvent[] = [
+      { type: 'move', unitId: 'pi', from: 2, to: 5, pathTaken: [3, 4, 5] },
+    ];
+    const script = buildReplay(plains(12), units, events, types, 0, startDisc);
+    let prev: ReadonlySet<number> = new Set();
+    for (const frame of script.frames) {
+      for (const c of prev) expect(frame.discovered.has(c)).toBe(true); // superset
+      prev = frame.discovered;
+    }
+    // final accumulation lands on the script for the store to fold in
+    expect([...script.discovered].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('live → memory wake: a cell left behind stays discovered while fogged', () => {
+    const units = [makeUnit('pi', 0, 2)];
+    const events: ResolutionEvent[] = [
+      { type: 'move', unitId: 'pi', from: 2, to: 5, pathTaken: [3, 4, 5] },
+    ];
+    const script = buildReplay(plains(12), units, events, types, 0, startDisc);
+    const last = script.frames[3]!; // pi at 5, vision 3..7
+    expect(last.fog.has(0)).toBe(true); // out of vision now…
+    expect(last.discovered.has(0)).toBe(true); // …but remembered = memory tier
+  });
+
+  it('without a starting set the establishing frame ignites the opening vision', () => {
+    const script = buildReplay(plains(12), [makeUnit('pi', 0, 2)], [], types, 0);
+    expect(script.frames[0]!.ignite).toEqual([0, 1, 2, 3, 4]);
+    expect([...script.discovered].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('REGRESSION: memory-tier cell shows no enemy unit and emits no log line', () => {
+    // The player saw cell 7 in an earlier round (it is discovered) but has no
+    // eyes on it now. An enemy moves through it — the frames must not render
+    // it, the log must stay silent, the timeline must stay empty.
+    const units = [makeUnit('pi', 0, 2), makeUnit('ai', 1, 7, 'ranger')];
+    const disc = new Set([...startDisc, 7, 8]);
+    const events: ResolutionEvent[] = [
+      { type: 'move', unitId: 'ai', from: 7, to: 8, pathTaken: [8] },
+    ];
+    const script = buildReplay(plains(12), units, events, types, 0, disc);
+    expect(script.frames.length).toBe(1); // establish only — nothing witnessed
+    expect(script.slots.length).toBe(0);
+    expect(script.log.length).toBe(0);
+    const establish = script.frames[0]!;
+    expect(establish.fog.has(7)).toBe(true);
+    expect(establish.discovered.has(7)).toBe(true); // memory tier…
+    expect(establish.units.some((u) => u.id === 'ai')).toBe(false); // …no token
+  });
+});

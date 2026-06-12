@@ -8,7 +8,15 @@ import { cleanup, render } from '@testing-library/react';
 import { afterEach } from 'vitest';
 import type { Cell } from '../../src/board/types';
 import type { UnitInstance } from '../../src/core/types';
-import { CellRenderer, PALETTE, UnitRenderer, roundedPolygonPath } from '../../src/ui/skin';
+import {
+  CellRenderer,
+  DARK_COVER_OPACITY,
+  MEMORY_DESATURATION,
+  PALETTE,
+  UnitRenderer,
+  desaturate,
+  roundedPolygonPath,
+} from '../../src/ui/skin';
 
 afterEach(cleanup);
 
@@ -58,6 +66,9 @@ describe('palette (spec §10.1 pinned)', () => {
     expect(PALETTE.factionA).toBe('#E8806B');
     expect(PALETTE.factionB).toBe('#7B8BD9');
     expect(PALETTE.fogWash).toBe('rgba(255,255,255,0.55)');
+    // E1 discovery tiers (addendum §A)
+    expect(PALETTE.darkCover).toBe('#2A2622');
+    expect(PALETTE.memoryWash).toBe('rgba(255,255,255,0.35)');
   });
 });
 
@@ -141,18 +152,73 @@ describe('CellRenderer', () => {
     expect(dashes[0]!.getAttribute('stroke')).toBe(PALETTE.swampDash);
   });
 
-  it('fogged cells get the white wash overlay and the fog class', () => {
+  // --- E1 discovery tiers (addendum §A — styling PINNED) -----------------------
+
+  it('memory tier: desaturated 0.55 fill + 0.35 white wash, texture greyed', () => {
     const { container } = render(
       <svg>
-        <CellRenderer cell={makeCell('plains')} toScreen={toScreen} fogged />
+        <CellRenderer cell={makeCell('woods')} toScreen={toScreen} tier="memory" />
       </svg>,
     );
-    expect(container.querySelector('.cell-fogged')).not.toBeNull();
-    const wash = container.querySelector('.fog-wash')!;
-    expect(wash.getAttribute('fill')).toBe(PALETTE.fogWash);
-    // fill desaturated, no longer the raw palette green
+    expect(container.querySelector('.cell-memory')).not.toBeNull();
+    const wash = container.querySelector('.memory-wash')!;
+    expect(wash.getAttribute('fill')).toBe(PALETTE.memoryWash); // rgba(...,0.35)
+    // fill = woods desaturated by exactly MEMORY_DESATURATION (0.55)
     const body = container.querySelector('.cell > path')!;
-    expect(body.getAttribute('fill')).not.toBe(PALETTE.plains);
+    expect(body.getAttribute('fill')).toBe(desaturate(PALETTE.woods, MEMORY_DESATURATION));
+    expect(MEMORY_DESATURATION).toBe(0.55);
+    // remembered terrain keeps its texture, greyed
+    expect(container.querySelector('.cell-texture')!.getAttribute('opacity')).toBe('0.45');
+  });
+
+  it('dark tier: near-black #2A2622 cover at 0.92, NO terrain detail leaks', () => {
+    const { container } = render(
+      <svg>
+        <CellRenderer cell={makeCell('woods')} toScreen={toScreen} tier="dark" />
+      </svg>,
+    );
+    expect(container.querySelector('.cell-dark')).not.toBeNull();
+    const cover = container.querySelector('.dark-cover')!;
+    expect(cover.getAttribute('fill')).toBe('#2A2622');
+    expect(Number(cover.getAttribute('opacity'))).toBe(0.92);
+    expect(PALETTE.darkCover).toBe('#2A2622');
+    expect(DARK_COVER_OPACITY).toBe(0.92);
+    // no texture, no terrain fill: the base path is paper, not woods green
+    expect(container.querySelector('.cell-texture')).toBeNull();
+    expect(container.querySelector('.cell > path')!.getAttribute('fill')).toBe(PALETTE.paper);
+  });
+
+  it('dark tier hides base tint — bases must not glow through the dark', () => {
+    const { container } = render(
+      <svg>
+        <CellRenderer cell={makeCell('base')} toScreen={toScreen} tier="dark" baseTintFaction={0} />
+      </svg>,
+    );
+    expect(container.querySelector('.cell > path')!.getAttribute('fill')).toBe(PALETTE.paper);
+  });
+
+  it('igniting live cell carries the fading cover (dark → live, ~0.4 s CSS)', () => {
+    const { container } = render(
+      <svg>
+        <CellRenderer cell={makeCell('plains')} toScreen={toScreen} tier="live" igniting />
+      </svg>,
+    );
+    const cover = container.querySelector('.dark-cover-ignite')!;
+    expect(cover).not.toBeNull();
+    expect(cover.getAttribute('fill')).toBe(PALETTE.darkCover);
+    // live underneath: normal terrain fill
+    expect(container.querySelector('.cell > path')!.getAttribute('fill')).toBe(PALETTE.plains);
+  });
+
+  it('silhouette: paper-tone mesh, no terrain color, no texture (start previews)', () => {
+    const { container } = render(
+      <svg>
+        <CellRenderer cell={makeCell('woods')} toScreen={toScreen} silhouette />
+      </svg>,
+    );
+    expect(container.querySelector('.cell-silhouette')).not.toBeNull();
+    expect(container.querySelector('.cell > path')!.getAttribute('fill')).toBe(PALETTE.paper);
+    expect(container.querySelector('.cell-texture')).toBeNull();
   });
 });
 

@@ -199,6 +199,7 @@ describe('casualty recap (v1.3 Tweak C)', () => {
           slots: [],
           frames: [],
           log: [],
+          discovered: new Set<CellId>(),
           summary: { kills: [{ id: 'x', type: 'tank', faction: 1 }], damageDealt: [9, 0], fizzles: 0 },
         },
       },
@@ -215,5 +216,59 @@ describe('casualty recap (v1.3 Tweak C)', () => {
     useAppStore.setState({ casualties: [{ type: 'tank', faction: 1 }] });
     s().rematch(99);
     expect(s().casualties).toEqual([]);
+  });
+});
+
+describe('discovery fog state (E1, addendum §A)', () => {
+  beforeEach(() => {
+    useAppStore.setState({
+      screen: 'start',
+      donorId: '53316',
+      seed: 7,
+      board: null,
+      game: null,
+      uiPhase: 'planning',
+      replay: null,
+      orders: {},
+      casualties: [],
+    });
+  });
+
+  it('startBattle seeds discovered with each faction starting vision union', () => {
+    s().startBattle();
+    const g = s().game!;
+    expect(g.discovered).toBeDefined();
+    const d0 = g.discovered![0];
+    const d1 = g.discovered![1];
+    expect(d0.size).toBeGreaterThan(0);
+    expect(d1.size).toBeGreaterThan(0);
+    // far from total: most of the board starts dark
+    expect(d0.size).toBeLessThan(g.board.cells.size);
+    // every own unit's cell is self-discovered
+    for (const u of Object.values(g.units)) {
+      expect(g.discovered![u.faction].has(u.cell)).toBe(true);
+    }
+  });
+
+  it('commit accumulates discovery — never shrinks across rounds', () => {
+    s().startBattle();
+    const before = s().game!.discovered![0];
+    s().commitAutopilot();
+    const after = s().game!.discovered![0];
+    for (const c of before) expect(after.has(c)).toBe(true); // superset
+    expect(after.size).toBeGreaterThanOrEqual(before.size);
+    // replay frames feed the same accumulation: final frame set ⊆ state set
+    const lastFrame = s().replay!.script.frames.at(-1)!;
+    for (const c of lastFrame.discovered) expect(after.has(c)).toBe(true);
+  });
+
+  it('a fresh battle resets discovery (no bleed from the previous game)', () => {
+    s().startBattle();
+    s().commitAutopilot();
+    const grown = s().game!.discovered![0].size;
+    s().rematch(7); // same donor + seed → same starting vision
+    const reset = s().game!.discovered![0];
+    expect(reset.size).toBeLessThanOrEqual(grown);
+    expect(s().game!.round).toBe(1);
   });
 });

@@ -55,13 +55,50 @@ describe('Board', () => {
     expect(container.querySelectorAll('[data-cell-id]').length).toBe(board.cells.size);
   });
 
-  it('applies the fog treatment exactly to the fogged set', () => {
-    const { container } = render(<Board board={makeBoard()} fog={new Set([1, 2])} />);
-    const fogged = [...container.querySelectorAll('.cell-fogged')].map((el) =>
+  it('E1 tiers: fog + discovered → memory, fog + never-seen → dark, visible → live', () => {
+    const { container } = render(
+      <Board board={makeBoard()} fog={new Set([1, 2])} discovered={new Set([0, 1, 3])} />,
+    );
+    // cell 1: fogged but discovered → memory; cell 2: fogged, never seen → dark
+    const memory = [...container.querySelectorAll('.cell-memory')].map((el) =>
       el.getAttribute('data-cell-id'),
     );
-    expect(fogged.sort()).toEqual(['1', '2']);
-    expect(container.querySelectorAll('.fog-wash').length).toBe(2);
+    const dark = [...container.querySelectorAll('.cell-dark')].map((el) =>
+      el.getAttribute('data-cell-id'),
+    );
+    expect(memory).toEqual(['1']);
+    expect(dark).toEqual(['2']);
+    expect(container.querySelectorAll('.memory-wash').length).toBe(1);
+    expect(container.querySelectorAll('.dark-cover').length).toBe(1);
+    // cells 0 and 3 are live: untreated
+    expect(container.querySelectorAll('[data-cell-id]').length).toBe(4);
+  });
+
+  it('legacy fallback: fog WITHOUT a discovered set renders memory, never dark', () => {
+    const { container } = render(<Board board={makeBoard()} fog={new Set([1, 2])} />);
+    expect(container.querySelectorAll('.cell-memory').length).toBe(2);
+    expect(container.querySelectorAll('.cell-dark').length).toBe(0);
+  });
+
+  it('ignite set adds the fading cover to LIVE cells only (dark → live)', () => {
+    const { container } = render(
+      <Board
+        board={makeBoard()}
+        fog={new Set([2])}
+        discovered={new Set([0, 1, 3])}
+        ignite={new Set([0, 2])} // 2 is dark — must NOT double-cover
+      />,
+    );
+    const igniting = [...container.querySelectorAll('.dark-cover-ignite')].map((el) =>
+      el.closest('[data-cell-id]')!.getAttribute('data-cell-id'),
+    );
+    expect(igniting).toEqual(['0']);
+  });
+
+  it('silhouette previews render paper-tone cells without terrain treatment', () => {
+    const { container } = render(<Board board={makeBoard()} silhouette interactive={false} />);
+    expect(container.querySelectorAll('.cell-silhouette').length).toBe(4);
+    expect(container.querySelectorAll('.cell-texture').length).toBe(0);
   });
 
   it('renders unit tokens with correct faction colors at their cells', () => {

@@ -77,9 +77,18 @@ export type StancePopoverState = {
 export type BoardProps = {
   board: BoardGraph;
   units?: readonly UnitInstance[];
-  /** Cells under the mist (NOT visible to the viewing faction). Terrain stays
-   * legible; callers also omit hidden enemy units from `units`. */
+  /** Cells NOT visible to the viewing faction right now. Callers also omit
+   * hidden enemy units from `units`. Combined with `discovered` this yields
+   * the E1 tier: fogged ∧ undiscovered = dark, fogged ∧ discovered = memory,
+   * unfogged = live. */
   fog?: ReadonlySet<CellId>;
+  /** E1 discovery set (cells ever seen). Absent ⇒ fogged cells render as
+   * memory (legacy mist look) — real callers always pass it. */
+  discovered?: ReadonlySet<CellId>;
+  /** E1 replay ignition: cells soft-fading dark → live right now (~0.4 s). */
+  ignite?: ReadonlySet<CellId>;
+  /** Start-screen previews: paper-tone mesh silhouette, no terrain colors. */
+  silhouette?: boolean;
   highlights?: BoardHighlights;
   selectedUnitId?: string | null;
   /** Layer-2 queued-order ghosts (§9.3), drawn by skin/EffectRenderer. */
@@ -226,6 +235,9 @@ export function Board({
   board,
   units = [],
   fog,
+  discovered,
+  ignite,
+  silhouette = false,
   highlights,
   selectedUnitId = null,
   ghosts,
@@ -644,16 +656,29 @@ export function Board({
       </defs>
       <g transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}>
         <g className="board-cells">
-          {cells.map((cell) => (
-            <CellRenderer
-              key={cell.id}
-              cell={cell}
-              toScreen={toScreen}
-              fogged={fog?.has(cell.id) ?? false}
-              baseTintFaction={baseTint.get(cell.id) ?? null}
-              onTap={tapGuard(onCellTap)}
-            />
-          ))}
+          {cells.map((cell) => {
+            // E1 tier: not fogged = live; fogged + discovered = memory;
+            // fogged + never seen = dark. No `discovered` prop ⇒ memory
+            // (legacy mist), so bare <Board fog=…> never leaks darkness.
+            const fogged = fog?.has(cell.id) ?? false;
+            const tier = !fogged
+              ? 'live'
+              : discovered === undefined || discovered.has(cell.id)
+                ? 'memory'
+                : 'dark';
+            return (
+              <CellRenderer
+                key={cell.id}
+                cell={cell}
+                toScreen={toScreen}
+                tier={tier}
+                igniting={tier === 'live' && (ignite?.has(cell.id) ?? false)}
+                silhouette={silhouette}
+                baseTintFaction={baseTint.get(cell.id) ?? null}
+                onTap={tapGuard(onCellTap)}
+              />
+            );
+          })}
         </g>
         <GrainOverlay {...bbox} />
         {(reachable || highlights?.targets || highlights?.visionEdge) && (

@@ -43,6 +43,10 @@ export type PathOpts = {
   canStopAt?: (cell: CellId) => boolean;
   /** false → may be entered as a destination, but never expanded past. */
   canPassThrough?: (cell: CellId) => boolean;
+  /** E1 discovery fog (addendum §A): the searching faction's BELIEVED
+   * terrain per cell (dark ⇒ plains; see core/fog assumedTerrainView).
+   * Default: truth. Planning-preview only — the resolver never sets this. */
+  assumedTerrain?: (cell: CellId) => TerrainKey;
 };
 
 export type PathResult = {
@@ -71,6 +75,8 @@ export function findPath(
   const budget = opts.budget ?? Infinity;
   const canStopAt = opts.canStopAt ?? (() => true);
   const canPassThrough = opts.canPassThrough ?? (() => true);
+  const terrainOf = (cell: { id: CellId; terrain: TerrainKey }): TerrainKey =>
+    opts.assumedTerrain ? opts.assumedTerrain(cell.id) : cell.terrain;
 
   if (!board.cells.has(from) || !board.cells.has(to)) return null;
   if (from === to) return { path: [], totalCost: 0 };
@@ -100,7 +106,7 @@ export function findPath(
     for (const n of board.cells.get(current.cell)!.neighbors) {
       const cell = board.cells.get(n);
       if (!cell) continue; // dangling neighbor id — defensive, P1 guards this
-      const stepCost = costs[cell.terrain] ?? IMPASSABLE;
+      const stepCost = costs[terrainOf(cell)] ?? IMPASSABLE;
       if (stepCost >= IMPASSABLE) continue;
 
       const newCost = current.cost + stepCost;
@@ -134,6 +140,8 @@ export function reachableCells(
 ): Map<CellId, number> {
   const canStopAt = opts.canStopAt ?? (() => true);
   const canPassThrough = opts.canPassThrough ?? (() => true);
+  const terrainOf = (cell: { id: CellId; terrain: TerrainKey }): TerrainKey =>
+    opts.assumedTerrain ? opts.assumedTerrain(cell.id) : cell.terrain;
 
   if (!board.cells.has(from)) return new Map();
 
@@ -148,7 +156,7 @@ export function reachableCells(
     for (const n of board.cells.get(current.cell)!.neighbors) {
       const cell = board.cells.get(n);
       if (!cell) continue;
-      const stepCost = costs[cell.terrain] ?? IMPASSABLE;
+      const stepCost = costs[terrainOf(cell)] ?? IMPASSABLE;
       if (stepCost >= IMPASSABLE) continue;
       const newCost = current.cost + stepCost;
       if (newCost > budget) continue;

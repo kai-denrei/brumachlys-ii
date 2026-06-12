@@ -8,31 +8,49 @@
 // - Terrain textures: woods dot-clusters, mountain ridge stroke, swamp dashes.
 //   All decoration geometry is seeded by mulberry32(cell.id) — deterministic,
 //   no Math.random in render, stable across re-renders.
-// - Fog mist (§10.1): white wash rgba(255,255,255,0.55) + slight desaturation
-//   of the fill. Terrain stays legible — the map is known, units hide.
+// - E1 discovery fog (conquest addendum §A) — three tiers per cell:
+//     dark   — never seen: paper underfill + near-black cover (#2A2622 at
+//              ~0.92); NO terrain detail, texture, or base tint leaks.
+//     memory — seen before, not watched: remembered terrain, desaturated
+//              ~0.55 + white wash 0.35; units are withheld by the callers.
+//     live   — inside current vision: normal rendering (unchanged).
+//   `igniting` replays the dark cover once and fades it (~0.4 s CSS) — the
+//   dark → live soft ignite during replay playback.
+// - `silhouette` (start-screen previews): paper-tone mesh, terrain withheld —
+//   full-terrain previews would defeat discovery.
 
 import { memo } from 'react';
 import type { Cell } from '../../board/types';
 import type { FactionId } from '../../core/types';
+import type { FogTier } from '../../core/fog';
 import { mulberry32 } from '../../board/rng';
-import { PALETTE, darken, desaturate, factionColor, mix, terrainFill } from './palette';
+import {
+  DARK_COVER_OPACITY,
+  MEMORY_DESATURATION,
+  PALETTE,
+  darken,
+  desaturate,
+  factionColor,
+  mix,
+  terrainFill,
+} from './palette';
 import { ringCentroid, ringRadius, roundedPolygonPath, type Pt } from './rounded';
 
 export type CellRendererProps = {
   cell: Cell;
   /** World (y-up) → screen (y-down) projection, owned by the Board. */
   toScreen: (p: readonly [number, number]) => Pt;
-  /** Cell is outside the viewing faction's vision → mist treatment. */
-  fogged?: boolean;
+  /** E1 discovery tier (default 'live' — normal rendering). */
+  tier?: FogTier;
+  /** Dark → live transition this replay frame: fade the cover out (~0.4 s). */
+  igniting?: boolean;
+  /** Paper-tone silhouette (start previews): mesh only, no terrain colors. */
+  silhouette?: boolean;
   /** Base cells tint toward their owning faction (§10.1). */
   baseTintFaction?: FactionId | null;
   onTap?: (cellId: number) => void;
 };
 
-// "Slight" desaturation (§10.1) — the 0.55 white wash does most of the misting;
-// keep terrain (especially water) readable under fog. 0.5 measured too pale in
-// the P6 visual pass.
-const FOG_DESATURATION = 0.25;
 /** Cell stroke width, screen units (≈1.5 viewport px at base zoom). */
 export const CELL_STROKE_WIDTH = 1.6;
 
@@ -112,7 +130,9 @@ function swampDashes(rng: () => number, c: Pt, r: number): JSX.Element[] {
 export const CellRenderer = memo(function CellRenderer({
   cell,
   toScreen,
-  fogged = false,
+  tier = 'live',
+  igniting = false,
+  silhouette = false,
   baseTintFaction = null,
   onTap,
 }: CellRendererProps) {
@@ -121,12 +141,56 @@ export const CellRenderer = memo(function CellRenderer({
   const c = ringCentroid(pts);
   const r = ringRadius(pts, c);
 
+  // Silhouette (start previews): the mesh in paper tones — nothing else.
+  // Stroke darkened 0.28 — the E1 visual pass found 0.1 invisible on the
+  // white donor cards at phone size; the mesh IS the preview, it must read.
+  if (silhouette) {
+    return (
+      <g className={`cell cell-silhouette`} data-cell-id={cell.id}>
+        <path
+          d={d}
+          fill={PALETTE.paper}
+          stroke={darken(PALETTE.paper, 0.28)}
+          strokeWidth={CELL_STROKE_WIDTH}
+          strokeLinejoin="round"
+        />
+      </g>
+    );
+  }
+
+  // Dark tier: never seen — paper underfill, near-black cover, zero detail.
+  if (tier === 'dark') {
+    return (
+      <g
+        className="cell cell-dark"
+        data-cell-id={cell.id}
+        onClick={onTap ? () => onTap(cell.id) : undefined}
+      >
+        <path
+          d={d}
+          fill={PALETTE.paper}
+          stroke={darken(PALETTE.paper, 0.12)}
+          strokeWidth={CELL_STROKE_WIDTH}
+          strokeLinejoin="round"
+        />
+        <path
+          className="dark-cover"
+          d={d}
+          fill={PALETTE.darkCover}
+          opacity={DARK_COVER_OPACITY}
+          pointerEvents="none"
+        />
+      </g>
+    );
+  }
+
+  const memory = tier === 'memory';
   let fill = terrainFill(cell.terrain);
   if (cell.terrain === 'base' && baseTintFaction !== null) {
     fill = mix(fill, factionColor(baseTintFaction), 0.28);
   }
   const stroke = darken(fill, 0.12);
-  if (fogged) fill = desaturate(fill, FOG_DESATURATION);
+  if (memory) fill = desaturate(fill, MEMORY_DESATURATION);
 
   const rng = mulberry32(cell.id + 0x9e3779b9);
   let texture: JSX.Element | JSX.Element[] | null = null;
@@ -136,17 +200,27 @@ export const CellRenderer = memo(function CellRenderer({
 
   return (
     <g
-      className={`cell cell-${cell.terrain}${fogged ? ' cell-fogged' : ''}`}
+      className={`cell cell-${cell.terrain}${memory ? ' cell-memory' : ''}`}
       data-cell-id={cell.id}
       onClick={onTap ? () => onTap(cell.id) : undefined}
     >
       <path d={d} fill={fill} stroke={stroke} strokeWidth={CELL_STROKE_WIDTH} strokeLinejoin="round" />
       {texture !== null && (
-        <g className="cell-texture" opacity={fogged ? 0.45 : 1} pointerEvents="none">
+        <g className="cell-texture" opacity={memory ? 0.45 : 1} pointerEvents="none">
           {texture}
         </g>
       )}
-      {fogged && <path className="fog-wash" d={d} fill={PALETTE.fogWash} pointerEvents="none" />}
+      {memory && (
+        <path className="memory-wash" d={d} fill={PALETTE.memoryWash} pointerEvents="none" />
+      )}
+      {igniting && (
+        <path
+          className="dark-cover dark-cover-ignite"
+          d={d}
+          fill={PALETTE.darkCover}
+          pointerEvents="none"
+        />
+      )}
     </g>
   );
 });

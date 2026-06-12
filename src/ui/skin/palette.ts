@@ -19,7 +19,17 @@ export const PALETTE = {
   factionA: '#E8806B',
   factionB: '#7B8BD9',
   fogWash: 'rgba(255,255,255,0.55)',
+  // E1 discovery fog (conquest addendum §A) — tier styling, pinned by tests:
+  /** dark tier: near-black cover over never-seen cells (no terrain detail). */
+  darkCover: '#2A2622',
+  /** memory tier: white wash over remembered (desaturated) terrain. */
+  memoryWash: 'rgba(255,255,255,0.35)',
 } as const;
+
+/** E1 dark-tier cover opacity (~0.92 — a breath of paper warms the black). */
+export const DARK_COVER_OPACITY = 0.92;
+/** E1 memory-tier desaturation (addendum §A: ~0.55 toward luminance). */
+export const MEMORY_DESATURATION = 0.55;
 
 export function terrainFill(terrain: TerrainKey): string {
   switch (terrain) {

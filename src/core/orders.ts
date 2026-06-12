@@ -10,7 +10,7 @@
 // The P4 resolver re-checks legality at execution time; this module gates
 // INPUT — what the player may queue given what their faction can see.
 
-import type { Board, CellId } from '../board/types';
+import type { Board, CellId, TerrainKey } from '../board/types';
 import { graphDistance } from '../board/geometry';
 import type { FactionId, Stance, UnitInstance, UnitType } from './types';
 import { IMPASSABLE } from './pathing';
@@ -78,6 +78,13 @@ export type OrderContext = {
    * the resolver bounces the mover back if the promise breaks). Omitting
    * this disables the allowance (strict §2.5 behaviour). */
   allQueued?: OrderQueues;
+  /** E1 discovery fog (addendum §A): the ordering faction's BELIEVED terrain
+   * per cell — dark cells assumed plains, memory/live cells truth (see
+   * core/fog assumedTerrainView). Move cost/passability validates against
+   * THIS, so optimistic plans into the dark queue cleanly; the resolver
+   * re-paths against truth and truncates ('invalid-step') on surprise.
+   * Default: truth (legacy behaviour, full-knowledge callers). */
+  assumedTerrain?: (cell: CellId) => TerrainKey;
 };
 
 /** The vacancy-promise gate (v1.1): may `mover` plan to END on `occ`'s cell?
@@ -152,7 +159,9 @@ function validateMove(
     if (!cell) return reject('broken-path');
     if (!board.cells.get(prev)!.neighbors.includes(step)) return reject('broken-path');
 
-    const stepCost = ut.terrainEffects[cell.terrain]?.movementCost ?? IMPASSABLE;
+    // E1: cost against the faction's BELIEVED terrain (dark ⇒ plains).
+    const terrain = ctx.assumedTerrain ? ctx.assumedTerrain(step) : cell.terrain;
+    const stepCost = ut.terrainEffects[terrain]?.movementCost ?? IMPASSABLE;
     if (stepCost >= IMPASSABLE) return reject('impassable');
     cost += stepCost;
     if (cost > ut.movement) return reject('over-budget');

@@ -141,6 +141,13 @@ export type GameState = {
   pendingOrders: Record<FactionId, Order[]>;
   rngSeed: number; // xorshift32 state
   log: ResolutionEvent[];
+  /** E1 discovery fog (conquest addendum §A): cells each faction has EVER
+   * had inside its vision union. Accumulates on every vision computation —
+   * round start and (for the player) every replay frame — and NEVER shrinks.
+   * Optional: newGame predates E1 and is frozen (read-only surface); the
+   * store seeds it via core/fog seedDiscovery at battle start. Absent ⇒
+   * treated as empty (everything dark) by the tier helpers. */
+  discovered?: Record<FactionId, ReadonlySet<CellId>>;
   /** Set by the resolver when the game ends (§2.8); absent while running. */
   outcome?: GameOutcome;
 };

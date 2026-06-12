@@ -29,6 +29,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  assumedTerrainView,
   findConvergences,
   movementCostsFor,
   orderedUnitIds,
@@ -57,6 +58,10 @@ import type { GhostOrder, TrailMark } from './ui/skin';
 /** v1.3 Tweak B: a finished trail lingers (fading) this long before removal —
  * the CSS opacity transition (~1.6 s) runs inside this window. */
 const TRAIL_LINGER_MS = 1900;
+
+/** E1 ignition: a dark → live cell keeps its fading cover this long — the
+ * 0.4 s CSS fade runs inside it even when 250 ms move frames advance past. */
+const IGNITE_LINGER_MS = 500;
 
 type SheetState = { kind: 'order'; unitId: string } | { kind: 'info'; cellId: CellId } | null;
 
@@ -133,6 +138,18 @@ function BattleScreen() {
     setTrails((cur) => (cur.length === 0 ? cur : []));
   }
 
+  // E1 replay ignition: cells whose dark cover is mid-fade (frame.ignite
+  // started it; each lingers IGNITE_LINGER_MS so the 0.4 s CSS fade finishes
+  // even when faster frames advance underneath).
+  const [ignites, setIgnites] = useState<ReadonlySet<CellId>>(new Set());
+  const igniteTimers = useRef(new Map<CellId, ReturnType<typeof setTimeout>>());
+
+  function clearIgnites() {
+    for (const t of igniteTimers.current.values()) clearTimeout(t);
+    igniteTimers.current.clear();
+    setIgnites((cur) => (cur.size === 0 ? cur : new Set()));
+  }
+
   // New script → restart playback.
   useEffect(() => {
     setFrameIdx(0);
@@ -142,7 +159,37 @@ function BattleScreen() {
     setSuspendedAt(null);
     setLinger(null);
     setHover(null);
+    clearIgnites();
   }, [script]);
+
+  // E1 ignition driver: each frame's dark → live deltas start a soft fade.
+  useEffect(() => {
+    if (uiPhase === 'planning' || !script) {
+      clearIgnites();
+      return;
+    }
+    const fr = script.frames[Math.min(frameIdx, script.frames.length - 1)];
+    if (!fr || fr.ignite.length === 0) return;
+    setIgnites((cur) => new Set([...cur, ...fr.ignite]));
+    for (const cell of fr.ignite) {
+      const pending = igniteTimers.current.get(cell);
+      if (pending) clearTimeout(pending);
+      igniteTimers.current.set(
+        cell,
+        setTimeout(() => {
+          igniteTimers.current.delete(cell);
+          setIgnites((cur) => {
+            if (!cur.has(cell)) return cur;
+            const next = new Set(cur);
+            next.delete(cell);
+            return next;
+          });
+        }, IGNITE_LINGER_MS),
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uiPhase, script, frameIdx]);
+  useEffect(() => clearIgnites, []); // unmount: drop pending timers
 
   // Phase flips reuse the same <Board> instance — drop a stale hover card.
   useEffect(() => setHover(null), [uiPhase]);
@@ -252,6 +299,22 @@ function BattleScreen() {
     return fogged;
   }, [board, visible]);
 
+  // E1 discovery (addendum §A): the player's ever-seen set — fogged cells in
+  // it render as memory, outside it as dark. Seeded at battle start,
+  // accumulated by the store after each round.
+  const discovered = useMemo(
+    () => game?.discovered?.[PLAYER_FACTION] ?? new Set<CellId>(),
+    [game],
+  );
+
+  // E1 planning honesty: dark cells are ASSUMED plains (cost 3) by every
+  // planning-side path/preview — the overlay must not leak unscouted terrain.
+  // The resolver re-paths against truth and truncates on surprise.
+  const assumedTerrain = useMemo(
+    () => (board ? assumedTerrainView(board, discovered, visible) : undefined),
+    [board, discovered, visible],
+  );
+
   // Planning fog (spec §7): enemy units outside the player's vision union do
   // NOT exist in the planning view — they're filtered out of `units` here.
   const knownUnits = useMemo(
@@ -305,7 +368,10 @@ function BattleScreen() {
     // Tint shows moves available FROM THE CURRENT CELL (a new tap replaces
     // any queued move); rings show targets from the PLANNED end position —
     // "where could I go" vs "who can my current plan shoot".
-    const reach = reachableCells(board, costs, selected.cell, budget, pathOpts(selected));
+    const reach = reachableCells(board, costs, selected.cell, budget, {
+      ...pathOpts(selected),
+      assumedTerrain,
+    });
     const reachable = new Map<CellId, number>();
     for (const [cell, cost] of reach) reachable.set(cell, (budget - cost) / budget);
 
@@ -319,7 +385,7 @@ function BattleScreen() {
     const visionEdge = new Set(cellsWithin(board, selected.cell, ut.vision));
     return { reachable, targets, visionEdge };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [board, selected, knownUnits, orders, types]);
+  }, [board, selected, knownUnits, orders, types, assumedTerrain]);
 
   // --- Layer 2 (§9.3): ghost orders -------------------------------------------
   const ghosts = useMemo<GhostOrder[]>(() => {
@@ -355,6 +421,7 @@ function BattleScreen() {
     const res = findPath(board, movementCostsFor(ut), unit.cell, cell, {
       budget: ut.movement,
       ...pathOpts(unit),
+      assumedTerrain,
     });
     if (!res || res.path.length === 0) return false;
     return tryQueueOrder({ kind: 'move', unitId: unit.id, path: res.path }).ok;
@@ -501,6 +568,8 @@ function BattleScreen() {
             board={board}
             units={frame.units}
             fog={frame.fog}
+            discovered={frame.discovered}
+            ignite={ignites}
             replayFx={{
               key: frameIdx,
               fx: {
@@ -524,6 +593,7 @@ function BattleScreen() {
             board={board}
             units={boardUnits}
             fog={fog}
+            discovered={discovered}
             highlights={layer1}
             selectedUnitId={selected?.id ?? null}
             ghosts={ghosts}

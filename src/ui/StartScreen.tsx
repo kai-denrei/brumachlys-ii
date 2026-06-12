@@ -2,6 +2,10 @@
 // field + randomize, Battle button. Previews are the ACTUAL boards each donor
 // produces at a fixed seed (7), generated once and cached module-level so
 // returning from a battle doesn't regenerate.
+//
+// E1 (conquest addendum §A): previews render as paper-tone SILHOUETTES —
+// the cell mesh without terrain tint. Terrain is no longer public knowledge;
+// a full-color preview would let players scout the map before round 1.
 
 import { useMemo } from 'react';
 import type { Board as BoardGraph } from '../board/types';
@@ -50,7 +54,8 @@ export function StartScreen() {
               onClick={() => selectDonor(entry.id)}
             >
               <div className="donor-preview">
-                <Board board={board} interactive={false} />
+                {/* E1 (addendum §A): silhouette — terrain stays undiscovered. */}
+                <Board board={board} interactive={false} silhouette />
               </div>
               <span className="donor-name">{entry.name}</span>
             </button>

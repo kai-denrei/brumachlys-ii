@@ -2,7 +2,16 @@
 // goes through these renderers; replacing glyphs with sprites or animated art
 // later = a new skin module, zero game code touched.
 
-export { PALETTE, darken, desaturate, factionColor, mix, terrainFill } from './palette';
+export {
+  DARK_COVER_OPACITY,
+  MEMORY_DESATURATION,
+  PALETTE,
+  darken,
+  desaturate,
+  factionColor,
+  mix,
+  terrainFill,
+} from './palette';
 export { roundedPolygonPath, ringCentroid, ringRadius } from './rounded';
 export type { Pt } from './rounded';
 export { CellRenderer, CELL_STROKE_WIDTH } from './CellRenderer';
