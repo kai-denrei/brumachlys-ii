@@ -47,6 +47,19 @@ body {
   font-weight: 700;
   letter-spacing: 0.08em;
   font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* E3 visual pass: at phone widths the conquest credits HUD shares the bar —
+   without this the title wraps to two lines (observed at 390 px). */
+@media (max-width: 430px) {
+  .top-bar-title {
+    font-size: 0.72rem;
+    letter-spacing: 0.05em;
+  }
+  .top-bar {
+    gap: 0.4rem;
+  }
 }
 
 .top-bar-status {
@@ -133,6 +146,18 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* v0.5.1: dev pipeline "⌬" — shares the 44px target discipline of the "i";
+   negative margins overlap so two slim affordances cost ~40px of bar. */
+.top-bar-pipeline {
+  margin-left: -6px;
+}
+
+.top-bar-pipeline-glyph {
+  font-size: 0.95rem;
+  line-height: 1;
+  color: rgba(74, 68, 58, 0.6);
 }
 
 .top-bar-back {
@@ -1368,6 +1393,85 @@ body {
   }
 }
 
+/* --- v0.5.1: dev pipeline tab ("⌬" in the TopBar) ------------------------- */
+
+.pipeline-entry {
+  margin-bottom: 1.05rem;
+  padding: 0.55rem 0.65rem 0.5rem;
+  background: #fff;
+  border-radius: 10px;
+}
+
+.pipeline-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
+.pipeline-version {
+  font-weight: 800;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pipeline-date {
+  font-size: 0.68rem;
+  opacity: 0.55;
+}
+
+.pipeline-chip {
+  margin-left: auto;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.pipeline-chip-shipped {
+  background: rgba(122, 158, 126, 0.22);
+  color: #3f6647;
+}
+
+.pipeline-chip-building {
+  background: rgba(232, 128, 107, 0.22);
+  color: #9c4732;
+}
+
+.pipeline-chip-next {
+  background: rgba(123, 139, 217, 0.22);
+  color: #46519c;
+}
+
+.pipeline-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin: 0.25rem 0 0.2rem;
+}
+
+.pipeline-items {
+  margin: 0;
+  padding-left: 1.05rem;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+.pipeline-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.2rem 0;
+  opacity: 0.8;
+}
+
+.pipeline-tests {
+  font-size: 0.68rem;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  opacity: 0.7;
+}
+
 /* --- v1.1 Feature A: unit hover card (mouse only) ------------------------- */
 
 /* v1.2 tweak 3: the glance — identity line + one monospace stat line. */
@@ -1575,4 +1679,276 @@ body {
   width: 15px;
   height: 15px;
   display: block;
+}
+
+/* --- E3 conquest (addendum §B) ------------------------------------------------
+   Credits HUD, mode/round-limit selects, build sheet, buy chips/ghosts,
+   baseless grace warning, capture/spawn replay FX. */
+
+.credits-hud {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--faction-a);
+  white-space: nowrap;
+}
+
+.credits-committed {
+  font-weight: 600;
+  font-size: 0.62rem;
+  opacity: 0.75;
+}
+
+.baseless-warning {
+  background: rgba(156, 47, 29, 0.92);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 0.3rem 0.75rem;
+  z-index: 17;
+}
+
+/* start screen: mode cards + round-limit segments (same family as donor cards) */
+
+.mode-row {
+  display: flex;
+  gap: 0.6rem;
+  width: min(420px, 100%);
+}
+
+.mode-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  align-items: flex-start;
+  padding: 0.55rem 0.7rem;
+  background: #fff;
+  border: 2px solid rgba(74, 68, 58, 0.15);
+  border-radius: 12px;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mode-card-selected {
+  border-color: var(--faction-a);
+  box-shadow: 0 0 0 2px rgba(232, 128, 107, 0.25);
+}
+
+.mode-name {
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+}
+
+.mode-desc {
+  font-size: 0.65rem;
+  opacity: 0.65;
+}
+
+.limit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: min(420px, 100%);
+}
+
+.limit-label {
+  font-size: 0.7rem;
+  opacity: 0.7;
+  margin-right: 0.2rem;
+}
+
+.limit-option {
+  min-width: 44px;
+  padding: 0.3rem 0.6rem;
+  background: #fff;
+  border: 1.5px solid rgba(74, 68, 58, 0.2);
+  border-radius: 999px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.limit-option-selected {
+  background: var(--faction-a);
+  border-color: var(--faction-a);
+  color: #fff;
+}
+
+/* dock: queued-buy chips (dashed — a promise, not a unit yet) */
+
+.dock-chip-buy {
+  position: relative;
+  border-style: dashed;
+  border-color: rgba(232, 128, 107, 0.6);
+}
+
+.dock-chip-buy .dock-chip-svg {
+  opacity: 0.6;
+}
+
+.dock-chip-buy-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  font-size: 0.6rem;
+  color: var(--faction-a);
+  font-weight: 700;
+}
+
+/* build sheet (§B.4) */
+
+.build-available {
+  margin-left: auto;
+  margin-right: 0.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--faction-a);
+  font-size: 0.8rem;
+}
+
+.build-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  overflow-y: auto;
+  max-height: 52vh;
+  padding-bottom: 0.25rem;
+}
+
+.build-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.55rem;
+  background: rgba(74, 68, 58, 0.05);
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.build-row-locked {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.build-row-queued {
+  border-color: var(--faction-a);
+  background: rgba(232, 128, 107, 0.12);
+}
+
+.build-row-icon {
+  width: 26px;
+  height: 26px;
+  flex: none;
+}
+
+.build-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.build-row-name {
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.build-row-stats {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  opacity: 0.65;
+  white-space: nowrap;
+}
+
+.build-row-cost {
+  margin-left: auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+}
+
+.build-row-badge {
+  flex: none;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff;
+  background: var(--faction-a);
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+}
+
+/* replay FX: spawn materialization + capture flag swap.
+   NOTE (P9): CSS transform animations live on inner groups only — the outer
+   group carries the positioning translate attribute. */
+
+.fx-spawn-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-spawn-in 0.6s ease-out both;
+}
+
+@keyframes fx-spawn-in {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.fx-spawn-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-impact-pop 0.7s ease-out both;
+}
+
+.fx-capture-flag {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-capture-raise 0.7s ease-out both;
+}
+
+@keyframes fx-capture-raise {
+  from {
+    opacity: 0;
+    transform: scale(0.2) rotate(-25deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.15) rotate(6deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+.fx-capture-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-impact-pop 0.7s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-spawn-pop,
+  .fx-capture-flag {
+    animation: none;
+  }
 }

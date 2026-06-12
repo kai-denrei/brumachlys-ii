@@ -237,10 +237,42 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
             <p>Mountains stop vehicles. Water stops everyone.</p>
           </Section>
 
+          <Section title="Bases">
+            <p>
+              Conquest mode plays for ground. Base tiles fly a flag: yours, theirs, or nobody's. A
+              flag pip marks every base. A personnel unit standing on a foreign base at round end
+              raises the colors and takes it. Vehicles never capture. An owned base watches 2
+              cells around it.
+            </p>
+          </Section>
+
+          <Section title="Credits">
+            <p>
+              Each faction holds credits, shown as ◈ in the top bar. Income lands at round end: a
+              fixed sum per base owned at that moment. Credits buy units; nothing else does.
+            </p>
+          </Section>
+
+          <Section title="Production">
+            <p>
+              Tap an owned base to muster a unit. One order per base per round; the total of all
+              orders stays within your credits. The recruit appears on the base at round end and
+              acts the next round. Credits are spent only when the recruit arrives. An occupied
+              base delivers nothing: the order fails and the credits stay.
+            </p>
+          </Section>
+
           <Section title="Winning">
             <p>
-              Annihilation. A faction with no units at the end of a round loses. Both wiped out in
-              the same round: draw. Round 40 reached with both alive: the mist settles — draw.
+              <b>Skirmish</b> — annihilation. A faction with no units at the end of a round loses.
+              Both wiped out in the same round: draw. Round 40 reached with both alive: the mist
+              settles — draw.
+            </p>
+            <p>
+              <b>Conquest</b> — lose every unit AND every base, and the war is over at once. A
+              faction holding zero bases for 3 round ends running collapses and loses; the
+              countdown shows while you are baseless. An optional round limit (40, 60, 80) ends
+              the war by count: most bases, then most total unit strength, else draw.
             </p>
           </Section>
         </div>

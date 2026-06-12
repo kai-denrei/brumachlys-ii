@@ -20,16 +20,23 @@ import { create } from 'zustand';
 import type { Board, CellId } from '../board/types';
 import { generateBoard } from '../board';
 import { buildFactionView, greedyPlanner } from '../ai';
-import type { FactionId, GameState } from '../core/types';
+import type { FactionId, GameMode, GameState } from '../core/types';
 import {
+  type BuyOrder,
+  type BuyQueues,
+  type BuyValidationResult,
   type Order,
   type OrderKind,
   type OrderQueues,
   type UnitOrders,
   type ValidationResult,
+  flattenBuys,
   flattenOrders,
+  queueBuy,
   queueOrder,
+  removeBuy,
   removeOrder,
+  validateBuy,
   validateOrder,
 } from '../core/orders';
 import { weewar } from '../core/combat/weewar';
@@ -109,9 +116,19 @@ export type BattleRecap = {
   taken: number;
   fizzles: number;
   brawls: number;
+  /** E3 conquest: credits the player spent on successful spawns, battle-long
+   *  (summary.creditsSpent accumulated per round). Stays 0 in skirmish. */
+  spent: number;
 };
 
-export const EMPTY_RECAP: BattleRecap = { rounds: 0, dealt: 0, taken: 0, fizzles: 0, brawls: 0 };
+export const EMPTY_RECAP: BattleRecap = {
+  rounds: 0,
+  dealt: 0,
+  taken: 0,
+  fizzles: 0,
+  brawls: 0,
+  spent: 0,
+};
 
 /** v1.4: distinct brawls in one round's replay script. The builder emits one
  * slot per brawl EXCHANGE, back-to-back per brawl (same P9 chain rule that
@@ -150,7 +167,9 @@ export function settleDependentOrders(
 ): { queues: OrderQueues; dropped: { unitId: string; kind: OrderKind }[] } {
   const types = loadUnits();
   const units = Object.values(game.units).filter((u) => u.count > 0);
-  const visible = visibleCells(board, units, PLAYER_FACTION, types);
+  // E2/E3: owned bases contribute vision in conquest (game.bases is absent in
+  // skirmish, so the extra arg is mode-gated by the state shape itself).
+  const visible = visibleCells(board, units, PLAYER_FACTION, types, game.bases);
   const known = units.filter((u) => u.faction === PLAYER_FACTION || visible.has(u.cell));
   // E1: re-validate against the player's BELIEVED terrain (dark ⇒ plains),
   // same lens tryQueueOrder used to admit the order in the first place.
@@ -195,6 +214,11 @@ export type AppState = {
   screen: Screen;
   donorId: string;
   seed: number;
+  /** E3 (addendum §B): start-screen mode select. Conquest is the default. */
+  mode: GameMode;
+  /** E3: conquest round limit (off/40/60/80 on the start screen; null=off).
+   *  Skirmish ignores it (the resolver keeps its fixed 40). */
+  roundLimit: number | null;
   /** Generated battle board (null until startBattle). game.board === board. */
   board: Board | null;
 
@@ -211,6 +235,9 @@ export type AppState = {
   selectedUnitId: string | null;
   /** Player faction's queued orders, by unit id (core OrderQueues). */
   orders: OrderQueues;
+  /** E3 conquest: the player's queued buys, by base cell (core BuyQueues).
+   *  Always {} in skirmish. Cleared on commit (the round spends them). */
+  buys: BuyQueues;
   /** Bumped by centerOn; the Board pans to `cell` when token changes. */
   focus: { cell: CellId; token: number } | null;
   /** v1.1: transient signal when dependent orders were auto-removed. */
@@ -229,6 +256,9 @@ export type AppState = {
   setSeed: (seed: number) => void;
   /** UI layer may use wall-clock entropy (spec §4.3). */
   randomizeSeed: () => void;
+  /** E3: start-screen mode + round-limit selects. */
+  setMode: (mode: GameMode) => void;
+  setRoundLimit: (limit: number | null) => void;
   startBattle: () => void;
   exitBattle: () => void;
 
@@ -240,6 +270,10 @@ export type AppState = {
   tryQueueOrder: (order: Order) => ValidationResult;
   removeUnitOrder: (unitId: string, kind: OrderKind) => void;
   clearOrders: () => void;
+  /** E3 conquest: validate (own base, type, committed total ≤ credits) and
+   *  queue a buy, REPLACING any buy on the same base (edit semantics). */
+  tryQueueBuy: (order: BuyOrder) => BuyValidationResult;
+  removeBuyOrder: (baseCell: CellId) => void;
   /** v1.1 internal: surface auto-removed dependent orders as a notice. */
   signalDropped: (dropped: { unitId: string; kind: OrderKind }[]) => void;
 
@@ -267,6 +301,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   screen: 'start',
   donorId: DONOR_ENTRIES[0]!.id,
   seed: 7,
+  mode: 'conquest',
+  roundLimit: null,
   board: null,
 
   game: null,
@@ -276,6 +312,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   selectedUnitId: null,
   orders: {},
+  buys: {},
   focus: null,
   notice: null,
   battleLog: [],
@@ -285,17 +322,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectDonor: (donorId) => set({ donorId }),
   setSeed: (seed) => set({ seed: Math.trunc(seed) }),
   randomizeSeed: () => set({ seed: Date.now() % 1_000_000 }),
+  setMode: (mode) => set({ mode }),
+  setRoundLimit: (roundLimit) => set({ roundLimit }),
 
   startBattle: () => {
-    const { donorId, seed } = get();
+    const { donorId, seed, mode, roundLimit } = get();
     const board = generateBoard(loadDonor(donorId), seed);
     const types = loadUnits();
-    const base = newGame(board, STANDARD_ARMY, types, seed);
+    const base = newGame(
+      board,
+      STANDARD_ARMY,
+      types,
+      seed,
+      mode,
+      mode === 'conquest' ? roundLimit : null,
+    );
     // E1 (addendum §A): initial discovery = each faction's starting vision
-    // union. newGame is frozen core surface — the store seeds the field.
+    // union (E2: + owned bases' vision-2 footprints — base.bases is absent in
+    // skirmish). newGame is frozen core surface — the store seeds the field.
     const game: GameState = {
       ...base,
-      discovered: seedDiscovery(board, Object.values(base.units), types),
+      discovered: seedDiscovery(board, Object.values(base.units), types, base.bases),
     };
     set({
       board,
@@ -305,6 +352,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       replay: null,
       selectedUnitId: null,
       orders: {},
+      buys: {},
       focus: null,
       notice: null,
       battleLog: [],
@@ -322,6 +370,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       replay: null,
       selectedUnitId: null,
       orders: {},
+      buys: {},
       focus: null,
       notice: null,
       battleLog: [],
@@ -340,7 +389,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!board || !game) return { ok: false, reason: 'unknown-unit' };
     const types = loadUnits();
     const units = Object.values(game.units).filter((u) => u.count > 0);
-    const visible = visibleCells(board, units, PLAYER_FACTION, types);
+    const visible = visibleCells(board, units, PLAYER_FACTION, types, game.bases);
     // The player's KNOWN units: own + visible enemies (spec §7 planning fog).
     const known = units.filter((u) => u.faction === PLAYER_FACTION || visible.has(u.cell));
     const queued: UnitOrders | undefined = orders[order.unitId];
@@ -386,6 +435,31 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   clearOrders: () => set({ orders: {}, notice: null }),
 
+  // E3 conquest production (addendum §B.4): committed blind like all orders.
+  // validateBuy re-checks own-base + total committed cost ≤ current credits
+  // (the same-base entry frees its cost — replace semantics); the resolver
+  // re-validates everything at Phase E and fails the buy with an event.
+  tryQueueBuy: (order) => {
+    const { game, buys } = get();
+    if (!game || game.mode !== 'conquest' || !game.bases || !game.credits) {
+      return { ok: false, reason: 'unknown-base' };
+    }
+    const verdict = validateBuy(
+      {
+        faction: PLAYER_FACTION,
+        bases: game.bases,
+        credits: game.credits[PLAYER_FACTION],
+        unitTypes: loadUnits(),
+        queued: buys,
+      },
+      order,
+    );
+    if (verdict.ok) set({ buys: queueBuy(buys, order) });
+    return verdict;
+  },
+
+  removeBuyOrder: (baseCell) => set((s) => ({ buys: removeBuy(s.buys, baseCell) })),
+
   /** v1.1 internal: turn auto-removed dependents into the toast-level notice. */
   signalDropped: (dropped) => {
     if (dropped.length === 0) return;
@@ -404,10 +478,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   // --- game actions (P8) ---------------------------------------------------------
 
   commit: (playerOrdersOverride) => {
-    const { game, orders, uiPhase } = get();
+    const { game, orders, buys, uiPhase } = get();
     if (!game || game.outcome || uiPhase !== 'planning') return;
     const types = loadUnits();
     const playerOrders = playerOrdersOverride ?? flattenOrders(orders);
+    const conquest = game.mode === 'conquest';
 
     // The AI plans when the player commits (spec §2.1, solo flow) — through
     // its own fog-filtered FactionView only (§8.1 symmetric honesty).
@@ -416,6 +491,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       aiView,
       createRng(plannerSeed(game.rngSeed, game.round, 1)),
     );
+    // E4 SEAM (addendum §B.7): when the greedy planner gains conquest buy
+    // logic it exposes planBuys(view, rng) — probed optionally here so the
+    // store wiring is already in place. Until then the AI buys nothing.
+    // Separate rng stream (salted seed) so buys don't perturb order plans.
+    const planBuys = (
+      greedyPlanner as { planBuys?: (view: typeof aiView, rng: ReturnType<typeof createRng>) => BuyOrder[] }
+    ).planBuys;
+    const aiBuys: BuyOrder[] =
+      conquest && planBuys
+        ? planBuys.call(
+            greedyPlanner,
+            aiView,
+            createRng(plannerSeed(game.rngSeed ^ 0x00c0ffee, game.round, 1)),
+          )
+        : [];
 
     // Pre-resolution snapshot — the replay simulates forward from here.
     const baseUnits = Object.values(game.units).map((u) => ({
@@ -429,6 +519,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       { 0: playerOrders, 1: aiOrders },
       types,
       weewar,
+      conquest ? { 0: flattenBuys(buys), 1: aiBuys } : undefined,
     );
     const script = buildReplay(
       game.board,
@@ -437,20 +528,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       types,
       PLAYER_FACTION,
       game.discovered?.[PLAYER_FACTION],
+      // E3: pre-round ownership + the player's credits — the replay flips
+      // bases and ticks the HUD exactly when it shows the cause.
+      conquest && game.bases && game.credits
+        ? { bases: game.bases, credits: game.credits[PLAYER_FACTION] }
+        : undefined,
     );
 
     // E1 discovery accrual (addendum §A): the player's set ran frame-by-frame
     // through the replay build; both factions then take the NEW round-start
-    // vision. Accumulating only — discovered never shrinks.
+    // vision (E2: owned bases included). Accumulating only — never shrinks.
     const survivors = Object.values(state.units).filter((u) => u.count > 0);
     const discovered: Record<FactionId, ReadonlySet<CellId>> = {
       0: accumulateDiscovery(
         script.discovered,
-        visibleCells(game.board, survivors, 0, types),
+        visibleCells(game.board, survivors, 0, types, state.bases),
       ),
       1: accumulateDiscovery(
         game.discovered?.[1],
-        visibleCells(game.board, survivors, 1, types),
+        visibleCells(game.board, survivors, 1, types, state.bases),
       ),
     };
 
@@ -459,6 +555,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       replay: { script, round: game.round },
       uiPhase: 'replay',
       orders: {},
+      buys: {},
       selectedUnitId: null,
       focus: null,
       notice: null,
@@ -504,6 +601,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             taken: s.recap.taken + s.replay.script.summary.damageDealt[1],
             fizzles: s.recap.fizzles + s.replay.script.summary.fizzles,
             brawls: s.recap.brawls + countWitnessedBrawls(s.replay.script.slots),
+            // E3 conquest: own successful spawns' cost (0 in skirmish).
+            spent: s.recap.spent + (s.replay.script.summary.creditsSpent ?? 0),
           }
         : s.recap;
       if (s.game?.outcome) return { ...s, uiPhase: 'over' as const, casualties, recap };

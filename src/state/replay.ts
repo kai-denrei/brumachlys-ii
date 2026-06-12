@@ -40,12 +40,23 @@
 // defender when the source is withheld, so auto-follow can't leak a mist
 // attacker's position; the brawl cell). The Board pans/zooms to frame them.
 
+// E3 (conquest addendum §B) — BLIND-BUY FILTERING lives HERE, inside the same
+// fog-honest walk: capture / income / spawn / spawn-failed events surface for
+// the player's own faction ALWAYS; for the enemy ONLY when the affected cell
+// is live-visible at that replay instant (vision recomputed event-by-event,
+// owned bases contributing BASE_VISION via the simulated ownership record).
+// Enemy income has no affected cell and is therefore never shown — enemy
+// credits stay secret. Frames in conquest mode carry the base-ownership
+// record and the player's credits AS OF that frame, so the board tint flips
+// and the HUD ticks exactly when the replay shows the cause.
+
 import type { Board, CellId } from '../board/types';
 import { visibleCells } from '../core/fog';
 import type {
   AttackBreakdown,
   FactionId,
   ResolutionEvent,
+  SpawnFailReason,
   UnitInstance,
   UnitType,
 } from '../core/types';
@@ -70,7 +81,7 @@ export type Strike = {
 };
 
 export type TimelineSlot = {
-  kind: 'move' | 'volley' | 'brawl' | 'fizzle';
+  kind: 'move' | 'volley' | 'brawl' | 'fizzle' | 'capture' | 'spawn';
   /** Unit-type key for the slot glyph; null = mist (source withheld). */
   actorType: string | null;
   actorFaction: FactionId | null;
@@ -125,11 +136,23 @@ export type ReplayFrame = {
   bursts: CellId[];
   /** Units fading out this frame (snapshot at death). */
   kills: UnitInstance[];
+  /** E3 conquest: units materializing this frame (Phase E spawns the player
+   *  may see). The unit is withheld from `units` on its spawn frame so the
+   *  fx layer alone draws it (fade/scale in); it joins `units` next frame. */
+  spawns: UnitInstance[];
+  /** E3 conquest: bases flipping THIS frame (flag-swap FX). */
+  captures: { cell: CellId; to: FactionId }[];
   /** v1.3: active movement origin trails (fog-filtered, see TrailFx). */
   trails: TrailFx[];
   /** Cells the camera should keep in view this frame (auto-follow, P9).
    *  Empty = leave the view alone. Never contains a withheld mist source. */
   focus: CellId[];
+  /** E3 conquest only: base ownership AS OF this frame — captures already
+   *  shown have flipped, later ones have not. Absent in skirmish. */
+  bases?: Record<CellId, FactionId | null>;
+  /** E3 conquest only: the player's credits as of this frame (income and
+   *  spawn events tick it via creditsAfter). Absent in skirmish. */
+  credits?: number;
 };
 
 export type RoundSummary = {
@@ -139,6 +162,9 @@ export type RoundSummary = {
   damageDealt: [number, number];
   /** Shown lost-target fizzles. */
   fizzles: number;
+  /** E3 conquest: credits the PLAYER spent this round (successful spawns
+   *  only — failed buys never deduct). Absent/0 in skirmish. */
+  creditsSpent?: number;
 };
 
 // --- v1.1 skirmish log (Feature D) ----------------------------------------------
@@ -173,6 +199,19 @@ const VOLLEY_MS = 800;
 const BRAWL_FOLLOWUP_MS = 350;
 const FIZZLE_MS = 500;
 const ESTABLISH_MS = 350;
+/** E3 conquest: capture flag swap / spawn materialization / income tick. */
+const CAPTURE_MS = 700;
+const SPAWN_MS = 700;
+const INCOME_MS = 400;
+
+/** E3: what buildReplay needs to simulate conquest fog + the credits HUD —
+ *  the round-START picture (the resolver's events advance it). */
+export type ConquestReplayCtx = {
+  /** Base ownership entering the round (pre-capture). */
+  bases: Readonly<Record<CellId, FactionId | null>>;
+  /** The PLAYER's credits entering the round. */
+  credits: number;
+};
 
 export function buildReplay(
   board: Board,
@@ -183,24 +222,35 @@ export function buildReplay(
   /** E1: the player's discovery set entering the round (GameState.discovered).
    *  Absent ⇒ empty — everything outside the establishing vision is dark. */
   discoveredAtStart?: ReadonlySet<CellId>,
+  /** E3: pass in conquest mode only — enables base vision, ownership frames,
+   *  the credits feed, and the §B.4 blind-buy event filtering. */
+  conquest?: ConquestReplayCtx,
 ): ReplayScript {
   // --- simulation state ------------------------------------------------------
   const sim = new Map<string, UnitInstance>(
     baseUnits.map((u) => [u.id, { ...u, attackedFrom: [] }]),
   );
+  // E3 conquest sim: ownership flips on capture events, the player's credits
+  // tick on own income/spawn events. Null in skirmish — zero behavior change.
+  const cq: { bases: Record<CellId, FactionId | null>; credits: number } | null = conquest
+    ? { bases: { ...conquest.bases }, credits: conquest.credits }
+    : null;
   const living = (): UnitInstance[] => [...sim.values()].filter((u) => u.count > 0);
-  const vision = (): Set<CellId> => visibleCells(board, living(), player, unitTypes);
+  const vision = (): Set<CellId> =>
+    visibleCells(board, living(), player, unitTypes, cq?.bases);
   const fogOf = (vis: ReadonlySet<CellId>): Set<CellId> => {
     const fog = new Set<CellId>();
     for (const id of board.cells.keys()) if (!vis.has(id)) fog.add(id);
     return fog;
   };
   // E1 discovery: accumulates across frames; each frame's fog fields come
-  // from ONE place so discovery and ignition can never drift apart.
+  // from ONE place so discovery and ignition can never drift apart. E3 rides
+  // the same chokepoint: every frame snapshots ownership + credits here.
   let disc: ReadonlySet<CellId> = new Set(discoveredAtStart);
   const fogFields = (
     vis: ReadonlySet<CellId>,
-  ): Pick<ReplayFrame, 'fog' | 'discovered' | 'ignite'> => {
+  ): Pick<ReplayFrame, 'fog' | 'discovered' | 'ignite'> &
+    Partial<Pick<ReplayFrame, 'bases' | 'credits'>> => {
     const ignite: CellId[] = [];
     for (const c of vis) if (!disc.has(c)) ignite.push(c);
     if (ignite.length > 0) {
@@ -209,7 +259,12 @@ export function buildReplay(
       for (const c of ignite) next.add(c);
       disc = next;
     }
-    return { fog: fogOf(vis), discovered: disc, ignite };
+    return {
+      fog: fogOf(vis),
+      discovered: disc,
+      ignite,
+      ...(cq ? { bases: { ...cq.bases }, credits: cq.credits } : {}),
+    };
   };
   /** The player can "see" a unit: own units always, others by cell fog. */
   const seen = (faction: FactionId, cell: CellId, vis: ReadonlySet<CellId>): boolean =>
@@ -245,6 +300,8 @@ export function buildReplay(
     floaters: [] as Floater[],
     bursts: [] as CellId[],
     kills: [] as UnitInstance[],
+    spawns: [] as UnitInstance[],
+    captures: [] as ReplayFrame['captures'],
     trails: [] as TrailFx[],
     focus: [] as CellId[],
   });
@@ -607,6 +664,152 @@ export function buildReplay(
         log.push({
           atFrame: frames.length - 1,
           segs: [{ t: nameOf(att.type), f: att.faction }, { t: ' holds fire — target lost' }],
+        });
+      }
+      i++;
+      continue;
+    }
+
+    // ── E3 conquest events (addendum §B) — the BLIND-BUY FILTER. Own-faction
+    // events always show; enemy capture/spawn/spawn-failed show only when the
+    // affected cell is live-visible at this instant; enemy income (no cell)
+    // never shows. Hidden events still advance the simulation silently.
+    if (ev.type === 'capture') {
+      const visBefore = vision(); // visibility judged BEFORE the flip
+      const own = ev.to === player;
+      const shown = own || visBefore.has(ev.cell);
+      if (cq) cq.bases[ev.cell] = ev.to;
+      if (shown) {
+        const u = sim.get(ev.unitId);
+        const slot = slots.length;
+        slots.push({ kind: 'capture', actorType: u?.type ?? null, actorFaction: ev.to, strikes: [] });
+        const vis = vision(); // post-flip: a taken base extends the watch
+        const fx = emptyFx();
+        fx.captures.push({ cell: ev.cell, to: ev.to });
+        frames.push({
+          duration: CAPTURE_MS,
+          slot,
+          units: renderUnits(vis),
+          ...fogFields(vis),
+          ...fx,
+          focus: [ev.cell],
+        });
+        log.push({
+          atFrame: frames.length - 1,
+          segs: [
+            ...(own ? [] : [{ t: 'enemy ' }]),
+            { t: nameOf(u?.type ?? null), f: ev.to },
+            { t: ' raises the colors' },
+          ],
+        });
+      }
+      i++;
+      continue;
+    }
+
+    if (ev.type === 'income') {
+      // Own income only: the HUD ticks, the log notes it. Enemy income has
+      // no witnessable cell — enemy credits stay secret.
+      if (cq && ev.faction === player) {
+        cq.credits = ev.creditsAfter;
+        if (ev.amount > 0) {
+          const vis = vision();
+          frames.push({
+            duration: INCOME_MS,
+            slot: -1, // no timeline slot — a bookkeeping beat, not an action
+            units: renderUnits(vis),
+            ...fogFields(vis),
+            ...emptyFx(),
+          });
+          log.push({
+            atFrame: frames.length - 1,
+            segs: [
+              { t: 'income ' },
+              { t: `+${ev.amount}`, f: player },
+              { t: ` · ◈ ${ev.creditsAfter}` },
+            ],
+          });
+        }
+      }
+      i++;
+      continue;
+    }
+
+    if (ev.type === 'spawn') {
+      const visBefore = vision();
+      const own = ev.faction === player;
+      const shown = own || visBefore.has(ev.cell);
+      const unit: UnitInstance = {
+        id: ev.unitId,
+        type: ev.typeKey,
+        faction: ev.faction,
+        cell: ev.cell,
+        count: 10,
+        stance: 'aggressive',
+        attackedFrom: [],
+      };
+      sim.set(ev.unitId, unit); // hidden spawns still enter the sim silently
+      if (cq && own) {
+        cq.credits = ev.creditsAfter; // credits deduct on SUCCESS only
+        summary.creditsSpent = (summary.creditsSpent ?? 0) + (unitTypes[ev.typeKey]?.cost ?? 0);
+      }
+      if (shown) {
+        const slot = slots.length;
+        slots.push({ kind: 'spawn', actorType: ev.typeKey, actorFaction: ev.faction, strikes: [] });
+        const vis = vision(); // an own recruit's vision joins the union
+        const fx = emptyFx();
+        fx.spawns.push({ ...unit, attackedFrom: [] });
+        frames.push({
+          duration: SPAWN_MS,
+          slot,
+          // the fx layer draws the materializing token; withhold the real one
+          units: renderUnits(vis).filter((u) => u.id !== ev.unitId),
+          ...fogFields(vis),
+          ...fx,
+          focus: [ev.cell],
+        });
+        log.push({
+          atFrame: frames.length - 1,
+          segs: [
+            ...(own ? [] : [{ t: 'enemy ' }]),
+            { t: nameOf(ev.typeKey), f: ev.faction },
+            { t: ' musters at the base' },
+          ],
+        });
+      }
+      i++;
+      continue;
+    }
+
+    if (ev.type === 'spawn-failed') {
+      const vis = vision();
+      const own = ev.faction === player;
+      const shown = own || vis.has(ev.cell);
+      if (shown) {
+        const slot = slots.length;
+        slots.push({ kind: 'fizzle', actorType: ev.unitTypeKey, actorFaction: ev.faction, strikes: [] });
+        const fx = emptyFx();
+        fx.floaters.push({ id: `f${slot}-0`, cell: ev.cell, text: 'build failed', mist: false, slot });
+        frames.push({
+          duration: FIZZLE_MS,
+          slot,
+          units: renderUnits(vis),
+          ...fogFields(vis),
+          ...fx,
+          focus: [ev.cell],
+        });
+        const why: Record<SpawnFailReason, string> = {
+          occupied: 'base occupied',
+          'base-lost': 'base lost',
+          'no-credits': 'credits short',
+        };
+        log.push({
+          atFrame: frames.length - 1,
+          segs: [
+            ...(own ? [] : [{ t: 'enemy ' }]),
+            { t: nameOf(ev.unitTypeKey), f: ev.faction },
+            { t: ` build failed — ${why[ev.reason]}` },
+          ],
         });
       }
       i++;

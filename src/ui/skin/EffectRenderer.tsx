@@ -98,6 +98,90 @@ function GhostMove({
   );
 }
 
+// --- E3 conquest: queued-buy ghosts (addendum §B.4 mandatory messaging) -----
+// A buy queued on an owned base renders a translucent dashed-ring token on
+// the base cell plus a pill naming the purchase and when it lands. Tap →
+// the build sheet for that base (edit/remove).
+
+export type BuyGhostMark = {
+  baseCell: CellId;
+  /** Throwaway instance for the token art (player faction, the bought type). */
+  unit: UnitInstance;
+  /** Pill copy, e.g. "Sniper purchased — arrives at round end". */
+  pill: string;
+};
+
+export function BuyGhosts({
+  board,
+  toScreen,
+  tokenSize,
+  buys,
+  onTap,
+}: {
+  board: Board;
+  toScreen: (p: readonly [number, number]) => Pt;
+  tokenSize: number;
+  buys: readonly BuyGhostMark[];
+  onTap?: (baseCell: CellId) => void;
+}) {
+  return (
+    <g className="buy-ghosts">
+      {buys.map((b) => {
+        const cell = board.cells.get(b.baseCell);
+        if (!cell) return null;
+        const [x, y] = toScreen(cell.center);
+        const fs = tokenSize * 0.26;
+        const w = b.pill.length * fs * 0.52 + fs * 1.6;
+        const h = fs * 1.7;
+        const py = y - tokenSize * 1.05;
+        return (
+          <g
+            key={b.baseCell}
+            className="ghost ghost-buy"
+            data-buy-cell={b.baseCell}
+            onClick={onTap ? () => onTap(b.baseCell) : undefined}
+          >
+            <circle
+              cx={x}
+              cy={y}
+              r={tokenSize * 0.68}
+              fill="none"
+              stroke={factionColor(b.unit.faction)}
+              strokeWidth={tokenSize * 0.05}
+              strokeDasharray={`${tokenSize * 0.08} ${tokenSize * 0.12}`}
+            />
+            <g className="ghost-token" opacity={0.45}>
+              <UnitRenderer unit={b.unit} x={x} y={y} size={tokenSize} minimal />
+            </g>
+            <g className="buy-pill" transform={`translate(${x} ${py})`}>
+              <rect
+                x={-w / 2}
+                y={-h / 2}
+                width={w}
+                height={h}
+                rx={h / 2}
+                fill="#fff"
+                stroke="rgba(74,68,58,0.35)"
+                strokeWidth={tokenSize * 0.03}
+              />
+              <text
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={fs}
+                fontWeight={600}
+                fill="#4a443a"
+                pointerEvents="none"
+              >
+                {b.pill}
+              </text>
+            </g>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 /** Small white-on-color sword marker (also the aggressive stance icon). */
 export function SwordIcon({ size, stroke = '#fff' }: { size: number; stroke?: string }) {
   const s = size / 100;

@@ -13,6 +13,10 @@ describe('app store', () => {
       screen: 'start',
       donorId: '53316',
       seed: 7,
+      // E3: the store defaults to conquest; these suites pin the v1 skirmish
+      // game (mirror armies, no bases) — conquest plumbing has its own suite.
+      mode: 'skirmish',
+      roundLimit: null,
       board: null,
       game: null,
       uiPhase: 'planning',

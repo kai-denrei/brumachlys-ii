@@ -61,11 +61,15 @@ describe('game slice (P8)', () => {
       screen: 'start',
       donorId: '53316',
       seed: 7,
+      // E3: store defaults to conquest; these P8 suites pin v1 skirmish.
+      mode: 'skirmish',
+      roundLimit: null,
       board: null,
       game: null,
       uiPhase: 'planning',
       replay: null,
       orders: {},
+      buys: {},
       casualties: [],
     });
   });
@@ -225,11 +229,15 @@ describe('discovery fog state (E1, addendum §A)', () => {
       screen: 'start',
       donorId: '53316',
       seed: 7,
+      // E3: store defaults to conquest; these P8 suites pin v1 skirmish.
+      mode: 'skirmish',
+      roundLimit: null,
       board: null,
       game: null,
       uiPhase: 'planning',
       replay: null,
       orders: {},
+      buys: {},
       casualties: [],
     });
   });

@@ -27,11 +27,18 @@ function previewBoard(donorId: string): BoardGraph {
   return b;
 }
 
+/** E3 (addendum §B): conquest round-limit choices — off is the default. */
+const ROUND_LIMITS: readonly (number | null)[] = [null, 40, 60, 80];
+
 export function StartScreen() {
   const donorId = useAppStore((s) => s.donorId);
   const seed = useAppStore((s) => s.seed);
+  const mode = useAppStore((s) => s.mode);
+  const roundLimit = useAppStore((s) => s.roundLimit);
   const selectDonor = useAppStore((s) => s.selectDonor);
   const setSeed = useAppStore((s) => s.setSeed);
+  const setMode = useAppStore((s) => s.setMode);
+  const setRoundLimit = useAppStore((s) => s.setRoundLimit);
   const randomizeSeed = useAppStore((s) => s.randomizeSeed);
   const startBattle = useAppStore((s) => s.startBattle);
 
@@ -61,6 +68,40 @@ export function StartScreen() {
             </button>
           ))}
         </div>
+        {/* E3 (addendum §B): mode select — Conquest is the default game. */}
+        <div className="mode-row" data-testid="mode-select">
+          {(
+            [
+              { key: 'conquest', name: 'Conquest', desc: 'bases · credits · production' },
+              { key: 'skirmish', name: 'Skirmish', desc: 'mirror armies · annihilation' },
+            ] as const
+          ).map((m) => (
+            <button
+              key={m.key}
+              className={`mode-card${mode === m.key ? ' mode-card-selected' : ''}`}
+              data-mode={m.key}
+              onClick={() => setMode(m.key)}
+            >
+              <span className="mode-name">{m.name}</span>
+              <span className="mode-desc">{m.desc}</span>
+            </button>
+          ))}
+        </div>
+        {mode === 'conquest' && (
+          <div className="limit-row" data-testid="round-limit-select">
+            <span className="limit-label">round limit</span>
+            {ROUND_LIMITS.map((v) => (
+              <button
+                key={String(v)}
+                className={`limit-option${roundLimit === v ? ' limit-option-selected' : ''}`}
+                data-limit={String(v)}
+                onClick={() => setRoundLimit(v)}
+              >
+                {v === null ? 'off' : v}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="seed-row">
           <label className="seed-label" htmlFor="seed-input">
             seed

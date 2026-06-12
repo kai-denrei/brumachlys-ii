@@ -21,6 +21,7 @@ export type { UnitRendererProps } from './UnitRenderer';
 export { UnitGlyph, UNIT_ICON_KEYS } from './icons';
 export { GrainFilterDef, GrainOverlay, GRAIN_FILTER_ID, GRAIN_OPACITY } from './GrainFilter';
 export {
+  BuyGhosts,
   EffectRenderer,
   HoldFireIcon,
   ShieldIcon,
@@ -29,6 +30,6 @@ export {
   VisionEdge,
   visionEdgeSegments,
 } from './EffectRenderer';
-export type { EffectRendererProps, GhostOrder } from './EffectRenderer';
+export type { BuyGhostMark, EffectRendererProps, GhostOrder } from './EffectRenderer';
 export { ReplayFx, ReplayTrails } from './ReplayFx';
 export type { ReplayFxData, ReplayFxProps, TrailMark } from './ReplayFx';

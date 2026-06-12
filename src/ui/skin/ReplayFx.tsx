@@ -29,6 +29,12 @@ export type ReplayFxData = {
   }[];
   bursts: CellId[];
   kills: UnitInstance[];
+  /** E3 conquest: units materializing this frame (Phase E spawns) — token
+   *  fades/scales in (.fx-spawn-pop). Optional: skirmish never sends any. */
+  spawns?: UnitInstance[];
+  /** E3 conquest: bases flipping this frame — flag pop in the new owner's
+   *  color + expanding ring (the cell tint swap rides frame.bases). */
+  captures?: { cell: CellId; to: FactionId }[];
 };
 
 export type ReplayFxProps = {
@@ -285,6 +291,67 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, onFloaterTap }: Repla
         return (
           <g key={`k${unit.id}`} className="fx-kill" pointerEvents="none">
             <UnitRenderer unit={unit} x={at[0]} y={at[1]} size={tokenSize} />
+          </g>
+        );
+      })}
+      {(fx.spawns ?? []).map((unit) => {
+        const at = center(board, unit.cell, toScreen);
+        if (!at) return null;
+        // Positioning translate on the OUTER group; the CSS scale/fade
+        // animation lives on the inner one (see the P9 transform NOTE above).
+        return (
+          <g
+            key={`s${unit.id}`}
+            className="fx-spawn"
+            transform={`translate(${at[0]} ${at[1]})`}
+            pointerEvents="none"
+          >
+            <g className="fx-spawn-pop">
+              <UnitRenderer unit={unit} x={0} y={0} size={tokenSize} />
+            </g>
+            <circle
+              className="fx-spawn-ring"
+              r={tokenSize * 0.62}
+              fill="none"
+              stroke={factionColor(unit.faction)}
+              strokeWidth={tokenSize * 0.07}
+            />
+          </g>
+        );
+      })}
+      {(fx.captures ?? []).map(({ cell, to }, k) => {
+        const at = center(board, cell, toScreen);
+        if (!at) return null;
+        const color = factionColor(to);
+        return (
+          <g
+            key={`c${k}`}
+            className="fx-capture"
+            transform={`translate(${at[0]} ${at[1]})`}
+            pointerEvents="none"
+          >
+            <circle
+              className="fx-capture-ring"
+              r={tokenSize * 0.6}
+              fill="none"
+              stroke={color}
+              strokeWidth={tokenSize * 0.08}
+            />
+            <g className="fx-capture-flag">
+              <line
+                x1={0}
+                y1={tokenSize * 0.4}
+                x2={0}
+                y2={-tokenSize * 0.5}
+                stroke={color}
+                strokeWidth={tokenSize * 0.1}
+                strokeLinecap="round"
+              />
+              <path
+                d={`M0 ${-tokenSize * 0.5} L${tokenSize * 0.55} ${-tokenSize * 0.3} L0 ${-tokenSize * 0.1} Z`}
+                fill={color}
+              />
+            </g>
           </g>
         );
       })}

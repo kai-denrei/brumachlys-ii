@@ -42,6 +42,7 @@ import { orderedUnitIds } from '../core/orders';
 import type { FactionId, Stance, UnitInstance } from '../core/types';
 import { PLAYER_FACTION, useAppStore } from '../state/store';
 import {
+  BuyGhosts,
   CellRenderer,
   EffectRenderer,
   GrainFilterDef,
@@ -52,6 +53,7 @@ import {
   UnitRenderer,
   VisionEdge,
   factionColor,
+  type BuyGhostMark,
   type GhostOrder,
   type Pt,
   type ReplayFxData,
@@ -91,6 +93,15 @@ export type BoardProps = {
   ignite?: ReadonlySet<CellId>;
   /** Start-screen previews: paper-tone mesh silhouette, no terrain colors. */
   silhouette?: boolean;
+  /** E3 conquest: live base ownership (GameState.bases / frame.bases). When
+   * present it REPLACES the legacy nearest-anchor tint: owned bases tint to
+   * their owner, neutral bases stay sand. Absent (skirmish) keeps the legacy
+   * proximity tint. Dark-tier cells hide bases either way (CellRenderer). */
+  bases?: Readonly<Record<CellId, FactionId | null>>;
+  /** E3 conquest: queued-buy ghosts (token + "arrives at round end" pill). */
+  buyGhosts?: readonly BuyGhostMark[];
+  /** Tap a buy ghost → reopen that base's build sheet. */
+  onBuyGhostTap?: (baseCell: CellId) => void;
   highlights?: BoardHighlights;
   selectedUnitId?: string | null;
   /** Layer-2 queued-order ghosts (§9.3), drawn by skin/EffectRenderer. */
@@ -240,6 +251,9 @@ export function Board({
   discovered,
   ignite,
   silhouette = false,
+  bases,
+  buyGhosts,
+  onBuyGhostTap,
   highlights,
   selectedUnitId = null,
   ghosts,
@@ -306,9 +320,16 @@ export function Board({
     return median * 0.62;
   }, [cells, board, toScreen]);
 
-  // Base cells tint toward the faction whose anchor is nearer (§10.1).
+  // Base cell tint. E3 conquest: ownership is authoritative (owner tint,
+  // neutral = sand). Skirmish legacy: toward the nearer anchor (§10.1).
   const baseTint = useMemo(() => {
     const tint = new Map<CellId, FactionId>();
+    if (bases) {
+      for (const [cellKey, owner] of Object.entries(bases)) {
+        if (owner !== null) tint.set(Number(cellKey), owner);
+      }
+      return tint;
+    }
     const anchors = board.placementAnchors;
     if (!anchors) return tint;
     const a0 = board.cells.get(anchors[0])?.center;
@@ -320,7 +341,7 @@ export function Board({
       tint.set(cell.id, d2(cell.center, a0) <= d2(cell.center, a1) ? 0 : 1);
     }
     return tint;
-  }, [cells, board]);
+  }, [cells, board, bases]);
 
   // --- pan / pinch-zoom ------------------------------------------------------
   const [view, setView] = useState<View>({ k: 1, tx: 0, ty: 0 });
@@ -759,6 +780,15 @@ export function Board({
         )}
         {trails && trails.length > 0 && (
           <ReplayTrails board={board} toScreen={toScreen} tokenSize={tokenSize} trails={trails} />
+        )}
+        {buyGhosts && buyGhosts.length > 0 && (
+          <BuyGhosts
+            board={board}
+            toScreen={toScreen}
+            tokenSize={tokenSize}
+            buys={buyGhosts}
+            onTap={tapGuard(onBuyGhostTap)}
+          />
         )}
         <g className="board-units">
           {[...unitById.values()].map((unit) => {

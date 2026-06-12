@@ -186,11 +186,17 @@ export const CellRenderer = memo(function CellRenderer({
 
   const memory = tier === 'memory';
   let fill = terrainFill(cell.terrain);
+  // E3 (E1 handoff): ownership tint applies AFTER the memory desaturation so
+  // it survives the wash — a remembered base still reads as owned ground.
+  if (memory) fill = desaturate(fill, MEMORY_DESATURATION);
   if (cell.terrain === 'base' && baseTintFaction !== null) {
     fill = mix(fill, factionColor(baseTintFaction), 0.28);
   }
   const stroke = darken(fill, 0.12);
-  if (memory) fill = desaturate(fill, MEMORY_DESATURATION);
+  // E3: keep/flag pip so base cells are findable among cells (live + memory;
+  // the dark branch above already hides bases entirely). Neutral = sand ink.
+  const pipColor =
+    baseTintFaction !== null ? factionColor(baseTintFaction) : darken(PALETTE.base, 0.4);
 
   const rng = mulberry32(cell.id + 0x9e3779b9);
   let texture: JSX.Element | JSX.Element[] | null = null;
@@ -212,6 +218,25 @@ export const CellRenderer = memo(function CellRenderer({
       )}
       {memory && (
         <path className="memory-wash" d={d} fill={PALETTE.memoryWash} pointerEvents="none" />
+      )}
+      {cell.terrain === 'base' && (
+        <g
+          className="base-pip"
+          pointerEvents="none"
+          transform={`translate(${c[0]} ${c[1] - r * 0.5})`}
+          opacity={memory ? 0.75 : 1}
+        >
+          <line
+            x1={0}
+            y1={0}
+            x2={0}
+            y2={r * 0.62}
+            stroke={pipColor}
+            strokeWidth={r * 0.08}
+            strokeLinecap="round"
+          />
+          <path d={`M0 0 L${r * 0.42} ${r * 0.14} L0 ${r * 0.28} Z`} fill={pipColor} />
+        </g>
       )}
       {igniting && (
         <path

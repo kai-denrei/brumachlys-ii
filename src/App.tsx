@@ -29,6 +29,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BASELESS_GRACE,
   assumedTerrainView,
   findConvergences,
   movementCostsFor,
@@ -39,21 +40,22 @@ import {
 } from './core';
 import { findPath } from './core/pathing';
 import { occupantVacates, type OrderKind } from './core/orders';
-import type { Stance, UnitInstance } from './core/types';
+import type { FactionId, Stance, UnitInstance } from './core/types';
 import { cellsWithin, graphDistance } from './board/geometry';
 import type { CellId } from './board/types';
 import { loadUnits } from './io/data-loader';
 import type { ReplayFrame } from './state/replay';
 import { PLAYER_FACTION, useAppStore } from './state/store';
 import { Board, type StancePopoverState } from './ui/Board';
-import { BottomDock } from './ui/BottomDock';
+import { BottomDock, type DockBuy } from './ui/BottomDock';
+import { BuildSheet } from './ui/BuildSheet';
 import { CasualtyPanel } from './ui/CasualtyPanel';
 import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/Replay';
 import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
 import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
-import { TopBar } from './ui/TopBar';
-import type { GhostOrder, TrailMark } from './ui/skin';
+import { TopBar, type CreditsHud } from './ui/TopBar';
+import type { BuyGhostMark, GhostOrder, TrailMark } from './ui/skin';
 
 /** v1.3 Tweak B: a finished trail lingers (fading) this long before removal —
  * the CSS opacity transition (~1.6 s) runs inside this window. */
@@ -63,7 +65,11 @@ const TRAIL_LINGER_MS = 1900;
  * 0.4 s CSS fade runs inside it even when 250 ms move frames advance past. */
 const IGNITE_LINGER_MS = 500;
 
-type SheetState = { kind: 'order'; unitId: string } | { kind: 'info'; cellId: CellId } | null;
+type SheetState =
+  | { kind: 'order'; unitId: string }
+  | { kind: 'info'; cellId: CellId }
+  | { kind: 'build'; baseCell: CellId } // E3 conquest: tap an owned base
+  | null;
 
 function urlFlag(name: string): string | null {
   if (typeof window === 'undefined') return null;
@@ -77,6 +83,7 @@ function BattleScreen() {
   const replay = useAppStore((s) => s.replay);
   const replaySpeed = useAppStore((s) => s.replaySpeed);
   const orders = useAppStore((s) => s.orders);
+  const buys = useAppStore((s) => s.buys);
   const selectedUnitId = useAppStore((s) => s.selectedUnitId);
   const focus = useAppStore((s) => s.focus);
   const notice = useAppStore((s) => s.notice);
@@ -87,6 +94,8 @@ function BattleScreen() {
   const centerOn = useAppStore((s) => s.centerOn);
   const tryQueueOrder = useAppStore((s) => s.tryQueueOrder);
   const removeUnitOrder = useAppStore((s) => s.removeUnitOrder);
+  const tryQueueBuy = useAppStore((s) => s.tryQueueBuy);
+  const removeBuyOrder = useAppStore((s) => s.removeBuyOrder);
   const commit = useAppStore((s) => s.commit);
   const setReplaySpeed = useAppStore((s) => s.setReplaySpeed);
   const finishReplay = useAppStore((s) => s.finishReplay);
@@ -284,11 +293,25 @@ function BattleScreen() {
     }
   }, [autopilot, uiPhase, game]);
 
+  // --- E3 conquest selectors -----------------------------------------------------
+  const conquest = game?.mode === 'conquest';
+  const gameBases = conquest ? game?.bases : undefined;
+  const ownedBaseCount = (faction: FactionId): number =>
+    gameBases ? Object.values(gameBases).filter((o) => o === faction).length : 0;
+  /** Credits committed by queued buys (entry-validated ≤ available). */
+  const committed = useMemo(
+    () =>
+      Object.values(buys).reduce((sum, b) => sum + (types[b.unitTypeKey]?.cost ?? 0), 0),
+    [buys, types],
+  );
+
   // --- planning selectors (P7, unchanged semantics over the game slice) --------
   const visible = useMemo(() => {
     if (!board) return new Set<CellId>();
-    return visibleCells(board, units, PLAYER_FACTION, types);
-  }, [board, units, types]);
+    // E2/E3: owned bases contribute vision in conquest (gameBases is
+    // undefined in skirmish — bit-identical to the pre-E2 call).
+    return visibleCells(board, units, PLAYER_FACTION, types, gameBases);
+  }, [board, units, types, gameBases]);
 
   const fog = useMemo(() => {
     if (!board) return undefined;
@@ -413,6 +436,34 @@ function BattleScreen() {
     return out;
   }, [board, boardUnits, knownUnits, orders]);
 
+  // --- E3 conquest: queued-buy ghosts + dock chips (§B.4 messaging) -------------
+  const buyGhosts = useMemo<BuyGhostMark[]>(() => {
+    if (!conquest) return [];
+    return Object.values(buys).map((b) => ({
+      baseCell: b.baseCell,
+      unit: {
+        id: `buy-${b.baseCell}`,
+        type: b.unitTypeKey,
+        faction: PLAYER_FACTION,
+        cell: b.baseCell,
+        count: 10,
+        stance: 'aggressive' as const,
+        attackedFrom: [],
+      },
+      pill: `${types[b.unitTypeKey]?.name ?? b.unitTypeKey} purchased — arrives at round end`,
+    }));
+  }, [conquest, buys, types]);
+
+  const dockBuys = useMemo<DockBuy[]>(
+    () => buyGhosts.map((g) => ({ baseCell: g.baseCell, unit: g.unit })),
+    [buyGhosts],
+  );
+
+  function openBuildSheet(baseCell: CellId) {
+    centerOn(baseCell);
+    setSheet({ kind: 'build', baseCell });
+  }
+
   // --- interactions -------------------------------------------------------------
   function queueMoveTo(unit: UnitInstance, cell: CellId): boolean {
     if (!board) return false;
@@ -449,7 +500,16 @@ function BattleScreen() {
   }
 
   function onCellTap(cellId: CellId) {
-    if (!selected) return;
+    if (!selected) {
+      // E3 conquest: with nothing selected, tapping an OWNED base opens the
+      // build sheet (a friendly standing on it catches the tap as a token —
+      // deselect first, then tap the cell; the buy still queues fine since
+      // vacancy is only checked at Phase E).
+      if (conquest && uiPhase === 'planning' && gameBases?.[cellId] === PLAYER_FACTION) {
+        setSheet({ kind: 'build', baseCell: cellId });
+      }
+      return;
+    }
     if (cellId === selected.cell) return; // token tap toggles selection
     const enemy = visibleEnemyAt(cellId);
     if (enemy) {
@@ -542,6 +602,22 @@ function BattleScreen() {
   const phaseChip = uiPhase === 'planning' ? 'planning' : uiPhase === 'over' ? 'over' : 'replay';
   const topRound = replayActive && replay ? replay.round : game.round;
 
+  // E3 credits HUD: planning = available − committed (static); replay = the
+  // frame's creditsAfter feed (income/spawn events tick it live).
+  const creditsHud: CreditsHud | null = conquest
+    ? frame
+      ? { value: frame.credits ?? game.credits?.[PLAYER_FACTION] ?? 0 }
+      : { value: game.credits?.[PLAYER_FACTION] ?? 0, committed }
+    : null;
+
+  // E3 baseless grace warning (§B.5): the player's own countdown only —
+  // enemy baseless state is never surfaced.
+  const playerBaseless = conquest && uiPhase !== 'over' && ownedBaseCount(PLAYER_FACTION) === 0;
+  const graceLeft = Math.max(1, BASELESS_GRACE - (game.baseless?.[PLAYER_FACTION] ?? 0));
+
+  // E3: replay base tint follows the frame (captures flip it mid-playback).
+  const boardBases = conquest ? (frame ? frame.bases : gameBases) : undefined;
+
   // v1.1 hover card: resolve the hovered unit against whatever the Board is
   // rendering right now (fog-filtered frame units during replay) — both
   // factions' visible units carry cards.
@@ -561,7 +637,12 @@ function BattleScreen() {
 
   return (
     <div className="app">
-      <TopBar round={topRound} phase={phaseChip} onBack={exitBattle} />
+      <TopBar round={topRound} phase={phaseChip} credits={creditsHud} onBack={exitBattle} />
+      {playerBaseless && (
+        <div className="baseless-warning" role="alert" data-testid="baseless-warning">
+          no bases — {graceLeft} round{graceLeft === 1 ? '' : 's'} to retake one
+        </div>
+      )}
       <main className="board-area">
         {frame ? (
           <Board
@@ -570,6 +651,7 @@ function BattleScreen() {
             fog={frame.fog}
             discovered={frame.discovered}
             ignite={ignites}
+            bases={boardBases}
             replayFx={{
               key: frameIdx,
               fx: {
@@ -577,10 +659,16 @@ function BattleScreen() {
                 floaters: fxFloaters,
                 bursts: frame.bursts,
                 kills: frame.kills,
+                spawns: frame.spawns,
+                captures: frame.captures,
               },
             }}
             trails={trails}
-            onFloaterTap={(slot) => setBreakdownSlot(slot)}
+            onFloaterTap={(slot) => {
+              // E3: spawn-failed floaters point at strike-less slots — no math
+              // to show, so don't open an empty breakdown modal.
+              if (script && (script.slots[slot]?.strikes.length ?? 0) > 0) setBreakdownSlot(slot);
+            }}
             follow={follow}
             onUserPan={() => {
               if (uiPhase === 'replay' && frame) setSuspendedAt(frame.slot);
@@ -594,6 +682,9 @@ function BattleScreen() {
             units={boardUnits}
             fog={fog}
             discovered={discovered}
+            bases={boardBases}
+            buyGhosts={buyGhosts}
+            onBuyGhostTap={openBuildSheet}
             highlights={layer1}
             selectedUnitId={selected?.id ?? null}
             ghosts={ghosts}
@@ -646,12 +737,14 @@ function BattleScreen() {
         <BottomDock
           units={own}
           ordersByUnit={orderedIds}
+          buys={dockBuys}
           onChipTap={(unitId) => {
             const unit = own.find((u) => u.id === unitId);
             if (!unit) return;
             selectUnit(unitId);
             centerOn(unit.cell);
           }}
+          onBuyChipTap={openBuildSheet}
           onCommit={() => commit()}
         />
       )}
@@ -673,9 +766,31 @@ function BattleScreen() {
       {uiPhase === 'over' && game.outcome && (
         <GameOverBanner
           outcome={game.outcome}
+          conquest={
+            conquest
+              ? { playerBases: ownedBaseCount(PLAYER_FACTION), enemyBases: ownedBaseCount(1) }
+              : null
+          }
           seedSuggestion={Date.now() % 1_000_000}
           onRematch={rematch}
           onChangeBattlefield={exitBattle}
+        />
+      )}
+      {sheet?.kind === 'build' && !replayActive && conquest && (
+        <BuildSheet
+          baseCell={sheet.baseCell}
+          unitTypes={types}
+          credits={game.credits?.[PLAYER_FACTION] ?? 0}
+          committedElsewhere={
+            committed - (types[buys[sheet.baseCell]?.unitTypeKey ?? '']?.cost ?? 0)
+          }
+          queued={buys[sheet.baseCell]}
+          onQueue={(unitTypeKey) => {
+            const verdict = tryQueueBuy({ kind: 'buy', baseCell: sheet.baseCell, unitTypeKey });
+            if (verdict.ok) setSheet(null); // ghost + pill confirm on the board
+          }}
+          onRemove={() => removeBuyOrder(sheet.baseCell)}
+          onClose={() => setSheet(null)}
         />
       )}
       {sheetUnit && !replayActive && (

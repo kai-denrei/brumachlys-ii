@@ -61,6 +61,21 @@ describe('RulesModal', () => {
     expect(text).toContain('hold fire');
   });
 
+  it('E3: covers conquest — bases, credits, production, both win conditions', () => {
+    const { baseElement } = render(<RulesModal onClose={() => {}} />);
+    const headings = [...baseElement.querySelectorAll('.rules-h')].map((h) => h.textContent);
+    expect(headings).toContain('Bases');
+    expect(headings).toContain('Credits');
+    expect(headings).toContain('Production');
+    const text = baseElement.querySelector('[data-testid="rules-modal"]')!.textContent!;
+    expect(text).toContain('raises the colors');
+    expect(text).toContain('Vehicles never capture');
+    expect(text).toContain('Credits are spent only when the recruit arrives');
+    expect(text).toContain('Skirmish');
+    expect(text).toContain('Conquest');
+    expect(text).toContain('zero bases for 3 round ends');
+  });
+
   it('fmtRange collapses when min equals max', () => {
     expect(fmtRange(1, 1)).toBe('1');
     expect(fmtRange(2, 4)).toBe('2–4');

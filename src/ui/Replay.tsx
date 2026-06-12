@@ -24,6 +24,8 @@ const SLOT_KIND_BADGE: Record<TimelineSlot['kind'], string> = {
   volley: '⚔',
   brawl: '✦',
   fizzle: '∅',
+  capture: '⚑',
+  spawn: '✚',
 };
 
 function chipUnit(slot: TimelineSlot): UnitInstance | null {
@@ -347,7 +349,7 @@ export function SummarySheet({
  * see BattleRecap in state/store.ts for the field-by-field honesty argument).
  * Card style matches the round-summary sheet (.summary-cell), compacted so
  * the banner stays inside a 390×844 viewport without scrolling. */
-function BannerRecap() {
+function BannerRecap({ conquest }: { conquest?: ConquestOutcome | null }) {
   const recap = useAppStore((s) => s.recap);
   const casualties = useAppStore((s) => s.casualties);
   const types = useMemo(() => loadUnits(), []);
@@ -361,6 +363,11 @@ function BannerRecap() {
     { num: recap.fizzles, label: 'fizzles' },
     { num: recap.brawls, label: 'brawls' },
   ];
+  // E3 conquest (v1.4 dashboard +2): bases held at the end, credits spent.
+  if (conquest) {
+    stats.push({ num: conquest.playerBases, label: 'bases held', color: factionColor(0) });
+    stats.push({ num: recap.spent, label: 'credits spent' });
+  }
 
   return (
     <div className="banner-recap" data-testid="battle-recap">
@@ -400,9 +407,38 @@ function BannerRecap() {
   );
 }
 
-function outcomeText(outcome: GameOutcome): { title: string; sub: string } {
-  if (outcome.winner === 0) return { title: 'VICTORY', sub: 'The mist parts. The field is yours.' };
-  if (outcome.winner === 1) return { title: 'DEFEAT', sub: 'Your army is lost to the mist.' };
+/** E3: conquest endgame context for the banner copy + dashboard. */
+export type ConquestOutcome = { playerBases: number; enemyBases: number };
+
+export function outcomeText(
+  outcome: GameOutcome,
+  conquest?: ConquestOutcome | null,
+): { title: string; sub: string } {
+  const win = outcome.winner === 0;
+  const loss = outcome.winner === 1;
+  const title = win ? 'VICTORY' : loss ? 'DEFEAT' : null;
+
+  // Conquest reasons (addendum §B.5) — these only arise in conquest mode.
+  if (outcome.reason === 'conquest') {
+    if (win) return { title: 'VICTORY', sub: 'Nothing left to them. No army, no banners. Conquest.' };
+    if (loss) return { title: 'DEFEAT', sub: 'Nothing left to you. The land is theirs.' };
+    return { title: 'MUTUAL RUIN', sub: 'Two armies spent, every banner fallen. Nobody holds the land.' };
+  }
+  if (outcome.reason === 'base-collapse') {
+    if (win) return { title: 'VICTORY', sub: 'Their last banner fell rounds ago. The land follows you.' };
+    if (loss) return { title: 'DEFEAT', sub: 'Three round ends without a base. The land forgets you.' };
+    return { title: 'THE MIST SETTLES', sub: 'Both sides landless. The mist keeps the field.' };
+  }
+  if (outcome.reason === 'round-limit' && conquest) {
+    const counts = `Bases ${conquest.playerBases} to ${conquest.enemyBases}.`;
+    if (win) return { title: 'VICTORY', sub: `The horn sounds. ${counts} The ground is yours.` };
+    if (loss) return { title: 'DEFEAT', sub: `The horn sounds. ${counts} The ground is theirs.` };
+    return { title: 'THE MIST SETTLES', sub: `The horn sounds. ${counts} Even ground. A draw.` };
+  }
+
+  // Skirmish copy (unchanged).
+  if (title === 'VICTORY') return { title, sub: 'The mist parts. The field is yours.' };
+  if (title === 'DEFEAT') return { title, sub: 'Your army is lost to the mist.' };
   if (outcome.reason === 'mutual-annihilation')
     return { title: 'MUTUAL RUIN', sub: 'Nothing remains on either side.' };
   return { title: 'THE MIST SETTLES', sub: 'Forty rounds, and no decision. A draw.' };
@@ -410,18 +446,21 @@ function outcomeText(outcome: GameOutcome): { title: string; sub: string } {
 
 export function GameOverBanner({
   outcome,
+  conquest = null,
   seedSuggestion,
   onRematch,
   onChangeBattlefield,
 }: {
   outcome: GameOutcome;
+  /** E3: present in conquest mode — base counts feed copy + dashboard. */
+  conquest?: ConquestOutcome | null;
   /** Fresh-seed suggestion (UI layer may use wall-clock entropy, §4.3). */
   seedSuggestion: number;
   onRematch: (seed: number) => void;
   onChangeBattlefield: () => void;
 }) {
   const [seed, setSeed] = useState(seedSuggestion);
-  const { title, sub } = outcomeText(outcome);
+  const { title, sub } = outcomeText(outcome, conquest);
   return (
     <div className="banner-scrim">
       <div className="banner" role="dialog" aria-label="battle over">
@@ -429,7 +468,7 @@ export function GameOverBanner({
           {title}
         </h2>
         <p className="banner-sub">{sub}</p>
-        <BannerRecap />
+        <BannerRecap conquest={conquest} />
         <div className="seed-row">
           <label className="seed-label" htmlFor="banner-seed">
             seed

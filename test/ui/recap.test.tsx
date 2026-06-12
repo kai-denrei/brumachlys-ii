@@ -113,7 +113,7 @@ describe('battle recap accumulation (v1.4)', () => {
       },
     });
     s().closeSummary();
-    expect(s().recap).toEqual({ rounds: 3, dealt: 9, taken: 4, fizzles: 2, brawls: 1 });
+    expect(s().recap).toEqual({ rounds: 3, dealt: 9, taken: 4, fizzles: 2, brawls: 1, spent: 0 });
 
     // Next round accumulates; rounds tracks the LAST resolved round.
     useAppStore.setState({
@@ -124,7 +124,7 @@ describe('battle recap accumulation (v1.4)', () => {
       },
     });
     s().closeSummary();
-    expect(s().recap).toEqual({ rounds: 4, dealt: 11, taken: 11, fizzles: 3, brawls: 1 });
+    expect(s().recap).toEqual({ rounds: 4, dealt: 11, taken: 11, fizzles: 3, brawls: 1, spent: 0 });
   });
 
   it('accrues on the game-over close too (summary → banner path)', () => {
@@ -146,11 +146,11 @@ describe('battle recap accumulation (v1.4)', () => {
     });
     s().closeSummary();
     expect(s().uiPhase).toBe('over');
-    expect(s().recap).toEqual({ rounds: 5, dealt: 6, taken: 1, fizzles: 0, brawls: 0 });
+    expect(s().recap).toEqual({ rounds: 5, dealt: 6, taken: 1, fizzles: 0, brawls: 0, spent: 0 });
   });
 
   it('resets on a new battle', () => {
-    useAppStore.setState({ recap: { rounds: 9, dealt: 50, taken: 40, fizzles: 3, brawls: 2 } });
+    useAppStore.setState({ recap: { rounds: 9, dealt: 50, taken: 40, fizzles: 3, brawls: 2, spent: 0 } });
     s().rematch(42);
     expect(s().recap).toEqual(EMPTY_RECAP);
   });
@@ -159,7 +159,7 @@ describe('battle recap accumulation (v1.4)', () => {
 describe('GameOverBanner dashboard (v1.4)', () => {
   beforeEach(() => {
     useAppStore.setState({
-      recap: { rounds: 12, dealt: 73, taken: 58, fizzles: 4, brawls: 3 },
+      recap: { rounds: 12, dealt: 73, taken: 58, fizzles: 4, brawls: 3, spent: 0 },
       casualties: [
         { type: 'sniper', faction: 0 },
         { type: 'tank', faction: 1 },
