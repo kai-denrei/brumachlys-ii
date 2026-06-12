@@ -1,0 +1,94 @@
+/* Brumachlys II — mobile-first. Townscaper pastel base palette (spec §10.1). */
+
+:root {
+  --paper: #f2eee3;
+  --ink: #4a443a;
+  --faction-a: #e8806b;
+  --faction-b: #7b8bd9;
+  --bar-bg: rgba(242, 238, 227, 0.92);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.top-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: calc(env(safe-area-inset-top) + 0.5rem) 0.75rem 0.5rem;
+  background: var(--bar-bg);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid rgba(74, 68, 58, 0.12);
+}
+
+.top-bar-title {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: 0.85rem;
+}
+
+.top-bar-status {
+  margin-left: auto;
+  font-size: 0.7rem;
+  opacity: 0.65;
+}
+
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  line-height: 1;
+}
+
+.version-shape {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: block;
+}
+
+.version-token {
+  font-size: 0.6rem;
+  opacity: 0.55;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+.board-area {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.placeholder {
+  text-align: center;
+  font-size: 1.1rem;
+  opacity: 0.75;
+}
+
+.placeholder-sub {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
