@@ -36,14 +36,25 @@ export type FactionId = 0 | 1;
 export type DonorTile = { x: number; y: number; terrain: TerrainKey };
 
 /** Parsed donor map — plain data, produced by src/io/weewar-xml.ts. Arrays are
- * in document order ("first base" / "first start unit" anchor semantics). */
+ * in document order ("first base" / "first start unit" anchor semantics).
+ * The E2 fields are optional so pre-E2 donor literals stay valid. */
 export type DonorMap = {
   id: string;
   name: string;
   tiles: DonorTile[];
   bases: Array<{ x: number; y: number; faction: FactionId | null }>;
   startUnits: Array<{ x: number; y: number; faction: FactionId }>;
+  /** E2 (addendum §B.3): donor XML credit values; 0/absent ⇒ fallback. */
+  initialCredits?: number;
+  perBaseCredits?: number;
+  /** E2 (addendum §B.6): start units whose Weewar type mapped through
+   * UNIT_MAP, document order. Kept separate from `startUnits` (which keeps
+   * EVERY faction-0/1 position for anchoring, typed or not). */
+  typedStartUnits?: Array<{ x: number; y: number; faction: FactionId; unitTypeKey: string }>;
 };
+
+/** E2 (addendum §B.3): credit fallback when the donor XML omits the values. */
+export const DEFAULT_CREDITS = 100;
 
 /** §4.1 step 4. */
 export function targetCellsFor(donor: DonorMap): number {
@@ -354,6 +365,36 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
     }
   }
   board.placementAnchors = [anchors[0]!, anchors[1]!];
+
+  // E2 (addendum §B): carry base sites, economy values, and mapped start-unit
+  // types onto the Board so conquest setup (core/setup.ts) never sees the
+  // donor. Base sites project like anchors (nearest passable cell); when two
+  // donor bases land on one cell, the FIRST in document order wins.
+  const baseSites: Board['bases'] = [];
+  const baseCellsSeen = new Set<CellId>();
+  for (const b of donor.bases) {
+    const cell = nearestPassableCell(cells, frame.project(b.x, b.y));
+    if (cell === null || baseCellsSeen.has(cell)) continue;
+    baseCellsSeen.add(cell);
+    baseSites.push({ cell, faction: b.faction });
+  }
+  board.bases = baseSites;
+  board.economy = {
+    initialCredits:
+      donor.initialCredits !== undefined && donor.initialCredits > 0
+        ? donor.initialCredits
+        : DEFAULT_CREDITS,
+    perBaseCredits:
+      donor.perBaseCredits !== undefined && donor.perBaseCredits > 0
+        ? donor.perBaseCredits
+        : DEFAULT_CREDITS,
+  };
+  const startUnitTypes: [string[], string[]] = [[], []];
+  for (const u of donor.typedStartUnits ?? []) {
+    startUnitTypes[u.faction].push(u.unitTypeKey);
+  }
+  board.startUnitTypes = startUnitTypes;
+
   return { ok: true, board };
 }
 

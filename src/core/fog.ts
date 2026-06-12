@@ -22,11 +22,18 @@ import type { Board, CellId, TerrainKey } from '../board/types';
 import { cellsWithin } from '../board/geometry';
 import type { FactionId, UnitInstance, UnitType } from './types';
 
+/** E2 (conquest addendum §B.1): vision an owned base contributes. */
+export const BASE_VISION = 2;
+
 export function visibleCells(
   board: Board,
   units: Iterable<UnitInstance>,
   faction: FactionId,
   unitTypes: Record<string, UnitType>,
+  /** E2 conquest: GameState.bases — owned bases contribute BASE_VISION
+   * (addendum §B.1). Omit in skirmish (mode-gated by the caller):
+   * behaviour is then bit-identical to pre-E2. */
+  bases?: Readonly<Record<CellId, FactionId | null>>,
 ): Set<CellId> {
   const visible = new Set<CellId>();
   for (const unit of units) {
@@ -36,6 +43,14 @@ export function visibleCells(
     if (!ut) continue;
     for (const cell of cellsWithin(board, unit.cell, ut.vision)) {
       visible.add(cell);
+    }
+  }
+  if (bases) {
+    for (const [cellKey, owner] of Object.entries(bases)) {
+      if (owner !== faction) continue;
+      const cell = Number(cellKey);
+      if (!board.cells.has(cell)) continue;
+      for (const c of cellsWithin(board, cell, BASE_VISION)) visible.add(c);
     }
   }
   return visible;
@@ -73,16 +88,18 @@ export function accumulateDiscovery(
 }
 
 /** Initial discovery at newGame: each faction's starting vision union.
- *  (Bases contribute vision in Conquest — E2; nothing extra here yet.) */
+ *  E2 conquest: pass GameState.bases so owned bases' vision-2 footprints
+ *  seed each side's discovery too (addendum §A "own bases' vision 2"). */
 export function seedDiscovery(
   board: Board,
   units: Iterable<UnitInstance>,
   unitTypes: Record<string, UnitType>,
+  bases?: Readonly<Record<CellId, FactionId | null>>,
 ): Record<FactionId, ReadonlySet<CellId>> {
   const all = [...units];
   return {
-    0: visibleCells(board, all, 0, unitTypes),
-    1: visibleCells(board, all, 1, unitTypes),
+    0: visibleCells(board, all, 0, unitTypes, bases),
+    1: visibleCells(board, all, 1, unitTypes, bases),
   };
 }
 

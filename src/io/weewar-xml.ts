@@ -179,7 +179,10 @@ export function parseWeewarMap(xmlString: string): WeewarMap {
 }
 
 /** Adapt a parsed Weewar map to the board-facing DonorMap (spec §4.1 input).
- * src/board never sees XML — only this plain object. */
+ * src/board never sees XML — only this plain object. E2: economy values and
+ * UNIT_MAP-mapped start units ride along (addendum §B.3/§B.6); `startUnits`
+ * keeps its position-only shape (anchor source — must not lose entries to
+ * roster gaps). */
 export function toDonorMap(map: WeewarMap): DonorMap {
   return {
     id: map.id !== '' ? map.id : map.name,
@@ -190,6 +193,14 @@ export function toDonorMap(map: WeewarMap): DonorMap {
     }),
     bases: map.startingBases.map((b) => ({ x: b.hex.q, y: b.hex.r, faction: b.faction })),
     startUnits: map.startUnitPositions.map((u) => ({ x: u.x, y: u.y, faction: u.faction })),
+    initialCredits: map.initialCredits,
+    perBaseCredits: map.perBaseCredits,
+    typedStartUnits: map.startingUnits.map((u) => ({
+      x: u.hex.q,
+      y: u.hex.r,
+      faction: u.faction,
+      unitTypeKey: u.unitTypeKey,
+    })),
   };
 }
 

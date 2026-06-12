@@ -73,7 +73,7 @@ import { gangUpBreakdown, makeAttackedFromEntry } from './combat/gangup';
 import type { GangUpBreakdown } from './combat/gangup';
 import type { AttackContext, Combatant, ResolutionModel } from './combat/model';
 import { visibleCells } from './fog';
-import type { Order } from './orders';
+import type { BuyOrder, Order } from './orders';
 import type {
   AttackBreakdown,
   FactionId,
@@ -85,8 +85,13 @@ import type {
   UnitType,
 } from './types';
 
-/** §2.8 — both factions alive at the end of this round number ⇒ draw. */
+/** §2.8 — both factions alive at the end of this round number ⇒ draw.
+ *  SKIRMISH ONLY: conquest uses GameState.roundLimit (null = no limit). */
 export const ROUND_LIMIT = 40;
+
+/** Conquest addendum §B.5: a faction holding zero bases for this many
+ *  consecutive round-ends loses (both ⇒ draw). */
+export const BASELESS_GRACE = 3;
 
 /** Hard safety cap; the min-damage floor ends real brawls far sooner. */
 const BRAWL_MAX_EXCHANGES = 200;
@@ -95,6 +100,11 @@ const BRAWL_MAX_EXCHANGES = 200;
 const BRAWL_DISTANCE = 1;
 
 export type OrdersByFaction = Readonly<Record<FactionId, readonly Order[]>>;
+
+/** E2: queued buys per faction (flattenBuys output — base cell ascending;
+ *  the resolver re-sorts anyway). PARALLEL to OrdersByFaction: buys are
+ *  per-base, not per-unit, so they never enter the Order arrays. */
+export type BuysByFaction = Readonly<Record<FactionId, readonly BuyOrder[]>>;
 
 export type ResolveResult = { state: GameState; events: ResolutionEvent[] };
 
@@ -108,7 +118,10 @@ export function resolveRound(
   ordersByFaction: OrdersByFaction,
   unitTypes: Readonly<Record<string, UnitType>>,
   model: ResolutionModel,
+  /** E2 conquest buys (addendum §B.4). Ignored entirely in skirmish. */
+  buysByFaction?: BuysByFaction,
 ): ResolveResult {
+  const conquest = state.mode === 'conquest';
   const next = cloneState(board, state);
   const events: ResolutionEvent[] = [];
   const round = state.round;
@@ -436,7 +449,10 @@ export function resolveRound(
       }
       target = occ;
     } else {
-      target = pickAutoTarget(board, next, att, attType, unitTypes, round);
+      // E2: in conquest, owned bases extend the attacker faction's vision
+      // (addendum §B.1) — ownership here is round-start ownership (captures
+      // flip at Phase B.5, after combat).
+      target = pickAutoTarget(board, next, att, attType, unitTypes, round, conquest ? next.bases : undefined);
       if (!target) continue; // nothing visible in range — silent
     }
     const defType = unitTypes[target.type];
@@ -496,20 +512,163 @@ export function resolveRound(
     if (att.count <= 0) killUnit(att);
   }
 
-  // ── End of round: bookkeeping + win/draw (§2.8) ───────────────────────────
+  // ── B.5. Captures (conquest only — addendum §B.2) ─────────────────────────
+  // A personnel unit ending the round alive on a base cell not owned by its
+  // faction flips it immediately. Vehicles never capture. Init order (the
+  // round's one ordering mechanism, §2.2) — deterministic when units of both
+  // factions share a base cell (mutual-immunity brawl edge: the LAST flip,
+  // i.e. the lowest-initiative unit's, stands).
+  if (conquest) {
+    const bases = next.bases!;
+    for (const u of alive().sort(cmpUnits)) {
+      if (!(u.cell in bases)) continue;
+      const ut = unitTypes[u.type];
+      if (!ut || ut.armorType !== 'personnel') continue;
+      const from = bases[u.cell]!;
+      if (from === u.faction) continue; // own base — no-op
+      bases[u.cell] = u.faction;
+      events.push({ type: 'capture', unitId: u.id, cell: u.cell, from, to: u.faction });
+    }
+  }
+
+  // ── End of round: bookkeeping + Phase E + win/draw ────────────────────────
   for (const u of Object.values(next.units)) u.attackedFrom = [];
 
-  let f0 = 0;
-  let f1 = 0;
-  for (const u of alive()) {
-    if (u.faction === 0) f0++;
-    else f1++;
-  }
   let outcome: GameOutcome | null = null;
-  if (f0 === 0 && f1 === 0) outcome = { winner: null, reason: 'mutual-annihilation' };
-  else if (f1 === 0) outcome = { winner: 0, reason: 'annihilation' };
-  else if (f0 === 0) outcome = { winner: 1, reason: 'annihilation' };
-  else if (round >= ROUND_LIMIT) outcome = { winner: null, reason: 'round-limit' };
+  if (!conquest) {
+    // Skirmish §2.8 — UNCHANGED (bit-identical to pre-E2).
+    let f0 = 0;
+    let f1 = 0;
+    for (const u of alive()) {
+      if (u.faction === 0) f0++;
+      else f1++;
+    }
+    if (f0 === 0 && f1 === 0) outcome = { winner: null, reason: 'mutual-annihilation' };
+    else if (f1 === 0) outcome = { winner: 0, reason: 'annihilation' };
+    else if (f0 === 0) outcome = { winner: 1, reason: 'annihilation' };
+    else if (round >= ROUND_LIMIT) outcome = { winner: null, reason: 'round-limit' };
+  } else {
+    // ── E. Income + production (addendum §B.3/§B.4), then win/loss (§B.5).
+    // Deterministic order: income faction 0 then 1; spawns by base cell
+    // ascending (faction asc breaks the stale-cross-faction-buy tie).
+    const bases = next.bases!;
+    const credits = next.credits!;
+    const baseless = next.baseless!;
+    const perBase = board.economy?.perBaseCredits ?? 100;
+    const ownedBases = (f: FactionId): number => {
+      let n = 0;
+      for (const owner of Object.values(bases)) if (owner === f) n++;
+      return n;
+    };
+
+    // Income accrues per base owned at this moment (post-capture).
+    for (const faction of [0, 1] as const) {
+      const owned = ownedBases(faction);
+      const amount = owned * perBase;
+      credits[faction] += amount;
+      events.push({ type: 'income', faction, bases: owned, amount, creditsAfter: credits[faction] });
+    }
+
+    // Buy resolution. Sanitize mirrors the order sanitize above: unknown unit
+    // types drop silently; multiple buys for one base — the LAST one wins
+    // (contract-valid input never has duplicates: BuyQueues is per-base).
+    const tagged: Array<{ faction: FactionId; order: BuyOrder }> = [];
+    for (const faction of [0, 1] as const) {
+      const byBase = new Map<CellId, BuyOrder>();
+      for (const order of buysByFaction?.[faction] ?? []) {
+        if (!unitTypes[order.unitTypeKey]) continue;
+        byBase.set(order.baseCell, order);
+      }
+      for (const order of byBase.values()) tagged.push({ faction, order });
+    }
+    tagged.sort((a, b) => a.order.baseCell - b.order.baseCell || a.faction - b.faction);
+
+    for (const { faction, order } of tagged) {
+      const ut = unitTypes[order.unitTypeKey]!;
+      const fail = (reason: 'occupied' | 'base-lost' | 'no-credits'): void => {
+        events.push({
+          type: 'spawn-failed',
+          cell: order.baseCell,
+          faction,
+          unitTypeKey: order.unitTypeKey,
+          reason,
+        });
+      };
+      if (bases[order.baseCell] !== faction) {
+        fail('base-lost'); // lost (or never owned) before Phase E — no spend
+      } else if (alive().some((u) => u.cell === order.baseCell)) {
+        fail('occupied'); // vacant of ANY unit required (own included)
+      } else if (credits[faction] < ut.cost) {
+        fail('no-credits'); // defensive — entry validation caps committed cost
+      } else {
+        credits[faction] -= ut.cost;
+        // Deterministic, collision-free id: one buy per base per round.
+        const id = `f${faction}-r${round}-b${order.baseCell}-${order.unitTypeKey}`;
+        next.units[id] = {
+          id,
+          type: order.unitTypeKey,
+          faction,
+          cell: order.baseCell,
+          count: 10,
+          stance: 'aggressive',
+          attackedFrom: [],
+        };
+        events.push({
+          type: 'spawn',
+          unitId: id,
+          typeKey: order.unitTypeKey,
+          cell: order.baseCell,
+          faction,
+          creditsAfter: credits[faction],
+        });
+      }
+    }
+
+    // ── Win/loss (§B.5), checked at round end AFTER Phase E (a spawn can
+    // save a unitless faction; income/captures count). Order: conquest
+    // insta-win, base collapse, optional round limit.
+    let u0 = 0;
+    let u1 = 0;
+    let c0 = 0;
+    let c1 = 0;
+    for (const u of alive()) {
+      if (u.faction === 0) {
+        u0++;
+        c0 += u.count;
+      } else {
+        u1++;
+        c1 += u.count;
+      }
+    }
+    const b0 = ownedBases(0);
+    const b1 = ownedBases(1);
+
+    const dead0 = u0 === 0 && b0 === 0;
+    const dead1 = u1 === 0 && b1 === 0;
+    if (dead0 && dead1) outcome = { winner: null, reason: 'conquest' };
+    else if (dead1) outcome = { winner: 0, reason: 'conquest' };
+    else if (dead0) outcome = { winner: 1, reason: 'conquest' };
+
+    // Grace counters update at EVERY round end (recapture resets to 0).
+    baseless[0] = b0 === 0 ? baseless[0] + 1 : 0;
+    baseless[1] = b1 === 0 ? baseless[1] + 1 : 0;
+    if (!outcome) {
+      const collapsed0 = baseless[0] >= BASELESS_GRACE;
+      const collapsed1 = baseless[1] >= BASELESS_GRACE;
+      if (collapsed0 && collapsed1) outcome = { winner: null, reason: 'base-collapse' };
+      else if (collapsed0) outcome = { winner: 1, reason: 'base-collapse' };
+      else if (collapsed1) outcome = { winner: 0, reason: 'base-collapse' };
+    }
+
+    if (!outcome && next.roundLimit != null && round >= next.roundLimit) {
+      // Most bases, then most TOTAL UNIT COUNT (sum of strength points —
+      // recorded decision: richer tiebreak than a raw headcount), then draw.
+      let winner: FactionId | null = null;
+      if (b0 !== b1) winner = b0 > b1 ? 0 : 1;
+      else if (c0 !== c1) winner = c0 > c1 ? 0 : 1;
+      outcome = { winner, reason: 'round-limit' };
+    }
+  }
 
   next.round = round + 1;
   next.pendingOrders = { 0: [], 1: [] };
@@ -535,10 +694,12 @@ function pickAutoTarget(
   attType: UnitType,
   unitTypes: Readonly<Record<string, UnitType>>,
   round: number,
+  bases?: Readonly<Record<CellId, FactionId | null>>,
 ): UnitInstance | null {
   // Visibility through the ATTACKER's faction fog, at fire time (deaths
   // earlier this Phase B already shrank/grew nobody's vision but the dead's).
-  const visible = visibleCells(board, Object.values(state.units), att.faction, unitTypes);
+  // E2: `bases` (conquest only) adds owned bases' vision-2 footprints.
+  const visible = visibleCells(board, Object.values(state.units), att.faction, unitTypes, bases);
   const candidates: Array<{ u: UnitInstance; dist: number }> = [];
   for (const u of Object.values(state.units)) {
     if (u.faction === att.faction || u.count <= 0) continue;
@@ -574,11 +735,20 @@ function breakdownFor(
 }
 
 /** Deep-copy the mutable parts; the board is immutable and shared by
- *  reference (the `board` parameter is authoritative). */
+ *  reference (the `board` parameter is authoritative). Conquest fields are
+ *  cloned (and defaulted defensively) ONLY when the state is conquest-mode —
+ *  skirmish states keep their pre-E2 shape bit-identically. */
 function cloneState(board: Board, state: GameState): GameState {
   const units: Record<string, UnitInstance> = {};
   for (const [id, u] of Object.entries(state.units)) {
     units[id] = { ...u, attackedFrom: u.attackedFrom.map((e) => ({ ...e })) };
   }
-  return { ...state, board, units, pendingOrders: { 0: [], 1: [] }, log: [] };
+  const next: GameState = { ...state, board, units, pendingOrders: { 0: [], 1: [] }, log: [] };
+  if (state.mode === 'conquest') {
+    next.bases = { ...(state.bases ?? {}) };
+    next.credits = { 0: state.credits?.[0] ?? 0, 1: state.credits?.[1] ?? 0 };
+    next.baseless = { 0: state.baseless?.[0] ?? 0, 1: state.baseless?.[1] ?? 0 };
+    next.roundLimit = state.roundLimit ?? null;
+  }
+  return next;
 }

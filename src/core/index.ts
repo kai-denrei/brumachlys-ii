@@ -6,11 +6,13 @@ export type {
   AttackBreakdown,
   AttackedFromEntry,
   FactionId,
+  GameMode,
   GameOutcome,
   GameOverReason,
   GamePhase,
   GameState,
   ResolutionEvent,
+  SpawnFailReason,
   Stance,
   TerrainEffect,
   TerrainType,
@@ -20,6 +22,11 @@ export type {
 } from './types';
 export type {
   AttackOrder,
+  BuyContext,
+  BuyOrder,
+  BuyQueues,
+  BuyRejection,
+  BuyValidationResult,
   MoveOrder,
   Order,
   OrderContext,
@@ -32,11 +39,15 @@ export type {
 } from './orders';
 export {
   findConvergences,
+  flattenBuys,
   flattenOrders,
   orderedUnitIds,
   plannedEndCell,
+  queueBuy,
   queueOrder,
+  removeBuy,
   removeOrder,
+  validateBuy,
   validateOrder,
 } from './orders';
 export { createRng, fnv1a32, initTieKey } from './rng';
@@ -64,6 +75,7 @@ export { IMPASSABLE, findPath, movementCostsFor, reachableCells } from './pathin
 export type { MovementCosts, PathOpts, PathResult } from './pathing';
 
 export {
+  BASE_VISION,
   DARK_ASSUMED_TERRAIN,
   accumulateDiscovery,
   assumedTerrainView,
@@ -73,7 +85,7 @@ export {
 } from './fog';
 export type { FogTier } from './fog';
 
-export { ROUND_LIMIT, resolveRound } from './resolver';
-export type { OrdersByFaction, ResolveResult } from './resolver';
-export { newGame } from './setup';
+export { BASELESS_GRACE, ROUND_LIMIT, resolveRound } from './resolver';
+export type { BuysByFaction, OrdersByFaction, ResolveResult } from './resolver';
+export { DEFAULT_CONQUEST_FORCE, newGame } from './setup';
 export type { Scenario } from './setup';

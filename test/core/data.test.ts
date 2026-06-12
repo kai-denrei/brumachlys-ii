@@ -9,16 +9,17 @@ import type { UnitType } from '../../src/core/types';
 const units = loadUnits();
 const terrain = loadTerrain();
 
-// key → [init, mov, armor, armorType, minRange, maxRange, vision, A pers, A arm]
-const ROSTER: Record<string, [number, number, number, string, number, number, number, number, number]> = {
-  sniper: [13, 6, 4, 'personnel', 1, 2, 4, 9, 2],
-  humvee: [12, 15, 4, 'armored', 1, 1, 3, 6, 3],
-  ranger: [11, 12, 5, 'personnel', 1, 1, 3, 7, 4],
-  infantry: [8, 9, 6, 'personnel', 1, 1, 2, 6, 3],
-  grenadier: [7, 6, 7, 'personnel', 1, 1, 2, 4, 7],
-  tank: [6, 12, 5, 'armored', 1, 1, 2, 5, 6],
-  artillery: [4, 6, 3, 'armored', 2, 4, 1, 8, 6],
-  heavytank: [3, 9, 8, 'armored', 1, 1, 1, 7, 8],
+// key → [init, mov, armor, armorType, minRange, maxRange, vision, A pers, A arm, cost]
+// cost column: conquest addendum §B.3 (E2).
+const ROSTER: Record<string, [number, number, number, string, number, number, number, number, number, number]> = {
+  sniper: [13, 6, 4, 'personnel', 1, 2, 4, 9, 2, 200],
+  humvee: [12, 15, 4, 'armored', 1, 1, 3, 6, 3, 150],
+  ranger: [11, 12, 5, 'personnel', 1, 1, 3, 7, 4, 150],
+  infantry: [8, 9, 6, 'personnel', 1, 1, 2, 6, 3, 75],
+  grenadier: [7, 6, 7, 'personnel', 1, 1, 2, 4, 7, 150],
+  tank: [6, 12, 5, 'armored', 1, 1, 2, 5, 6, 300],
+  artillery: [4, 6, 3, 'armored', 2, 4, 1, 8, 6, 400],
+  heavytank: [3, 9, 8, 'armored', 1, 1, 1, 7, 8, 600],
 };
 
 describe('units.json — spec §6.1 roster', () => {
@@ -26,7 +27,7 @@ describe('units.json — spec §6.1 roster', () => {
     expect(Object.keys(units).sort()).toEqual(Object.keys(ROSTER).sort());
   });
 
-  for (const [key, [init, mov, armor, armorType, minR, maxR, vision, aPers, aArm]] of Object.entries(ROSTER)) {
+  for (const [key, [init, mov, armor, armorType, minR, maxR, vision, aPers, aArm, cost]] of Object.entries(ROSTER)) {
     test(`${key} matches the table exactly`, () => {
       const u = units[key]!;
       expect(u.key).toBe(key);
@@ -41,6 +42,7 @@ describe('units.json — spec §6.1 roster', () => {
       expect(u.attackStrengths.armored).toBe(aArm);
       expect(u.attackStrengths.naval).toBe(0);
       expect(u.attackStrengths.air).toBe(0);
+      expect(u.cost).toBe(cost);
     });
   }
 });

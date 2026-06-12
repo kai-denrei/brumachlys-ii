@@ -259,6 +259,80 @@ export function flattenOrders(queues: OrderQueues): Order[] {
   return orders;
 }
 
+// --- E2 conquest buy orders (addendum §B.4) -----------------------------------
+//
+// Buys are PER-BASE, not per-unit, so they live in their own queue structure
+// (UnitOrders' one-slot-per-kind shape keys on unitId — a buy has none).
+// BuyQueues mirrors the UnitOrders design one level up: one optional slot per
+// base cell, queueBuy replaces the same-base slot (edit semantics) — "max one
+// buy per owned base per round" is STRUCTURAL, exactly like "max one order
+// per kind per unit". The resolver re-checks everything at Phase E.
+
+export type BuyOrder = { kind: 'buy'; baseCell: CellId; unitTypeKey: string };
+
+/** All queued buys for one faction, by base cell. Treated as immutable. */
+export type BuyQueues = Readonly<Record<CellId, BuyOrder>>;
+
+export type BuyRejection =
+  | 'unknown-base' // baseCell is not a base site
+  | 'not-own-base' // base exists but is neutral or enemy-owned
+  | 'unknown-unit-type' // unitTypeKey not in the registry
+  | 'insufficient-credits'; // total committed cost would exceed current credits
+
+export type BuyValidationResult = { ok: true } | { ok: false; reason: BuyRejection };
+
+export type BuyContext = {
+  /** The ordering faction. */
+  faction: FactionId;
+  /** Current base ownership (GameState.bases). */
+  bases: Readonly<Record<CellId, FactionId | null>>;
+  /** The ordering faction's current credits. */
+  credits: number;
+  unitTypes: Readonly<Record<string, UnitType>>;
+  /** The faction's already-queued buys. The same-base entry is ignored (it is
+   * the one being replaced) — its cost frees up for the new order. */
+  queued?: BuyQueues;
+};
+
+/** Addendum §B.4 entry validation: own base, valid unit type, and the TOTAL
+ * committed cost (all queued buys + this one, same-base entry replaced)
+ * within current credits. ≤1 buy per base is structural (queueBuy). */
+export function validateBuy(ctx: BuyContext, order: BuyOrder): BuyValidationResult {
+  if (!(order.baseCell in ctx.bases)) return { ok: false, reason: 'unknown-base' };
+  if (ctx.bases[order.baseCell] !== ctx.faction) return { ok: false, reason: 'not-own-base' };
+  const ut = ctx.unitTypes[order.unitTypeKey];
+  if (!ut) return { ok: false, reason: 'unknown-unit-type' };
+  let committed = ut.cost;
+  for (const [cellKey, queued] of Object.entries(ctx.queued ?? {})) {
+    if (Number(cellKey) === order.baseCell) continue; // being replaced
+    committed += ctx.unitTypes[queued.unitTypeKey]?.cost ?? 0;
+  }
+  if (committed > ctx.credits) return { ok: false, reason: 'insufficient-credits' };
+  return { ok: true };
+}
+
+/** Add `order`, REPLACING any queued buy on the same base (edit semantics). */
+export function queueBuy(queues: BuyQueues, order: BuyOrder): BuyQueues {
+  return { ...queues, [order.baseCell]: order };
+}
+
+/** Remove the buy queued on `baseCell` (no-op when none). */
+export function removeBuy(queues: BuyQueues, baseCell: CellId): BuyQueues {
+  if (!(baseCell in queues)) return queues;
+  const next: Record<CellId, BuyOrder> = { ...queues };
+  delete next[baseCell];
+  return next;
+}
+
+/** Flatten to the resolver's BuyOrder[] shape: base cell ascending — the
+ * deterministic Phase E spawn order (addendum §B / E2 determinism rule). */
+export function flattenBuys(queues: BuyQueues): BuyOrder[] {
+  return Object.keys(queues)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map((cell) => queues[cell]!);
+}
+
 /**
  * Convergence detection (§9.3): cells where ≥2 of the faction's queued moves
  * end. Returns destination cell → unit ids (only entries with 2+ units).
