@@ -182,21 +182,18 @@ export function InfoSheet({
   );
 }
 
-/** The unit-stats card — shared data shaping for the §9.5 info sheet and the
- * v1.1 hover card: name, count, stance, init, armor (+type), range, vision,
- * attack vs personnel/armored. (`movement` shown only in the full sheet.) */
-export function UnitCard({
-  unit,
-  unitType,
-  compact = false,
-}: {
-  unit: UnitInstance;
-  unitType: UnitType;
-  /** Hover-card mode: tighter — drops the movement row. */
-  compact?: boolean;
-}) {
+/** min–max range, collapsed to one number when min = max. */
+function fmtRange(min: number, max: number): string {
+  return min === max ? String(max) : `${min}–${max}`;
+}
+
+/** The verbose unit-stats card — the §9.5 long-press info sheet's detail
+ * view: name, count, stance, init, movement, armor (+type), range, vision,
+ * attack vs personnel/armored. (v1.2: the hover card no longer shares this —
+ * it has its own one-glance layout below.) */
+export function UnitCard({ unit, unitType }: { unit: UnitInstance; unitType: UnitType }) {
   return (
-    <div className={`unit-card${compact ? ' unit-card-compact' : ''}`}>
+    <div className="unit-card">
       <div className="unit-card-head">
         <svg viewBox="-20 -20 40 40" className="unit-card-token">
           <UnitRenderer unit={unit} x={0} y={0} size={30} />
@@ -213,12 +210,10 @@ export function UnitCard({
           <dt>initiative</dt>
           <dd>{unitType.initiative}</dd>
         </div>
-        {!compact && (
-          <div>
-            <dt>movement</dt>
-            <dd>{unitType.movement}</dd>
-          </div>
-        )}
+        <div>
+          <dt>movement</dt>
+          <dd>{unitType.movement}</dd>
+        </div>
         <div>
           <dt>armor</dt>
           <dd>
@@ -227,11 +222,7 @@ export function UnitCard({
         </div>
         <div>
           <dt>range</dt>
-          <dd>
-            {unitType.minRange === unitType.maxRange
-              ? unitType.maxRange
-              : `${unitType.minRange}–${unitType.maxRange}`}
-          </dd>
+          <dd>{fmtRange(unitType.minRange, unitType.maxRange)}</dd>
         </div>
         <div>
           <dt>vision</dt>
@@ -248,9 +239,13 @@ export function UnitCard({
   );
 }
 
-/** v1.1 Feature A — compact hover card near a unit token (mouse only; the
- * Board owns detection/dismissal, this is pure presentation). Position is
- * fixed at hover time — any pan/zoom dismisses the card, so it never drifts. */
+/** v1.1 Feature A / v1.2 tweak 3 — the hover card is the GLANCE (the
+ * long-press info sheet keeps the verbose detail view): one line of identity
+ * (name + count + stance), one monospace stat line in the fixed vocabulary
+ * `i:13 a:4 r:1–2 v:4 p:9 h:2` — initiative, armor, range (min–max collapsed
+ * when equal), vision, attack vs personnel, attack vs heavy/armored.
+ * Mouse only; the Board owns detection/dismissal, this is pure presentation.
+ * Position is fixed at hover time — any pan/zoom dismisses the card. */
 export function UnitHoverCard({
   unit,
   unitType,
@@ -263,10 +258,10 @@ export function UnitHoverCard({
   clientY: number;
 }) {
   // Clamp into the viewport; float above the token, below when near the top.
-  const w = 240;
+  const w = 200;
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
   const left = Math.max(8 + w / 2, Math.min(clientX, vw - w / 2 - 8));
-  const below = clientY < 230;
+  const below = clientY < 140;
   return (
     <div
       className="hover-card"
@@ -279,7 +274,17 @@ export function UnitHoverCard({
       }}
       role="tooltip"
     >
-      <UnitCard unit={unit} unitType={unitType} compact />
+      <div className="hover-card-head">
+        <span className="hover-card-name">{unitType.name}</span>
+        <span className="hover-card-sub">
+          ×{unit.count} · {STANCE_LABEL[unit.stance].toLowerCase()}
+        </span>
+      </div>
+      <div className="hover-card-stats">
+        i:{unitType.initiative} a:{unitType.armor} r:
+        {fmtRange(unitType.minRange, unitType.maxRange)} v:{unitType.vision} p:
+        {unitType.attackStrengths.personnel} h:{unitType.attackStrengths.armored}
+      </div>
     </div>
   );
 }

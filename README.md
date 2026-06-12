@@ -11,6 +11,8 @@ quad-mesh dual), generated from classic **Weewar maps used as shape/terrain dono
 (bundled: vietFort, Puddles, Valley Road, 1v1 Showdown JMK, spooner hell — credit to
 their original Weewar authors).
 
+Unit icons via [The Noun Project](https://thenounproject.com) (CC BY 3.0): soldiers #5052262, #5052273, #5052283, #5052266 by Maxicons · humvee #9859 by Luke Anthony Firth · tanks #2148528, #2148529 by Claudia Revalina · artillery #6272613 by Supanut Piyakanont.
+
 **Spec:** [`docs/superpowers/specs/2026-06-12-brumachlys-ii-design.md`](docs/superpowers/specs/2026-06-12-brumachlys-ii-design.md)
 **Lineage:** [`BRUMACHLYS.md`](BRUMACHLYS.md) (v1 PoC spec, 2026-05) · [oskar-procedure](https://github.com/kai-denrei/oskar-procedure) (mesh kernel)
 
@@ -53,7 +55,7 @@ Win by destroying every enemy unit within 40 rounds.
 ```bash
 npm install
 npm run dev        # localhost:5173
-npm test           # purity check + vitest (353 tests)
+npm test           # purity check + vitest (401 tests)
 npm run build      # type-check + production build
 node scripts/bust.mjs   # bump the build-identity token (CI does this per deploy)
 ```
@@ -66,6 +68,8 @@ The token re-bumps on every deploy.
 
 ## Status
 
-**v1 (0.2.0)** — feature-complete per the spec's definition of done: full solo game
+**v1.2 (0.3.1)** — feature-complete per the spec's definition of done: full solo game
 vs the greedy AI, fog-honest animated replay, five donor battlefields, mobile-first.
+v1.1 added vacancy moves, hover cards and the skirmish log; v1.2 adds real unit icons,
+the in-game rules reference (the "i" in the top bar) and one-glance hover cards.
 Parking lot (economy, naval/air rosters, hot-seat, PWA, …) lives in spec §16.

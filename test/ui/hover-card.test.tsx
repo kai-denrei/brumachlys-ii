@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-// v1.1 Feature A — unit hover cards: mouse-only (~250 ms delay), compact
-// stats card near the token, dismissed on tap/leave; touch behavior unchanged.
+// v1.1 Feature A / v1.2 tweak 3 — unit hover cards: mouse-only (~250 ms
+// delay), one-glance card near the token (name + count + stance line, then a
+// single monospace stat line `i: a: r: v: p: h:`), dismissed on tap/leave;
+// touch behavior unchanged. The verbose layout lives in the long-press sheet.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
@@ -63,7 +65,7 @@ function seedBattle(units: UnitInstance[], board = lineBoard(8)) {
 }
 
 describe('unit hover cards (mouse only)', () => {
-  it('shows a compact stats card ~250 ms after a mouse hover on an own token', () => {
+  it('shows the one-glance card ~250 ms after a mouse hover on an own token', () => {
     seedBattle([unit('a', 0, 0, 'humvee'), unit('e', 1, 2, 'tank')]);
     const { container, baseElement } = render(<App />);
     fireEvent.pointerOver(container.querySelector('[data-unit-id="a"]')!, {
@@ -73,11 +75,22 @@ describe('unit hover cards (mouse only)', () => {
     act(() => vi.advanceTimersByTime(260));
     const card = baseElement.querySelector('[data-testid="unit-hover-card"]')!;
     expect(card).not.toBeNull();
-    expect(card.textContent).toContain('Humvee');
-    expect(card.textContent).toContain('initiative');
-    expect(card.textContent).toContain('armor');
-    expect(card.textContent).toContain('vision');
-    expect(card.textContent).toContain('atk vs pers / arm');
+    // identity line: name + count + stance
+    expect(card.querySelector('.hover-card-head')!.textContent).toBe('Humvee×10 · aggressive');
+    // the single monospace stat line, exact vocabulary (humvee per §6.1)
+    expect(card.querySelector('.hover-card-stats')!.textContent).toBe('i:12 a:4 r:1 v:3 p:6 h:3');
+  });
+
+  it('collapses range to min–max only when they differ (sniper r:1–2)', () => {
+    seedBattle([unit('a', 0, 0, 'sniper'), unit('e', 1, 7)]);
+    const { container, baseElement } = render(<App />);
+    fireEvent.pointerOver(container.querySelector('[data-unit-id="a"]')!, {
+      pointerType: 'mouse',
+    });
+    act(() => vi.advanceTimersByTime(260));
+    expect(
+      baseElement.querySelector('[data-testid="unit-hover-card"] .hover-card-stats')!.textContent,
+    ).toBe('i:13 a:4 r:1–2 v:4 p:9 h:2');
   });
 
   it("shows VISIBLE enemy units' cards too", () => {

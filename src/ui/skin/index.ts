@@ -9,6 +9,7 @@ export { CellRenderer, CELL_STROKE_WIDTH } from './CellRenderer';
 export type { CellRendererProps } from './CellRenderer';
 export { UnitRenderer } from './UnitRenderer';
 export type { UnitRendererProps } from './UnitRenderer';
+export { UnitGlyph, UNIT_ICON_KEYS } from './icons';
 export { GrainFilterDef, GrainOverlay, GRAIN_FILTER_ID, GRAIN_OPACITY } from './GrainFilter';
 export {
   EffectRenderer,
