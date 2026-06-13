@@ -253,6 +253,23 @@ describe('donor pipeline — 5 bundled donors (data/maps/)', () => {
     expect(snapshot(generateBoard(donor, 7))).toEqual(snapshot(generateBoard(donor, 7)));
   });
 
+  it('every board.bases site has terrain="base" (art, flag pip, and conquest ownership agree)', () => {
+    // Guards the donor.ts fix: base sites projected via nearestPassableCell must have their
+    // terrain forced to "base" so CellRenderer's flag pip and conquest BuildPip both render
+    // on a cell whose terrain art is base sand — not plains/mountains (the pre-fix bug).
+    for (const file of files) {
+      const donor = loadDonorFile(file);
+      const board = generateBoard(donor, 7);
+      for (const site of board.bases ?? []) {
+        const cell = board.cells.get(site.cell);
+        expect(
+          cell?.terrain,
+          `${file} seed 7: base site at cell ${site.cell} has terrain "${cell?.terrain}", expected "base"`,
+        ).toBe('base');
+      }
+    }
+  });
+
   it('targetCellsFor clamps to [60, 250]', () => {
     const donor = loadDonorFile(files[0]!);
     expect(targetCellsFor(donor)).toBe(Math.max(60, Math.min(250, donor.tiles.length)));

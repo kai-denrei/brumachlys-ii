@@ -370,6 +370,17 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
   // types onto the Board so conquest setup (core/setup.ts) never sees the
   // donor. Base sites project like anchors (nearest passable cell); when two
   // donor bases land on one cell, the FIRST in document order wins.
+  //
+  // Bug fix (§B base-rendering): the terrain-assignment pass (nearestTile) and
+  // the base-site projection (nearestPassableCell) are independent and can
+  // disagree — a donor 'base' tile at position P may project to mesh cell C
+  // while C's nearest donor tile in normalised space is an adjacent plains tile
+  // that is fractionally closer. The result: board.bases contains C but
+  // C.terrain is 'plains' or 'mountains', so the conquest BuildPip "+" renders
+  // on a plains/mountain cell while the flag pip (gated on terrain === 'base')
+  // does not. Fix: after projecting each base site, force the target cell's
+  // terrain to 'base'. This is the single source of truth — art, flag pip,
+  // and conquest ownership all agree with the donor intent.
   const baseSites: Board['bases'] = [];
   const baseCellsSeen = new Set<CellId>();
   for (const b of donor.bases) {
@@ -377,6 +388,8 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
     if (cell === null || baseCellsSeen.has(cell)) continue;
     baseCellsSeen.add(cell);
     baseSites.push({ cell, faction: b.faction });
+    // Guarantee consistency: the base-site cell must render as base terrain.
+    cells.get(cell)!.terrain = 'base';
   }
   board.bases = baseSites;
   board.economy = {
