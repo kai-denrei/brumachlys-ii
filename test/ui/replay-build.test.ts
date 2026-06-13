@@ -500,3 +500,62 @@ describe('replay builder — discovery ignition (E1)', () => {
     expect(establish.units.some((u) => u.id === 'ai')).toBe(false); // …no token
   });
 });
+
+// --- v0.8 veterancy: promotion slots -------------------------------------------
+
+describe('replay builder — promotion events (v0.8 veterancy)', () => {
+  it('builds a promotion slot from a visible promotion event (own unit)', () => {
+    // Player infantry at cell 2 (always visible — own faction).
+    const units = [makeUnit('pi', 0, 2)];
+    const events: ResolutionEvent[] = [
+      { type: 'promotion', unitId: 'pi', cell: 2, faction: 0, rank: 1, healedTo: 10 },
+    ];
+    const script = build(units, events);
+    expect(script.slots.some((s) => s.kind === 'promotion')).toBe(true);
+    expect(script.frames.some((f) => (f.promotions?.length ?? 0) > 0)).toBe(true);
+    const promFrame = script.frames.find((f) => (f.promotions?.length ?? 0) > 0)!;
+    expect(promFrame.promotions![0]).toEqual({ cell: 2, faction: 0, rank: 1 });
+  });
+
+  it('rank and count are updated in the sim — subsequent frame snapshots carry them', () => {
+    const units = [makeUnit('pi', 0, 2)];
+    const events: ResolutionEvent[] = [
+      { type: 'promotion', unitId: 'pi', cell: 2, faction: 0, rank: 1, healedTo: 10 },
+    ];
+    const script = build(units, events);
+    const promFrame = script.frames.find((f) => (f.promotions?.length ?? 0) > 0)!;
+    const piSnapshot = promFrame.units.find((u) => u.id === 'pi')!;
+    expect(piSnapshot.count).toBe(10);
+    expect(piSnapshot.rank).toBe(1);
+  });
+
+  it('fog discipline: a promotion at a fogged enemy cell produces NO promotion slot', () => {
+    // Player infantry at 0 sees cells 0..2 only. Enemy ranger at 8 is outside vision.
+    const units = [makeUnit('pi', 0, 0), makeUnit('er', 1, 8, 'ranger')];
+    const events: ResolutionEvent[] = [
+      { type: 'promotion', unitId: 'er', cell: 8, faction: 1, rank: 1, healedTo: 10 },
+    ];
+    const script = build(units, events);
+    expect(script.slots.some((s) => s.kind === 'promotion')).toBe(false);
+    expect(script.frames.every((f) => (f.promotions?.length ?? 0) === 0)).toBe(true);
+  });
+
+  it('enemy promotion on a visible cell IS shown (enemy in player vision)', () => {
+    // Player infantry at 0 (vision 2, sees 0..2); enemy ranger at 2 is visible.
+    const units = [makeUnit('pi', 0, 0), makeUnit('er', 1, 2, 'ranger')];
+    const events: ResolutionEvent[] = [
+      { type: 'promotion', unitId: 'er', cell: 2, faction: 1, rank: 1, healedTo: 10 },
+    ];
+    const script = build(units, events);
+    expect(script.slots.some((s) => s.kind === 'promotion')).toBe(true);
+    const promFrame = script.frames.find((f) => (f.promotions?.length ?? 0) > 0)!;
+    expect(promFrame.promotions![0]).toEqual({ cell: 2, faction: 1, rank: 1 });
+  });
+
+  it('every frame carries an empty promotions array by default (emptyFx contract)', () => {
+    const script = build([makeUnit('pi', 0, 2)], []);
+    for (const f of script.frames) {
+      expect(Array.isArray(f.promotions)).toBe(true);
+    }
+  });
+});

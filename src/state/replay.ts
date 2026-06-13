@@ -81,7 +81,7 @@ export type Strike = {
 };
 
 export type TimelineSlot = {
-  kind: 'move' | 'volley' | 'brawl' | 'fizzle' | 'capture' | 'spawn';
+  kind: 'move' | 'volley' | 'brawl' | 'fizzle' | 'capture' | 'spawn' | 'promotion';
   /** Unit-type key for the slot glyph; null = mist (source withheld). */
   actorType: string | null;
   actorFaction: FactionId | null;
@@ -145,6 +145,8 @@ export type ReplayFrame = {
    *  snapshot rides along so the fx layer can dissolve the token INTO the
    *  flag — a claim, not a death (it still lands in summary.kills). */
   captures: { cell: CellId; to: FactionId; consumed?: UnitInstance }[];
+  /** v0.8 veterancy: units that ranked up this frame (fog-filtered). */
+  promotions?: Array<{ cell: CellId; faction: FactionId; rank: number }>;
   /** v1.3: active movement origin trails (fog-filtered, see TrailFx). */
   trails: TrailFx[];
   /** Cells the camera should keep in view this frame (auto-follow, P9).
@@ -206,6 +208,7 @@ const ESTABLISH_MS = 350;
 const CAPTURE_MS = 700;
 const SPAWN_MS = 700;
 const INCOME_MS = 400;
+const PROMOTE_MS = 450;
 
 /** E3: what buildReplay needs to simulate conquest fog + the credits HUD —
  *  the round-START picture (the resolver's events advance it). */
@@ -308,6 +311,7 @@ export function buildReplay(
     kills: [] as UnitInstance[],
     spawns: [] as UnitInstance[],
     captures: [] as ReplayFrame['captures'],
+    promotions: [] as ReplayFrame['promotions'],
     trails: [] as TrailFx[],
     focus: [] as CellId[],
   });
@@ -837,6 +841,30 @@ export function buildReplay(
             { t: nameOf(ev.unitTypeKey), f: ev.faction },
             { t: ` build failed — ${why[ev.reason]}` },
           ],
+        });
+      }
+      i++;
+      continue;
+    }
+
+    if (ev.type === 'promotion') {
+      // v0.8 veterancy: end-of-round rank-up. Only surface the event when the
+      // promoted unit's cell is visible (own units always; enemy veterans only
+      // when their cell is currently in-vision — same fog discipline as kills).
+      const u = sim.get(ev.unitId);
+      const vis = vision();
+      const shown = u ? seen(u.faction, ev.cell, vis) : false;
+      if (u) { u.count = ev.healedTo; u.rank = ev.rank; }
+      if (shown) {
+        const slot = slots.length;
+        slots.push({ kind: 'promotion', actorType: u?.type ?? null, actorFaction: ev.faction, strikes: [] });
+        frames.push({
+          duration: PROMOTE_MS,
+          slot,
+          units: renderUnits(vis),
+          ...fogFields(vis),
+          ...emptyFx(),
+          promotions: [{ cell: ev.cell, faction: ev.faction, rank: ev.rank }],
         });
       }
       i++;
