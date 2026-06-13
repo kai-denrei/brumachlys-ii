@@ -23,6 +23,7 @@ export { GrainFilterDef, GrainOverlay, GRAIN_FILTER_ID, GRAIN_OPACITY } from './
 export {
   BuildPips,
   BuyGhosts,
+  CaptureIntentMarkers,
   EffectRenderer,
   HoldFireIcon,
   ShieldIcon,
@@ -34,6 +35,7 @@ export {
 export type {
   BuildPipMark,
   BuyGhostMark,
+  CaptureIntentMark,
   EffectRendererProps,
   GhostOrder,
 } from './EffectRenderer';

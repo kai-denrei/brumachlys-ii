@@ -16,6 +16,15 @@ import { factionColor } from './palette';
 import { UnitRenderer } from './UnitRenderer';
 import type { Pt } from './rounded';
 
+/** v0.8 Task 2.4: claim-intent marker — shown on the BASE CELL a personnel unit
+ * will attempt to capture. One mark per unit with an armed capture order. */
+export type CaptureIntentMark = {
+  /** The base cell the unit plans to capture (its planned end cell). */
+  baseCell: CellId;
+  /** The capturing faction (colors the marker). */
+  faction: number;
+};
+
 /** One unit's queued plan, ready to draw. `movePath` excludes the start cell
  * (order shape, spec §2.3); `attackFrom` is the planned end position the
  * attack will fire from (move destination if a move is queued). */
@@ -454,6 +463,82 @@ export function visionEdgeSegments(board: Board, cellSet: ReadonlySet<CellId>): 
     }
   }
   return segments;
+}
+
+// --- v0.8 Task 2.4: claim-intent markers -------------------------------------
+// A subtle faction-coloured flag ghost on each base cell where the player has
+// armed a capture order. Distinct from the capture REPLAY animation (which
+// uses a full fill/sweep/raise sequence); this is a planning-time affordance
+// that previews deliberate intent. Rendered in the planning ghost layer (above
+// grain/highlights, below units) so it reads without occluding tokens.
+
+export function CaptureIntentMarkers({
+  board,
+  toScreen,
+  tokenSize,
+  marks,
+}: {
+  board: Board;
+  toScreen: (p: readonly [number, number]) => Pt;
+  tokenSize: number;
+  marks: readonly CaptureIntentMark[];
+}) {
+  if (marks.length === 0) return null;
+  return (
+    <g className="capture-intent-markers" pointerEvents="none">
+      {marks.map((m) => {
+        const cell = board.cells.get(m.baseCell);
+        if (!cell) return null;
+        const [cx, cy] = toScreen(cell.center);
+        const color = factionColor(m.faction as 0 | 1);
+        const r = tokenSize * 0.34;
+        const poleH = tokenSize * 0.72;
+        // Flag pole: vertical line from center up; flag: small filled triangle
+        // to the right of the pole top. Pulsing ring beneath signals intent.
+        const poleX = cx - r * 0.12;
+        const poleTop = cy - poleH;
+        const flagW = r * 0.82;
+        const flagH = r * 0.52;
+        return (
+          <g
+            key={m.baseCell}
+            className="capture-intent"
+            data-capture-intent={m.baseCell}
+          >
+            {/* Pulsing ring — signals armed intent; distinct from the capture
+                replay ring (which uses fx-capture-pulse on the tile fill). */}
+            <circle
+              cx={cx}
+              cy={cy}
+              r={tokenSize * 0.62}
+              fill="none"
+              stroke={color}
+              strokeWidth={tokenSize * 0.06}
+              opacity={0.55}
+              className="capture-intent-ring"
+            />
+            {/* Flag pole */}
+            <line
+              x1={poleX}
+              y1={cy + tokenSize * 0.08}
+              x2={poleX}
+              y2={poleTop}
+              stroke={color}
+              strokeWidth={tokenSize * 0.07}
+              strokeLinecap="round"
+              opacity={0.85}
+            />
+            {/* Flag triangle */}
+            <polygon
+              points={`${poleX},${poleTop} ${poleX + flagW},${poleTop + flagH * 0.5} ${poleX},${poleTop + flagH}`}
+              fill={color}
+              opacity={0.85}
+            />
+          </g>
+        );
+      })}
+    </g>
+  );
 }
 
 export function VisionEdge({

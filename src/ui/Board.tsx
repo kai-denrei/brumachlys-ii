@@ -44,6 +44,7 @@ import { PLAYER_FACTION, useAppStore } from '../state/store';
 import {
   BuildPips,
   BuyGhosts,
+  CaptureIntentMarkers,
   CellRenderer,
   EffectRenderer,
   GrainFilterDef,
@@ -56,6 +57,7 @@ import {
   factionColor,
   type BuildPipMark,
   type BuyGhostMark,
+  type CaptureIntentMark,
   type GhostOrder,
   type Pt,
   type ReplayFxData,
@@ -78,6 +80,15 @@ export type StancePopoverState = {
   /** §2.4: hold-fire is blocked while an explicit attack is queued. */
   holdFireDisabled: boolean;
   onPick: (stance: Stance) => void;
+};
+
+/** v0.8 Task 2.4: the capture-toggle popover shown for the selected unit when
+ * it is eligible to capture (conquest + personnel + planned end is enemy/neutral
+ * base). A boolean toggle: armed = capture order queued. */
+export type CaptureToggleState = {
+  /** Whether the capture order is currently armed. */
+  armed: boolean;
+  onToggle: () => void;
 };
 
 export type BoardProps = {
@@ -134,6 +145,13 @@ export type BoardProps = {
   onUnitHover?: (hover: { unitId: string; clientX: number; clientY: number } | null) => void;
   /** Stance popover on the selected unit (§9.2); rendered inside the SVG. */
   stancePopover?: StancePopoverState | null;
+  /** v0.8 Task 2.4: capture toggle anchored to the selected token, shown only
+   * when the unit is eligible to capture. Rendered inside the SVG alongside
+   * the stance popover so it pans/zooms with the board. */
+  captureToggle?: CaptureToggleState | null;
+  /** v0.8 Task 2.4: claim-intent markers — one per unit with an armed capture
+   * order; shown in the ghost layer (above grain, below units). */
+  captureIntentMarks?: readonly CaptureIntentMark[];
   onCellTap?: (cellId: CellId) => void;
   onUnitTap?: (unitId: string) => void;
   onGhostTap?: (unitId: string) => void;
@@ -276,6 +294,8 @@ export function Board({
   onUserPan,
   onUnitHover,
   stancePopover = null,
+  captureToggle = null,
+  captureIntentMarks,
   onCellTap,
   onUnitTap,
   onGhostTap,
@@ -827,6 +847,15 @@ export function Board({
             onGhostTap={tapGuard(onGhostTap)}
           />
         )}
+        {/* v0.8 Task 2.4: claim-intent markers in the ghost layer */}
+        {captureIntentMarks && captureIntentMarks.length > 0 && (
+          <CaptureIntentMarkers
+            board={board}
+            toScreen={toScreen}
+            tokenSize={tokenSize}
+            marks={captureIntentMarks}
+          />
+        )}
         {trails && trails.length > 0 && (
           <ReplayTrails board={board} toScreen={toScreen} tokenSize={tokenSize} trails={trails} />
         )}
@@ -893,6 +922,17 @@ export function Board({
             tapGuard={tapGuard}
           />
         )}
+        {/* v0.8 Task 2.4: capture toggle anchored to the selected token,
+            below the stance popover. Shown only when eligible (conquest +
+            personnel + planned end is an unowned base). */}
+        {captureToggle && selectedUnit && selectedCell && (
+          <CaptureToggle
+            anchor={toScreen(selectedCell.center)}
+            tokenSize={tokenSize}
+            state={captureToggle}
+            tapGuard={tapGuard}
+          />
+        )}
       </g>
     </svg>
   );
@@ -942,6 +982,69 @@ function StancePopover({
           </g>
         );
       })}
+    </g>
+  );
+}
+
+/** v0.8 Task 2.4: capture toggle — a single pill-shaped button below the
+ * token, inside the SVG so it tracks pan/zoom like the stance popover.
+ * Shows only when the unit is eligible (conquest + personnel + planned end
+ * is an unowned base). Toggling arms/disarms the capture order. */
+function CaptureToggle({
+  anchor,
+  tokenSize,
+  state,
+  tapGuard,
+}: {
+  anchor: Pt;
+  tokenSize: number;
+  state: CaptureToggleState;
+  tapGuard: <T>(h: ((arg: T) => void) | undefined) => ((arg: T) => void) | undefined;
+}) {
+  const r = tokenSize * 0.44;
+  // Position below the token (opposite side from the stance popover which is above)
+  const y = anchor[1] + tokenSize * 1.55;
+  const x = anchor[0];
+  const pillW = r * 3.2;
+  const pillH = r * 1.1;
+  const active = state.armed;
+  // tapGuard wraps a handler of any type; we need a void→void tap guard.
+  // Pass the toggle as a handler of `undefined` to satisfy the generic.
+  const guardedToggle = tapGuard<undefined>(state.onToggle ? () => { state.onToggle(); } : undefined);
+  const label = active ? '⚑ Capture ON' : '⚐ Capture';
+  const fillColor = active ? factionColor(0) : '#fff';
+  const strokeColor = active ? '#fff' : 'rgba(74,68,58,0.45)';
+  const textColor = active ? '#fff' : '#6b6356';
+
+  return (
+    <g
+      className={`capture-toggle${active ? ' capture-toggle-armed' : ''}`}
+      data-capture-toggle
+      data-testid="capture-toggle"
+      transform={`translate(${x} ${y})`}
+      onClick={guardedToggle ? () => guardedToggle(undefined) : undefined}
+      style={{ cursor: 'pointer' }}
+    >
+      <rect
+        x={-pillW / 2}
+        y={-pillH / 2}
+        width={pillW}
+        height={pillH}
+        rx={pillH / 2}
+        fill={fillColor}
+        stroke={strokeColor}
+        strokeWidth={r * 0.1}
+      />
+      <text
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize={r * 0.68}
+        fontWeight={600}
+        fill={textColor}
+        pointerEvents="none"
+      >
+        {label}
+      </text>
     </g>
   );
 }

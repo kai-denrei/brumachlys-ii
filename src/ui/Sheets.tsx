@@ -84,6 +84,11 @@ export function OrderSheet({
   if (orders.stance) {
     rows.push({ kind: 'stance', label: 'Stance', detail: STANCE_LABEL[orders.stance.stance] });
   }
+  // v0.8 Task 2.4: capture order — show in the order sheet so the player can
+  // remove it from the sheet in addition to the in-board toggle.
+  if (orders.capture) {
+    rows.push({ kind: 'capture', label: 'Capture', detail: 'will claim base on arrival' });
+  }
 
   return (
     <SheetShell title={`${unitType?.name ?? unit.type} — orders`} onClose={onClose}>

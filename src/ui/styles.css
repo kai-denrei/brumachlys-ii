@@ -455,6 +455,23 @@ body {
   cursor: default;
 }
 
+/* --- v0.8 Task 2.4: capture toggle (SVG, anchored below selected token) --- */
+
+.capture-toggle {
+  cursor: pointer;
+}
+
+/* --- v0.8 Task 2.4: claim-intent markers (planning ghost layer) ----------- */
+
+.capture-intent-ring {
+  animation: capture-intent-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes capture-intent-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%       { opacity: 0.2; }
+}
+
 /* --- P7: layer 2 — ghost orders (§9.3) ------------------------------------ */
 
 .ghost-token {

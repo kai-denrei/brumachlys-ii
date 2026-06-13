@@ -46,7 +46,7 @@ import type { CellId } from './board/types';
 import { loadUnits } from './io/data-loader';
 import type { ReplayFrame } from './state/replay';
 import { PLAYER_FACTION, useAppStore } from './state/store';
-import { Board, type StancePopoverState } from './ui/Board';
+import { Board, type CaptureToggleState, type StancePopoverState } from './ui/Board';
 import { BottomDock, type DockBuy } from './ui/BottomDock';
 import { BuildSheet } from './ui/BuildSheet';
 import { CasualtyPanel } from './ui/CasualtyPanel';
@@ -56,7 +56,7 @@ import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
 import { TopBar, type CreditsHud } from './ui/TopBar';
 import { TopCta } from './ui/TopCta';
-import type { BuildPipMark, BuyGhostMark, GhostOrder, ImpactMark, TrailMark } from './ui/skin';
+import type { BuildPipMark, BuyGhostMark, CaptureIntentMark, GhostOrder, ImpactMark, TrailMark } from './ui/skin';
 import { resolvePlanDirective } from './state/store';
 
 /** v1.3 Tweak B: a finished trail lingers (fading) this long before removal —
@@ -101,6 +101,8 @@ function BattleScreen() {
   const centerOn = useAppStore((s) => s.centerOn);
   const tryQueueOrder = useAppStore((s) => s.tryQueueOrder);
   const removeUnitOrder = useAppStore((s) => s.removeUnitOrder);
+  const queueCapture = useAppStore((s) => s.queueCapture);
+  const removeCapture = useAppStore((s) => s.removeCapture);
   const tryQueueBuy = useAppStore((s) => s.tryQueueBuy);
   const removeBuyOrder = useAppStore((s) => s.removeBuyOrder);
   const commit = useAppStore((s) => s.commit);
@@ -618,6 +620,44 @@ function BattleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, orders]);
 
+  // --- v0.8 Task 2.4: capture toggle (conquest + personnel + unowned base) -----
+  // Shown for the selected unit when ALL of:
+  //   1. conquest mode (gameBases is defined)
+  //   2. unit is the player's and its armorType === 'personnel'
+  //   3. the unit's planned END cell is a base NOT owned by the player
+  const captureToggle = useMemo<CaptureToggleState | null>(() => {
+    if (!conquest || !gameBases || !selected) return null;
+    const ut = types[selected.type];
+    if (!ut || ut.armorType !== 'personnel') return null;
+    const endCell = plannedEndCell(selected, orders[selected.id]);
+    const baseOwner = gameBases[endCell];
+    // bases[endCell] must be defined (the cell IS a base) and not owned by the player
+    if (baseOwner === undefined || baseOwner === PLAYER_FACTION) return null;
+    const armed = !!(orders[selected.id]?.capture);
+    return {
+      armed,
+      onToggle: armed
+        ? () => removeCapture(selected.id)
+        : () => queueCapture(selected.id),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conquest, gameBases, selected, orders, types]);
+
+  // --- v0.8 Task 2.4: claim-intent markers on base cells ---
+  // One mark per player unit with an armed capture order.
+  const captureIntentMarks = useMemo<CaptureIntentMark[]>(() => {
+    if (!conquest) return [];
+    const out: CaptureIntentMark[] = [];
+    for (const unit of boardUnits) {
+      if (unit.faction !== PLAYER_FACTION) continue;
+      if (!orders[unit.id]?.capture) continue;
+      const endCell = plannedEndCell(unit, orders[unit.id]);
+      out.push({ baseCell: endCell, faction: PLAYER_FACTION });
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conquest, boardUnits, orders]);
+
   if (!board || !game) return null;
 
   // --- replay rendering (§9.4 / §7) ----------------------------------------------
@@ -818,6 +858,8 @@ function BattleScreen() {
             ghosts={ghosts}
             focus={focus}
             stancePopover={stancePopover}
+            captureToggle={captureToggle}
+            captureIntentMarks={captureIntentMarks}
             onCellTap={onCellTap}
             onUnitTap={onUnitTap}
             onGhostTap={onGhostTap}

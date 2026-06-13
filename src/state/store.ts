@@ -379,6 +379,13 @@ export type AppState = {
   removeBuyOrder: (baseCell: CellId) => void;
   /** v1.1 internal: surface auto-removed dependent orders as a notice. */
   signalDropped: (dropped: { unitId: string; kind: OrderKind }[]) => void;
+  /** v0.8 Task 2.4: arm a capture order for `unitId` (conquest only; always
+   *  valid — the resolver decides if the unit actually captures at resolution).
+   *  Mirrors tryQueueOrder but skips fog validation (capture has no spatial
+   *  constraints at queue time). */
+  queueCapture: (unitId: string) => void;
+  /** v0.8 Task 2.4: disarm the capture order for `unitId`. */
+  removeCapture: (unitId: string) => void;
 
   // --- game actions (P8) -------------------------------------------------------
   /** Commit the round: player orders (or the override — the ?autopilot=greedy
@@ -616,6 +623,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       .map((d) => `${name(d.unitId)} ${d.kind} order removed — its plan no longer holds`)
       .join(' · ');
     set((s) => ({ notice: { text, token: (s.notice?.token ?? 0) + 1 } }));
+  },
+
+  // --- v0.8 Task 2.4: capture toggle actions ------------------------------------
+
+  queueCapture: (unitId) => {
+    // capture validation is always OK (§orders.ts case 'capture'); queue it
+    // directly through the core primitive — same immutable update pattern as
+    // queueOrder() callers above. No dependency re-settlement needed: capture
+    // has no path/vacancy dependencies (the resolver checks legality).
+    set((s) => ({
+      orders: queueOrder(s.orders, { kind: 'capture', unitId }),
+      directive: s.directive ? { ...s.directive, modified: true } : null,
+    }));
+  },
+
+  removeCapture: (unitId) => {
+    set((s) => ({
+      orders: removeOrder(s.orders, unitId, 'capture'),
+      directive: s.directive ? { ...s.directive, modified: true } : null,
+    }));
   },
 
   // --- game actions (P8) ---------------------------------------------------------
