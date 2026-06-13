@@ -194,6 +194,13 @@ export type ConquestWeights = {
    *  buys the top shelf (artillery/heavytank) instead of the cheap line —
    *  hoarded income converted to siege quality (economy module). */
   richFloor: number;
+  /** ARCHETYPE knob (default 0 = current behavior). > 0 forces the buy line
+   *  to pure cheap infantry — the "swarm" personality. See conquest-economy. */
+  infantryBias: number;
+  /** ARCHETYPE knob (default 0 = current behavior). > 0 makes buys prefer
+   *  ranged types (sniper/artillery) — the "marksman" personality. See
+   *  conquest-economy. */
+  rangedBias: number;
 };
 
 export const DEFAULT_CONQUEST_WEIGHTS: ConquestWeights = aiJson.conquest;

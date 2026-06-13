@@ -58,6 +58,17 @@ export type BuyTuning = {
   raidThreshold: number;
   /** Idle-credit threshold above which the top shelf is preferred. */
   richFloor: number;
+  /** ARCHETYPE knob (default 0 = no skew). When > 0, the buy line collapses
+   *  to a cheap-infantry spam: every purchase prefers infantry first, before
+   *  any counter-composition. The numeric magnitude is unused beyond the
+   *  on/off threshold — kept numeric so the whole tuning block stays a flat
+   *  number map. The "swarm" personality (overwhelm by cheap numbers). */
+  infantryBias: number;
+  /** ARCHETYPE knob (default 0 = no skew). When > 0, buys prefer RANGED unit
+   *  types (sniper at any wealth, artillery once affordable) ahead of the
+   *  melee line, so the force keeps a standoff edge. The "marksman"
+   *  personality (ranged and patient). */
+  rangedBias: number;
 };
 
 /**
@@ -168,6 +179,19 @@ export function planConquestBuys(
   const preference = (): string[] => {
     const floorFrac = raid ? Math.min(tuning.personnelFloor, 0.25) : tuning.personnelFloor;
     const needCapture = captureTroops < Math.max(1, Math.ceil(floorFrac * (total + 1)));
+    // ARCHETYPE: swarm — collapse the whole line to cheap infantry. Infantry
+    // is melee personnel, so it satisfies the capture floor too; the bias
+    // just removes every other unit from contention, so the force grows as a
+    // pure infantry tide. (Defined before the floor branch so it overrides
+    // both the capture line and the counter-composition / rich lines.)
+    if (tuning.infantryBias > 0) return ['infantry'];
+    // ARCHETYPE: marksman — lead with range. Sniper is melee-class personnel
+    // (counts toward the floor) yet fires at distance, so a sniper-first line
+    // both keeps capture capacity and holds standoff; artillery backs it once
+    // affordable. Falls through to infantry only when nothing ranged fits.
+    if (tuning.rangedBias > 0) {
+      return needCapture ? ['sniper', 'artillery', 'infantry'] : ['artillery', 'sniper', 'infantry'];
+    }
     if (needCapture) {
       // Melee personnel only — the floor exists for capture capacity.
       if (raid) return ['ranger', 'infantry']; // speed wins the capture race

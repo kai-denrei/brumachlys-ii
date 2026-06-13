@@ -27,6 +27,8 @@
     "maxForce": 18,
     "forcePerBase": 2.5,
     "richFloor": 800,
-    "raidThreshold": 99
+    "raidThreshold": 99,
+    "infantryBias": 0,
+    "rangedBias": 0
   }
 }

@@ -22,3 +22,5 @@ export {
 } from './planner-greedy';
 export type { ConquestWeights, GreedyWeights } from './planner-greedy';
 export { doNothingPlanner } from './planner-donothing';
+export type { Archetype, ArchetypeKey } from './archetypes';
+export { ARCHETYPES, DEFAULT_ARCHETYPE, archetype } from './archetypes';
