@@ -16,6 +16,8 @@ export type Combatant = {
   type: UnitType;
   terrain: TerrainKey;
   stance?: Stance;
+  /** v0.8 veterancy: +rank added to attack strength A (only when base A > 0). */
+  damageBonus?: number;
 };
 
 export type AttackContext = {
@@ -46,11 +48,12 @@ export type ExchangeResult = {
  *  shows (`A + Ta − D − Td + B → p → damage`). `B` echoes ctx.bonusB; the
  *  gang-up itemization is attached by the resolver (it owns the geometry). */
 export type AttackTerms = {
-  A: number;
+  A: number; // base attack strength + veterancy damageBonus (when base > 0)
   Ta: number;
   D: number;
   Td: number;
   B: number;
+  vet: number; // v0.8 — the veterancy bonus folded into A (0 when none)
   p: number; // 0 when the attack cannot fire (A <= 0 or a side is dead)
   damage: number; // == attackDamage(ctx)
 };
