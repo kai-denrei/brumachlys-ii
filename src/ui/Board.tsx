@@ -42,6 +42,7 @@ import { orderedUnitIds } from '../core/orders';
 import type { FactionId, Stance, UnitInstance } from '../core/types';
 import { PLAYER_FACTION, useAppStore } from '../state/store';
 import {
+  BuildPips,
   BuyGhosts,
   CellRenderer,
   EffectRenderer,
@@ -53,6 +54,7 @@ import {
   UnitRenderer,
   VisionEdge,
   factionColor,
+  type BuildPipMark,
   type BuyGhostMark,
   type GhostOrder,
   type Pt,
@@ -102,6 +104,11 @@ export type BoardProps = {
   buyGhosts?: readonly BuyGhostMark[];
   /** Tap a buy ghost → reopen that base's build sheet. */
   onBuyGhostTap?: (baseCell: CellId) => void;
+  /** v0.7 Item 1: owned-base build pips — an always-reachable production
+   * affordance rendered ABOVE units, so an occupant never swallows the tap. */
+  buildPips?: readonly BuildPipMark[];
+  /** Tap a build pip → open that base's build sheet (regardless of occupancy). */
+  onBuildTap?: (baseCell: CellId) => void;
   highlights?: BoardHighlights;
   selectedUnitId?: string | null;
   /** Layer-2 queued-order ghosts (§9.3), drawn by skin/EffectRenderer. */
@@ -254,6 +261,8 @@ export function Board({
   bases,
   buyGhosts,
   onBuyGhostTap,
+  buildPips,
+  onBuildTap,
   highlights,
   selectedUnitId = null,
   ghosts,
@@ -849,6 +858,17 @@ export function Board({
             );
           })}
         </g>
+        {/* v0.7 Item 1: build pips ABOVE units — always tappable over an
+            occupant token. Planning only (buildPips is unset during replay). */}
+        {buildPips && buildPips.length > 0 && (
+          <BuildPips
+            board={board}
+            toScreen={toScreen}
+            tokenSize={tokenSize}
+            pips={buildPips}
+            onBuild={tapGuard(onBuildTap)}
+          />
+        )}
         {replayFx && (
           <ReplayFx
             key={replayFx.key}

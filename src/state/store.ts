@@ -21,6 +21,7 @@ import type { Board, CellId } from '../board/types';
 import { generateBoard } from '../board';
 import * as ai from '../ai';
 import { buildFactionView, greedyPlanner } from '../ai';
+import type { OrderPlanner } from '../ai';
 import type { FactionId, GameMode, GameState } from '../core/types';
 import {
   type BuyOrder,
@@ -111,6 +112,61 @@ export type PlanDirectiveFn = (
 export function resolvePlanDirective(): PlanDirectiveFn | null {
   const fn = (ai as Record<string, unknown>).planDirective;
   return typeof fn === 'function' ? (fn as PlanDirectiveFn) : null;
+}
+
+// --- v0.7 Item 4: AI archetype registry (concurrent ai-agent contract) -------
+// The ai layer is adding a registry: `ARCHETYPES: readonly Archetype[]`,
+// `DEFAULT_ARCHETYPE: ArchetypeKey`, `archetype(key): Archetype`, where
+// Archetype = { key, label, blurb, planner: OrderPlanner }. The UI wiring
+// ships first, so the registry is PROBED defensively — until the export lands,
+// a single synthetic "greedy" archetype backed by the existing greedyPlanner
+// stands in, and commit() falls back to greedyPlanner. The shape below is the
+// contractual one; once the ai export exists it is used verbatim.
+
+export type ArchetypeMeta = { key: string; label: string; blurb: string };
+
+/** Synthetic fallback used until the ai registry export lands. */
+const FALLBACK_ARCHETYPE: ArchetypeMeta = {
+  key: 'greedy',
+  label: 'Greedy',
+  blurb: 'The default opponent — values the strongest move it can see this round.',
+};
+
+/** The archetype list the start screen renders. Reads the ai registry when
+ * present; otherwise the single greedy fallback. */
+export function archetypeList(): readonly ArchetypeMeta[] {
+  const reg = (ai as Record<string, unknown>).ARCHETYPES;
+  if (Array.isArray(reg) && reg.length > 0) {
+    return reg.map((a) => ({
+      key: String((a as ArchetypeMeta).key),
+      label: String((a as ArchetypeMeta).label),
+      blurb: String((a as ArchetypeMeta).blurb),
+    }));
+  }
+  return [FALLBACK_ARCHETYPE];
+}
+
+/** Default archetype key — the ai registry's DEFAULT_ARCHETYPE, else greedy. */
+export function defaultArchetypeKey(): string {
+  const dflt = (ai as Record<string, unknown>).DEFAULT_ARCHETYPE;
+  if (typeof dflt === 'string' && dflt.length > 0) return dflt;
+  const list = archetypeList();
+  return list[0]!.key;
+}
+
+/** The planner for a key — `archetype(key).planner` from the registry, with a
+ * hard greedyPlanner fallback so commit() always has a real planner. */
+export function archetypePlanner(key: string): OrderPlanner {
+  const fn = (ai as Record<string, unknown>).archetype;
+  if (typeof fn === 'function') {
+    try {
+      const arch = (fn as (k: string) => { planner?: OrderPlanner })(key);
+      if (arch && arch.planner) return arch.planner;
+    } catch {
+      // registry present but key unknown — fall through to greedy
+    }
+  }
+  return greedyPlanner;
 }
 
 /** Distinct deterministic rng salt per directive kind (same round, different
@@ -254,6 +310,9 @@ export type AppState = {
   /** E3: conquest round limit (off/40/60/80 on the start screen; null=off).
    *  Skirmish ignores it (the resolver keeps its fixed 40). */
   roundLimit: number | null;
+  /** v0.7 Item 4: the selected opponent archetype key (start screen). Persisted
+   *  into the battle on startBattle; commit() instantiates its planner. */
+  archetypeKey: string;
   /** Generated battle board (null until startBattle). game.board === board. */
   board: Board | null;
 
@@ -297,6 +356,8 @@ export type AppState = {
   /** E3: start-screen mode + round-limit selects. */
   setMode: (mode: GameMode) => void;
   setRoundLimit: (limit: number | null) => void;
+  /** v0.7 Item 4: start-screen opponent archetype select. */
+  setArchetype: (key: string) => void;
   startBattle: () => void;
   exitBattle: () => void;
 
@@ -345,6 +406,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   seed: 7,
   mode: 'conquest',
   roundLimit: null,
+  archetypeKey: defaultArchetypeKey(),
   board: null,
 
   game: null,
@@ -367,6 +429,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   randomizeSeed: () => set({ seed: Date.now() % 1_000_000 }),
   setMode: (mode) => set({ mode }),
   setRoundLimit: (roundLimit) => set({ roundLimit }),
+  setArchetype: (archetypeKey) => set({ archetypeKey }),
 
   startBattle: () => {
     const { donorId, seed, mode, roundLimit } = get();
@@ -558,7 +621,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // --- game actions (P8) ---------------------------------------------------------
 
   commit: (playerOrdersOverride) => {
-    const { game, orders, buys, uiPhase } = get();
+    const { game, orders, buys, uiPhase, archetypeKey } = get();
     if (!game || game.outcome || uiPhase !== 'planning') return;
     const types = loadUnits();
     const playerOrders = playerOrdersOverride ?? flattenOrders(orders);
@@ -571,9 +634,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     // skirmish it returns planOrders with no buys. Routing through it here is
     // what makes the AI actually build units in real games — the acceptance
     // suite exercised planConquest directly, so this seam went uncaught.
+    // v0.7 Item 4: the opponent's planner is the SELECTED archetype's (falls
+    // back to greedyPlanner if the ai registry hasn't landed / key unknown).
+    // planRound stays the dispatcher — same code path the conquest-buy fix
+    // established (conquest → planConquest, skirmish → planOrders).
     const aiView = buildFactionView(game.board, game, 1, types);
     const aiPlan = ai.planRound(
-      greedyPlanner,
+      archetypePlanner(archetypeKey),
       aiView,
       createRng(plannerSeed(game.rngSeed, game.round, 1)),
     );

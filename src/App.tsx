@@ -56,7 +56,7 @@ import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
 import { TopBar, type CreditsHud } from './ui/TopBar';
 import { TopCta } from './ui/TopCta';
-import type { BuyGhostMark, GhostOrder, ImpactMark, TrailMark } from './ui/skin';
+import type { BuildPipMark, BuyGhostMark, GhostOrder, ImpactMark, TrailMark } from './ui/skin';
 import { resolvePlanDirective } from './state/store';
 
 /** v1.3 Tweak B: a finished trail lingers (fading) this long before removal —
@@ -70,7 +70,9 @@ const IGNITE_LINGER_MS = 500;
 type SheetState =
   | { kind: 'order'; unitId: string }
   | { kind: 'info'; cellId: CellId }
-  | { kind: 'build'; baseCell: CellId } // E3 conquest: tap an owned base
+  // E3 conquest: tap an owned base. v0.7 Item 3: `anchor` is the client-space
+  // point the user tapped — the compact build card pops up over it (clamped).
+  | { kind: 'build'; baseCell: CellId; anchor?: { x: number; y: number } }
   | null;
 
 function urlFlag(name: string): string | null {
@@ -464,9 +466,27 @@ function BattleScreen() {
     [buyGhosts],
   );
 
+  // v0.7 Item 1: a build pip on every base the player owns (rendered above
+  // units → always tappable, even when an occupant token sits on the base). A
+  // base with a queued buy reads "queued" (check) instead of "＋".
+  const buildPips = useMemo<BuildPipMark[]>(() => {
+    if (!conquest || !gameBases) return [];
+    return Object.entries(gameBases)
+      .filter(([, owner]) => owner === PLAYER_FACTION)
+      .map(([cellKey]) => {
+        const baseCell = Number(cellKey);
+        return { baseCell, queued: buys[baseCell] !== undefined };
+      });
+  }, [conquest, gameBases, buys]);
+
+  // v0.7 Item 3: the compact build card anchors to where the user tapped. We
+  // record the last pointer position over the board area (capture-phase, so it
+  // fires before the cell/pip onClick that opens the sheet) and pass it as the
+  // anchor. centerOn is dropped here — the card pops up AT the click, no pan.
+  const lastPointer = useRef<{ x: number; y: number } | null>(null);
+
   function openBuildSheet(baseCell: CellId) {
-    centerOn(baseCell);
-    setSheet({ kind: 'build', baseCell });
+    setSheet({ kind: 'build', baseCell, anchor: lastPointer.current ?? undefined });
   }
 
   // --- interactions -------------------------------------------------------------
@@ -504,15 +524,40 @@ function BattleScreen() {
     }
   }
 
+  // v0.7 Item 2 — tap-precedence for a cell tap, documented top to bottom.
+  // (Build pips and buy ghosts are SEPARATE overlay elements above the cells,
+  // so they consume their own tap before this handler ever runs — they don't
+  // appear here.)
+  //
+  // With a unit selected:
+  //   1. the selected unit's own cell → no-op (token tap toggles selection)
+  //   2. visible enemy on the cell    → attack / charge
+  //   3. reachable cell               → queue move
+  //   4. friendly on the cell         → switch selection to that friendly
+  //   5. owned base (conquest)        → open build sheet
+  //   6. otherwise                    → deselect (the meaningful "tap away")
+  // With nothing selected:
+  //   A. owned base (conquest)        → open build sheet
+  //   B. otherwise                    → INFO SHEET (terrain/base stats; on a
+  //      dark tile InfoSheet reads "unscouted", memory shows remembered
+  //      terrain — neither leaks dark truth, the cell data IS the truth and
+  //      InfoSheet gates on the tier flag the caller passes).
+  function openInfo(cellId: CellId) {
+    setSheet({ kind: 'info', cellId });
+  }
+  function ownedBase(cellId: CellId): boolean {
+    return (
+      conquest && uiPhase === 'planning' && gameBases?.[cellId] === PLAYER_FACTION
+    );
+  }
+
   function onCellTap(cellId: CellId) {
     if (!selected) {
-      // E3 conquest: with nothing selected, tapping an OWNED base opens the
-      // build sheet (a friendly standing on it catches the tap as a token —
-      // deselect first, then tap the cell; the buy still queues fine since
-      // vacancy is only checked at Phase E).
-      if (conquest && uiPhase === 'planning' && gameBases?.[cellId] === PLAYER_FACTION) {
+      if (ownedBase(cellId)) {
         setSheet({ kind: 'build', baseCell: cellId });
+        return;
       }
+      openInfo(cellId); // Item 2: empty/any tile tap → info
       return;
     }
     if (cellId === selected.cell) return; // token tap toggles selection
@@ -532,6 +577,10 @@ function BattleScreen() {
     const friend = friendlyAt(cellId);
     if (friend) {
       selectUnit(friend.id);
+      return;
+    }
+    if (ownedBase(cellId)) {
+      setSheet({ kind: 'build', baseCell: cellId });
       return;
     }
     selectUnit(null); // tap elsewhere = deselect
@@ -624,6 +673,32 @@ function BattleScreen() {
   const sheetCell = sheet?.kind === 'info' ? board.cells.get(sheet.cellId) : undefined;
   const sheetOccupant =
     sheet?.kind === 'info' ? knownUnits.find((u) => u.cell === sheet.cellId) : undefined;
+  // v0.7 Item 2: the tapped cell's fog tier — InfoSheet shows full terrain for
+  // live, remembered terrain for memory, and "unscouted" (no terrain leak) for
+  // dark. Same tiering the Board uses (fog ∧ discovered).
+  const sheetTier: 'live' | 'memory' | 'dark' | undefined =
+    sheet?.kind === 'info'
+      ? !fog?.has(sheet.cellId)
+        ? 'live'
+        : discovered.has(sheet.cellId)
+          ? 'memory'
+          : 'dark'
+      : undefined;
+  // v0.7 Item 2: conquest base ownership status for the info sheet ("camp" when
+  // neutral, "your base"/"enemy base" otherwise). Dark hides it (no leak).
+  const sheetBase:
+    | { status: 'yours' | 'enemy' | 'camp' }
+    | undefined =
+    sheet?.kind === 'info' && conquest && gameBases && sheetTier !== 'dark' && sheetCell?.terrain === 'base'
+      ? {
+          status:
+            gameBases[sheet.cellId] === PLAYER_FACTION
+              ? 'yours'
+              : gameBases[sheet.cellId] === null || gameBases[sheet.cellId] === undefined
+                ? 'camp'
+                : 'enemy',
+        }
+      : undefined;
 
   const phaseChip = uiPhase === 'planning' ? 'planning' : uiPhase === 'over' ? 'over' : 'replay';
   const topRound = replayActive && replay ? replay.round : game.round;
@@ -686,7 +761,12 @@ function BattleScreen() {
           onClearAll={clearOrders}
         />
       )}
-      <main className="board-area">
+      <main
+        className="board-area"
+        onPointerDownCapture={(e) => {
+          lastPointer.current = { x: e.clientX, y: e.clientY };
+        }}
+      >
         {frame ? (
           <Board
             board={board}
@@ -729,6 +809,8 @@ function BattleScreen() {
             bases={boardBases}
             buyGhosts={buyGhosts}
             onBuyGhostTap={openBuildSheet}
+            buildPips={buildPips}
+            onBuildTap={openBuildSheet}
             highlights={layer1}
             selectedUnitId={selected?.id ?? null}
             ghosts={ghosts}
@@ -822,6 +904,7 @@ function BattleScreen() {
       {sheet?.kind === 'build' && !replayActive && conquest && (
         <BuildSheet
           baseCell={sheet.baseCell}
+          anchor={sheet.anchor}
           unitTypes={types}
           credits={game.credits?.[PLAYER_FACTION] ?? 0}
           committedElsewhere={
@@ -862,6 +945,8 @@ function BattleScreen() {
       {sheetCell && !replayActive && (
         <InfoSheet
           cell={sheetCell}
+          tier={sheetTier}
+          baseStatus={sheetBase?.status}
           occupant={sheetOccupant}
           occupantType={sheetOccupant ? types[sheetOccupant.type] : undefined}
           unitTypes={types}

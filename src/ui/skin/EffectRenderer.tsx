@@ -182,6 +182,91 @@ export function BuyGhosts({
   );
 }
 
+// --- v0.7 Item 1: owned-base build pips --------------------------------------
+// A persistent, always-reachable production affordance on every base the
+// viewing player owns. Rendered as a Board overlay ABOVE the unit layer, so a
+// unit token standing on the base (e.g. one ordered to move but not yet moved)
+// can NEVER swallow the tap — the operator's "can't buy from an occupied base"
+// complaint. Tap → open that base's build sheet regardless of selection or
+// occupancy. The deselect-then-tap-cell path stays as a fallback.
+
+export type BuildPipMark = {
+  baseCell: CellId;
+  /** Already has a queued buy this round — pip reads "queued", not "＋". */
+  queued?: boolean;
+};
+
+export function BuildPips({
+  board,
+  toScreen,
+  tokenSize,
+  pips,
+  onBuild,
+}: {
+  board: Board;
+  toScreen: (p: readonly [number, number]) => Pt;
+  tokenSize: number;
+  pips: readonly BuildPipMark[];
+  onBuild?: (baseCell: CellId) => void;
+}) {
+  const r = tokenSize * 0.34;
+  return (
+    <g className="build-pips">
+      {pips.map((p) => {
+        const cell = board.cells.get(p.baseCell);
+        if (!cell) return null;
+        const [cx, cy] = toScreen(cell.center);
+        // Lower-right of the token so it clears the base flag pip (upper) and
+        // the count pip; still over the cell so it's obviously "this base".
+        const px = cx + tokenSize * 0.5;
+        const py = cy + tokenSize * 0.5;
+        const stroke = '#fff';
+        return (
+          <g
+            key={p.baseCell}
+            className={`build-pip${p.queued ? ' build-pip-queued' : ''}`}
+            data-build-pip={p.baseCell}
+            transform={`translate(${px} ${py})`}
+            onClick={onBuild ? () => onBuild(p.baseCell) : undefined}
+            role="button"
+            aria-label={`build at base ${p.baseCell}`}
+          >
+            <circle
+              r={r}
+              fill={factionColor(0)}
+              stroke="#fff"
+              strokeWidth={r * 0.16}
+            />
+            <g pointerEvents="none">
+              {p.queued ? (
+                // check mark — a buy is already queued here
+                <path
+                  d={`M${-r * 0.42} 0 L${-r * 0.08} ${r * 0.36} L${r * 0.46} ${-r * 0.4}`}
+                  fill="none"
+                  stroke={stroke}
+                  strokeWidth={r * 0.22}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ) : (
+                // plus — open production
+                <g
+                  stroke={stroke}
+                  strokeWidth={r * 0.22}
+                  strokeLinecap="round"
+                >
+                  <line x1={-r * 0.46} y1={0} x2={r * 0.46} y2={0} />
+                  <line x1={0} y1={-r * 0.46} x2={0} y2={r * 0.46} />
+                </g>
+              )}
+            </g>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 /** Small white-on-color sword marker (also the aggressive stance icon). */
 export function SwordIcon({ size, stroke = '#fff' }: { size: number; stroke?: string }) {
   const s = size / 100;

@@ -129,20 +129,47 @@ function fmtBonus(v: number | undefined): string {
   return v > 0 ? `+${v}` : String(v);
 }
 
+/** v0.7 Item 2: base ownership status surfaced in the info sheet. */
+const BASE_STATUS_LABEL: Record<'yours' | 'enemy' | 'camp', string> = {
+  yours: 'Your base — produces units & credits',
+  enemy: 'Enemy base',
+  camp: 'Neutral camp — capture to claim it',
+};
+
 export function InfoSheet({
   cell,
+  tier = 'live',
+  baseStatus,
   occupant,
   occupantType,
   unitTypes,
   onClose,
 }: {
   cell: Cell;
+  /** v0.7 Item 2: fog tier of the tapped cell. 'dark' = never scouted: show
+   * "unscouted", NEVER the terrain (secrecy). 'memory'/'live' show terrain. */
+  tier?: 'live' | 'memory' | 'dark';
+  /** v0.7 Item 2 (conquest): base ownership status, when known (not dark). */
+  baseStatus?: 'yours' | 'enemy' | 'camp';
   /** Unit on the cell, if any and VISIBLE to the player (caller filters). */
   occupant?: UnitInstance;
   occupantType?: UnitType;
   unitTypes: Readonly<Record<string, UnitType>>;
   onClose: () => void;
 }) {
+  // v0.7 Item 2: a dark cell has never been scouted — its terrain is secret.
+  // Show only "Unscouted", no terrain table (the planning lens assumes plains;
+  // the info sheet must not leak that or the truth).
+  if (tier === 'dark') {
+    return (
+      <SheetShell title={`Cell ${cell.id} — unscouted`} onClose={onClose}>
+        <p className="sheet-empty">
+          This ground hasn&apos;t been scouted. Move a unit into vision to reveal its terrain.
+        </p>
+      </SheetShell>
+    );
+  }
+
   // Class representatives for the §6.2 per-class terrain table: terrain
   // effects are uniform within a class, so any personnel/vehicle pair works.
   const personnel = Object.values(unitTypes).find((t) => t.armorType === 'personnel');
@@ -150,8 +177,17 @@ export function InfoSheet({
   const pe = personnel?.terrainEffects[cell.terrain];
   const ve = vehicle?.terrainEffects[cell.terrain];
 
+  const titleSuffix = tier === 'memory' ? ' (remembered)' : '';
   return (
-    <SheetShell title={`${TERRAIN_LABEL[cell.terrain]} — cell ${cell.id}`} onClose={onClose}>
+    <SheetShell
+      title={`${TERRAIN_LABEL[cell.terrain]} — cell ${cell.id}${titleSuffix}`}
+      onClose={onClose}
+    >
+      {baseStatus && (
+        <p className="info-base-status" data-base-status={baseStatus}>
+          {BASE_STATUS_LABEL[baseStatus]}
+        </p>
+      )}
       <table className="terrain-table">
         <thead>
           <tr>

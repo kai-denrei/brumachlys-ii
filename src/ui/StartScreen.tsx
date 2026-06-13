@@ -11,7 +11,7 @@ import { useMemo } from 'react';
 import type { Board as BoardGraph } from '../board/types';
 import { generateBoard } from '../board';
 import { DONOR_ENTRIES, loadDonor } from '../io/donor-registry';
-import { useAppStore } from '../state/store';
+import { archetypeList, useAppStore } from '../state/store';
 import { Board } from './Board';
 import { TopBar } from './TopBar';
 
@@ -35,10 +35,12 @@ export function StartScreen() {
   const seed = useAppStore((s) => s.seed);
   const mode = useAppStore((s) => s.mode);
   const roundLimit = useAppStore((s) => s.roundLimit);
+  const archetypeKey = useAppStore((s) => s.archetypeKey);
   const selectDonor = useAppStore((s) => s.selectDonor);
   const setSeed = useAppStore((s) => s.setSeed);
   const setMode = useAppStore((s) => s.setMode);
   const setRoundLimit = useAppStore((s) => s.setRoundLimit);
+  const setArchetype = useAppStore((s) => s.setArchetype);
   const randomizeSeed = useAppStore((s) => s.randomizeSeed);
   const startBattle = useAppStore((s) => s.startBattle);
 
@@ -46,6 +48,9 @@ export function StartScreen() {
     () => DONOR_ENTRIES.map((e) => ({ entry: e, board: previewBoard(e.id) })),
     [],
   );
+  // v0.7 Item 4: opponent archetypes — from the ai registry when present, else
+  // the single greedy fallback (archetypeList probes defensively).
+  const archetypes = useMemo(() => archetypeList(), []);
 
   return (
     <div className="app">
@@ -102,6 +107,24 @@ export function StartScreen() {
             ))}
           </div>
         )}
+        {/* v0.7 Item 4: opponent archetype — available in BOTH modes. */}
+        <div className="opponent-row" data-testid="opponent-select">
+          <span className="opponent-label">opponent</span>
+          <div className="opponent-list">
+            {archetypes.map((a) => (
+              <button
+                key={a.key}
+                className={`opponent-card${archetypeKey === a.key ? ' opponent-card-selected' : ''}`}
+                data-archetype={a.key}
+                aria-pressed={archetypeKey === a.key}
+                onClick={() => setArchetype(a.key)}
+              >
+                <span className="opponent-name">{a.label}</span>
+                <span className="opponent-blurb">{a.blurb}</span>
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="seed-row">
           <label className="seed-label" htmlFor="seed-input">
             seed

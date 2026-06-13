@@ -1856,6 +1856,220 @@ body {
   padding: 0.1rem 0.4rem;
 }
 
+/* --- v0.7 Item 3: compact anchored build card --------------------------------
+   Replaces the full-width bottom sheet for production. The scrim is the same
+   click-outside-to-close surface, but no longer bottom-aligns its child — the
+   card positions itself absolutely over the tapped base cell. */
+
+.sheet-scrim-anchored {
+  justify-content: initial;
+  align-items: initial;
+  display: block;
+}
+
+.build-card {
+  position: fixed;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  background: #fbf9f2;
+  border-radius: 14px;
+  border: 1.5px solid rgba(74, 68, 58, 0.18);
+  box-shadow: 0 10px 30px rgba(74, 68, 58, 0.28);
+  padding: 0.55rem 0.6rem 0.6rem;
+  z-index: 21;
+  animation: build-card-pop 0.14s ease-out;
+}
+
+@keyframes build-card-pop {
+  from {
+    transform-origin: center;
+    opacity: 0.3;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.build-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+
+.build-card-title {
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.03em;
+}
+
+.build-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 0.3rem;
+}
+
+.build-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  padding: 0.35rem 0.1rem 0.3rem;
+  background: rgba(74, 68, 58, 0.05);
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.build-cell-focus {
+  background: rgba(74, 68, 58, 0.1);
+}
+
+.build-cell-icon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+}
+
+.build-cell-name {
+  font-weight: 600;
+  font-size: 0.6rem;
+  line-height: 1.05;
+  text-align: center;
+}
+
+.build-cell-cost {
+  font-weight: 700;
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.build-cell-badge {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.2rem;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--faction-a);
+  border-radius: 999px;
+  padding: 0.05rem 0.32rem;
+}
+
+.build-stat-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  background: rgba(74, 68, 58, 0.05);
+  border-radius: 8px;
+}
+
+.build-stat-name {
+  font-weight: 700;
+  font-size: 0.68rem;
+  flex: none;
+}
+
+.build-stat-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6rem;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.build-card-actions {
+  margin-top: 0.45rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* v0.7 Item 1: owned-base build pip (Board overlay, above units). */
+.build-pip {
+  cursor: pointer;
+}
+
+.build-pip circle {
+  transition: filter 0.15s ease;
+}
+
+.build-pip-queued circle {
+  opacity: 0.92;
+}
+
+/* v0.7 Item 2: base ownership status line in the info sheet. */
+.info-base-status {
+  font-size: 0.76rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(74, 68, 58, 0.07);
+}
+
+/* --- v0.7 Item 4: start-screen opponent archetype selector ------------------ */
+
+.opponent-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.2rem 0 0.1rem;
+  width: 100%;
+  max-width: 340px;
+}
+
+.opponent-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.opponent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.opponent-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  text-align: left;
+  padding: 0.5rem 0.65rem;
+  background: #fff;
+  border: 1.5px solid rgba(74, 68, 58, 0.18);
+  border-radius: 10px;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.opponent-card-selected {
+  border-color: var(--faction-a);
+  background: rgba(232, 128, 107, 0.1);
+}
+
+.opponent-name {
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+.opponent-blurb {
+  font-size: 0.72rem;
+  opacity: 0.7;
+  line-height: 1.25;
+}
+
 /* replay FX: spawn materialization + capture flag swap.
    NOTE (P9): CSS transform animations live on inner groups only — the outer
    group carries the positioning translate attribute. */
