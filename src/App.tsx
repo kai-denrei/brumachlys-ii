@@ -785,6 +785,7 @@ function BattleScreen() {
                 spawns: frame.spawns,
                 captures: frame.captures,
                 impacts: fxImpacts,
+                promotions: frame.promotions,
               },
             }}
             trails={trails}
@@ -798,6 +799,7 @@ function BattleScreen() {
               if (uiPhase === 'replay' && frame) setSuspendedAt(frame.slot);
             }}
             onUnitHover={setHover}
+            unitTypes={types}
             className={replaySpeed === 2 ? 'board-replay-2x' : undefined}
           />
         ) : (
@@ -821,6 +823,7 @@ function BattleScreen() {
             onGhostTap={onGhostTap}
             onUnitHover={setHover}
             onCellLongPress={(cellId) => setSheet({ kind: 'info', cellId })}
+            unitTypes={types}
           />
         )}
       </main>

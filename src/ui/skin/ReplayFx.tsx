@@ -67,6 +67,9 @@ export type ReplayFxData = {
   captures?: { cell: CellId; to: FactionId; consumed?: UnitInstance }[];
   /** v0.6 Ask 7: surviving-defender strikes this frame (flash + recoil). */
   impacts?: ImpactMark[];
+  /** v0.8 veterancy: units that ranked up this frame — upward-chevron burst
+   *  at each cell in the faction colour (~450 ms, celebratory, not dominant). */
+  promotions?: Array<{ cell: CellId; faction: FactionId; rank: number }>;
 };
 
 export type ReplayFxProps = {
@@ -450,6 +453,44 @@ function CaptureFx({
   );
 }
 
+// --- v0.8 veterancy: the promotion verb ----------------------------------------
+// A brief upward-chevron burst in the faction colour at the unit's cell —
+// celebratory but not screen-dominating. ~450 ms total (PROMOTE_MS). Uses
+// the same spike-geometry as ClashBurst but shoots the spikes upward (a "rising
+// salute") and fades out with the CSS fx-promote class.
+
+function PromotionFx({ at, tokenSize, color }: { at: Pt; tokenSize: number; color: string }) {
+  const inner = tokenSize * 0.28;
+  const outer = tokenSize * 0.72;
+  // 5 upward spikes in a ~120° arc above the token center (−60° to +60° from up).
+  const spikes = [0, 1, 2, 3, 4].map((k) => {
+    const t = -Math.PI / 2 + ((k - 2) / 4) * (Math.PI * 0.67);
+    return [Math.cos(t), Math.sin(t)] as const;
+  });
+  return (
+    <g transform={`translate(${at[0]} ${at[1]})`} pointerEvents="none">
+      {/* outer positioning wrapper — CSS animation lives on the inner group
+          per the P9 rule: CSS transforms must not mix with SVG transform attrs */}
+      <g className="fx-promote">
+        {spikes.map(([ux, uy], k) => (
+          <line
+            key={k}
+            x1={ux * inner}
+            y1={uy * inner}
+            x2={ux * outer}
+            y2={uy * outer}
+            stroke={color}
+            strokeWidth={tokenSize * 0.08}
+            strokeLinecap="round"
+          />
+        ))}
+        {/* small star/circle burst at center */}
+        <circle r={inner * 0.7} fill={color} opacity={0.75} />
+      </g>
+    </g>
+  );
+}
+
 export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloaterTap }: ReplayFxProps) {
   // Stack same-cell floaters (brawl halves) side by side.
   const seenCells = new Map<CellId, number>();
@@ -607,6 +648,17 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
           consumed={consumed}
         />
       ))}
+      {(fx.promotions ?? []).map(({ cell, faction }, k) => {
+        const at = center(board, cell, toScreen);
+        return at ? (
+          <PromotionFx
+            key={`p${k}`}
+            at={at}
+            tokenSize={tokenSize}
+            color={factionColor(faction)}
+          />
+        ) : null;
+      })}
     </g>
   );
 }

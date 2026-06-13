@@ -39,7 +39,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Board as BoardGraph, CellId, Vec2 } from '../board/types';
 import { orderedUnitIds } from '../core/orders';
-import type { FactionId, Stance, UnitInstance } from '../core/types';
+import type { FactionId, Stance, UnitInstance, UnitType } from '../core/types';
 import { PLAYER_FACTION, useAppStore } from '../state/store';
 import {
   BuildPips,
@@ -141,6 +141,9 @@ export type BoardProps = {
   /** Disable pan/zoom (start-screen previews). */
   interactive?: boolean;
   className?: string;
+  /** v0.8 veterancy: unit type registry — used by UnitRenderer to draw the
+   * XP progress sliver (needs cost per type). Absent → sliver not drawn. */
+  unitTypes?: Readonly<Record<string, UnitType>>;
 };
 
 const WORLD_SCALE = 1000; // screen units across the board's longer side
@@ -280,6 +283,7 @@ export function Board({
   onCellLongPress,
   interactive = true,
   className,
+  unitTypes,
 }: BoardProps) {
   const cells = useMemo(() => [...board.cells.values()], [board]);
 
@@ -853,6 +857,7 @@ export function Board({
                 pulse={idlePulse(unit)}
                 recoil={recoilByUnit.get(unit.id) ?? null}
                 recoilKey={replayFx?.key ?? 0}
+                unitTypeCost={unitTypes ? unitTypes[unit.type]?.cost : undefined}
                 onTap={tapGuard(onUnitTap)}
               />
             );

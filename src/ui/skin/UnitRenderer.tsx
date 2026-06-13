@@ -42,6 +42,9 @@ export type UnitRendererProps = {
    * consecutive volleys restart it. ~220 ms: 120 ms back + 100 ms settle. */
   recoil?: { dx: number; dy: number } | null;
   recoilKey?: number;
+  /** v0.8 veterancy: the unit type's credit cost — used to compute XP sliver
+   * progress toward the next rank. Absent → sliver is not drawn. */
+  unitTypeCost?: number;
   onTap?: (unitId: string) => void;
 };
 
@@ -56,6 +59,7 @@ export const UnitRenderer = memo(function UnitRenderer({
   pulse = false,
   recoil = null,
   recoilKey = 0,
+  unitTypeCost,
   onTap,
 }: UnitRendererProps) {
   const color = factionColor(unit.faction);
@@ -130,6 +134,92 @@ export const UnitRenderer = memo(function UnitRenderer({
           </text>
         </g>
       )}
+      {/* v0.8 veterancy: rank pips — small chevrons along the bottom edge,
+          in the faction colour. Only drawn when rank > 0 and not minimal.
+          Cap at 3 drawn; rank > 3 shows 3 filled + a tiny "+N" label. */}
+      {!minimal && (unit.rank ?? 0) > 0 && (() => {
+        const rank = unit.rank ?? 0;
+        const drawnPips = Math.min(rank, 3);
+        const overflow = rank > 3 ? rank - 3 : 0;
+        // Chevron dims: tiny upward V shape. pipW = half-width, pipH = height.
+        const pipW = size * 0.085;
+        const pipH = size * 0.07;
+        // Row of pips, horizontally centered, near the bottom inside edge.
+        const spacing = size * 0.22;
+        const totalW = (drawnPips - 1) * spacing;
+        const baseY = h - size * 0.1; // just inside the bottom edge
+        return (
+          <g className="unit-rank-pips" pointerEvents="none" aria-label={`rank ${rank}`}>
+            {Array.from({ length: drawnPips }, (_, i) => {
+              const px = -totalW / 2 + i * spacing;
+              return (
+                <polyline
+                  key={i}
+                  points={`${px - pipW},${baseY + pipH} ${px},${baseY} ${px + pipW},${baseY + pipH}`}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={size * 0.055}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={0.9}
+                />
+              );
+            })}
+            {overflow > 0 && (
+              <text
+                x={totalW / 2 + spacing * 0.65}
+                y={baseY + pipH * 0.4}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={size * 0.13}
+                fontWeight={700}
+                fill={color}
+                opacity={0.85}
+              >
+                +{overflow}
+              </text>
+            )}
+          </g>
+        );
+      })()}
+      {/* v0.8 veterancy: XP sliver — thin progress bar along the left edge
+          showing progress toward the next rank. Low-contrast, ambient only.
+          Only drawn when cost is known and there is meaningful xp or rank. */}
+      {!minimal && unitTypeCost != null && unitTypeCost > 0 && (() => {
+        const xp = unit.xp ?? 0;
+        const rank = unit.rank ?? 0;
+        if (xp === 0 && rank === 0) return null;
+        const fraction = ((2 * xp) % unitTypeCost) / unitTypeCost;
+        if (fraction <= 0) return null;
+        const barH = size * 0.72; // usable height inside the squircle
+        const barX = -h + size * 0.055; // left edge, slightly inset
+        const barY = -barH / 2;
+        const barW = size * 0.06;
+        const fillH = barH * fraction;
+        return (
+          <g className="unit-xp-sliver" pointerEvents="none" aria-hidden="true">
+            {/* track */}
+            <rect
+              x={barX}
+              y={barY}
+              width={barW}
+              height={barH}
+              rx={barW / 2}
+              fill="rgba(0,0,0,0.18)"
+            />
+            {/* fill — anchored to the bottom */}
+            <rect
+              x={barX}
+              y={barY + (barH - fillH)}
+              width={barW}
+              height={fillH}
+              rx={barW / 2}
+              fill="#fff"
+              opacity={0.55}
+            />
+          </g>
+        );
+      })()}
     </>
   );
 
