@@ -139,7 +139,12 @@ describe('conquest store (E3)', () => {
     const after = s();
     expect(after.uiPhase).toBe('replay');
     expect(after.buys).toEqual({}); // spent
-    const spawns = after.game!.log.filter((e) => e.type === 'spawn');
+    // The player's spawn lands at base 0. (The AI now also buys at its own
+    // base 5 — correct behavior, covered by the "AI builds units" test — so
+    // scope this assertion to faction 0's production.)
+    const spawns = after.game!.log.filter(
+      (e) => e.type === 'spawn' && (e as { faction: FactionId }).faction === 0,
+    );
     expect(spawns).toHaveLength(1);
     expect((spawns[0] as { cell: CellId }).cell).toBe(0);
     // 200 + 100 income (1 base × fallback 100) − 75 infantry = 225
@@ -160,5 +165,29 @@ describe('conquest store (E3)', () => {
     s().commit();
     expect(s().uiPhase).toBe('replay');
     expect(s().game!.round).toBe(2);
+  });
+
+  // Regression: the AI must ROUTE its conquest buys through the resolver when a
+  // human plays. The store once probed a non-existent `planBuys` method and
+  // silently bought nothing, so the AI never built units in real games even
+  // though the acceptance suite (which calls planConquest directly) was green.
+  // Commit on a conquest board where faction 1 owns a vacant base + credits →
+  // expect at least one faction-1 spawn within a few rounds.
+  it('AI builds units in conquest: its buys reach Phase E through the store', () => {
+    s().setMode('conquest');
+    s().startBattle(); // Valley Road (53316), seed 7 — the donor in the bug report
+    let aiSpawned = false;
+    for (let r = 0; r < 4 && !aiSpawned; r++) {
+      s().commit();
+      const spawns = s().game!.log.filter(
+        (e) => e.type === 'spawn' && (e as { faction: FactionId }).faction === 1,
+      );
+      if (spawns.length > 0) aiSpawned = true;
+      // advance past the replay back to planning for the next round
+      s().finishReplay();
+      s().closeSummary();
+      if (s().game!.outcome) break;
+    }
+    expect(aiSpawned).toBe(true);
   });
 });

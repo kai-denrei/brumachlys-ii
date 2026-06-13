@@ -566,26 +566,19 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // The AI plans when the player commits (spec §2.1, solo flow) — through
     // its own fog-filtered FactionView only (§8.1 symmetric honesty).
+    // planRound is the canonical dispatcher: in conquest it routes to
+    // planConquest → {orders, buys} (capture objectives + production); in
+    // skirmish it returns planOrders with no buys. Routing through it here is
+    // what makes the AI actually build units in real games — the acceptance
+    // suite exercised planConquest directly, so this seam went uncaught.
     const aiView = buildFactionView(game.board, game, 1, types);
-    const aiOrders = greedyPlanner.planOrders(
+    const aiPlan = ai.planRound(
+      greedyPlanner,
       aiView,
       createRng(plannerSeed(game.rngSeed, game.round, 1)),
     );
-    // E4 SEAM (addendum §B.7): when the greedy planner gains conquest buy
-    // logic it exposes planBuys(view, rng) — probed optionally here so the
-    // store wiring is already in place. Until then the AI buys nothing.
-    // Separate rng stream (salted seed) so buys don't perturb order plans.
-    const planBuys = (
-      greedyPlanner as { planBuys?: (view: typeof aiView, rng: ReturnType<typeof createRng>) => BuyOrder[] }
-    ).planBuys;
-    const aiBuys: BuyOrder[] =
-      conquest && planBuys
-        ? planBuys.call(
-            greedyPlanner,
-            aiView,
-            createRng(plannerSeed(game.rngSeed ^ 0x00c0ffee, game.round, 1)),
-          )
-        : [];
+    const aiOrders = aiPlan.orders;
+    const aiBuys: BuyOrder[] = conquest ? aiPlan.buys : [];
 
     // Pre-resolution snapshot — the replay simulates forward from here.
     const baseUnits = Object.values(game.units).map((u) => ({
