@@ -6,6 +6,7 @@ import { describe, expect, test } from 'vitest';
 import {
   attackDamage,
   battleExchange,
+  explainAttack,
   roundDamage,
   weewar,
 } from '../../src/core/combat/weewar';
@@ -200,5 +201,36 @@ describe('weewar as a ResolutionModel (spec §5.1)', () => {
       weewar.battleExchange({ attacker: c(INF), defender: c(TNK), distance: 1, bonusB: 0 })
         .defenderCount,
     ).toBe(6);
+  });
+});
+
+describe('veterancy damageBonus (v0.8 §rank)', () => {
+  // Test A: base A > 0 (infantry vs tank, armored, A=3) — bonus IS applied.
+  // Without bonus: A=3, D=5, p=0.40, damage=4.
+  // With damageBonus=2: A should be 5, vet=2, p=0.50, damage=5.
+  test('Test A: damageBonus adds to A and vet when base attack strength > 0', () => {
+    const baseTerms = explainAttack({ attacker: c(INF), defender: c(TNK), bonusB: 0 });
+    const vetTerms = explainAttack({
+      attacker: { ...c(INF), damageBonus: 2 },
+      defender: c(TNK),
+      bonusB: 0,
+    });
+    expect(vetTerms.A).toBe(baseTerms.A + 2);
+    expect(vetTerms.vet).toBe(2);
+    expect(vetTerms.p).toBeGreaterThanOrEqual(baseTerms.p);
+  });
+
+  // Test B: base A === 0 (infantry vs naval) — bonus is NOT applied.
+  // INF.attackStrengths.naval === 0; adding damageBonus=5 must have no effect.
+  test('Test B: damageBonus is suppressed when base attack strength is 0 (cannot engage armor type)', () => {
+    const frigate: UnitType = { ...TNK, armorType: 'naval', key: 'frigate' };
+    const vetTerms = explainAttack({
+      attacker: { ...c(INF), damageBonus: 5 },
+      defender: c(frigate),
+      bonusB: 0,
+    });
+    expect(vetTerms.A).toBe(0);
+    expect(vetTerms.vet).toBe(0);
+    expect(vetTerms.damage).toBe(0);
   });
 });

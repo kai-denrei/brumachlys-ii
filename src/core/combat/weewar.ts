@@ -39,7 +39,11 @@ export function explainAttack(ctx: AttackContext): AttackTerms {
   const { attacker, defender, bonusB } = ctx;
 
   // A is looked up by the *defender's* armor type in the *attacker's* table.
-  const A = attacker.type.attackStrengths[defender.type.armorType];
+  const baseA = attacker.type.attackStrengths[defender.type.armorType];
+  // Veterancy only sharpens an attack that can already land (base A > 0).
+  // A unit must not gain the ability to damage an armor type it otherwise cannot.
+  const vet = baseA > 0 ? (attacker.damageBonus ?? 0) : 0;
+  const A = baseA + vet;
   const D = defender.type.armor;
   const Ta = attacker.type.terrainEffects[attacker.terrain]?.attackBonus ?? 0;
   const terrainTd = defender.type.terrainEffects[defender.terrain]?.armorBonus ?? 0;
@@ -48,7 +52,7 @@ export function explainAttack(ctx: AttackContext): AttackTerms {
 
   // Cannot fire: dead participant or cannot engage this armor type.
   if (attacker.count <= 0 || defender.count <= 0 || A <= 0) {
-    return { A, Ta, D, Td, B: bonusB, p: 0, damage: 0 };
+    return { A, Ta, D, Td, B: bonusB, vet, p: 0, damage: 0 };
   }
 
   const p = clamp01(0.5 + 0.05 * (A + Ta - (D + Td) + bonusB));
@@ -57,7 +61,7 @@ export function explainAttack(ctx: AttackContext): AttackTerms {
   // Minimum-damage floor: never round to 0 when the attacker can damage this
   // armor type and the formula gave any positive probability.
   const damage = raw === 0 && p > 0 ? 1 : raw;
-  return { A, Ta, D, Td, B: bonusB, p, damage };
+  return { A, Ta, D, Td, B: bonusB, vet, p, damage };
 }
 
 export function attackDamage(ctx: AttackContext): number {
