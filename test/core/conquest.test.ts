@@ -643,7 +643,8 @@ describe('conquest determinism', () => {
       makeUnit('b-grd', 1, 5, 'grenadier'),
     ];
     const o0: Order[] = [
-      { kind: 'move', unitId: 'a-rgr', path: [3] }, // capture the neutral base
+      { kind: 'move', unitId: 'a-rgr', path: [3] },
+      { kind: 'capture', unitId: 'a-rgr' }, // v0.8 opt-in: claim the neutral base at cell 3
       { kind: 'move', unitId: 'a-inf', path: [2] },
     ];
     const o1: Order[] = [{ kind: 'move', unitId: 'b-grd', path: [4] }];
