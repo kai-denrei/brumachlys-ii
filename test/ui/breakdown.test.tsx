@@ -18,6 +18,7 @@ const breakdown: AttackBreakdown = {
   D: 6,
   Td: 2,
   B: 3,
+  vet: 0,
   p: 0.55,
   damage: 3,
   gangUp: {

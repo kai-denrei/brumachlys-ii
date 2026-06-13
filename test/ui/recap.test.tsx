@@ -37,6 +37,7 @@ function brawlStrike(cell: CellId, att: string, def: string): Strike {
       D: 4,
       Td: 0,
       B: 0,
+      vet: 0,
       gangUp: { total: 0, contributions: [] },
       p: 0.7,
       damage: 3,

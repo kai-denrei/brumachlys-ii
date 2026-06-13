@@ -1,9 +1,16 @@
 // The weewar resolution model (spec §5.2), ported from v1 core/combat.ts.
 // Pure functions. No module state, no ambient randomness.
 //
+//   A     = baseA + vet   (where baseA = attacker.attackStrengths[defender.armorType]
+//                          and vet = attacker.damageBonus when baseA > 0, else 0)
 //   p = clamp(0.5 + 0.05 * ((A + Ta) - (D + Td) + B), 0, 1)
 //   raw = roundDamage(min(attackerCount, defenderCount) * p)
 //   damage = (A > 0 && p > 0 && raw === 0) ? 1 : raw
+//
+// Veterancy (v0.8 §rank): A is composite — baseA from the unit-type table plus
+// the attacker's damageBonus rank bonus. The bonus is suppressed to 0 when
+// baseA = 0 so a unit cannot gain the ability to damage an armor type it
+// otherwise cannot engage.
 //
 // The "min" is canonical: spec §5.2's formula text says `attackerCount * p`,
 // but the §5.4 third vector (B=3, p=0.55, attacker count 10, defender count 6
@@ -86,6 +93,7 @@ export function battleExchange(ctx: ExchangeContext): ExchangeResult {
   const holdsFire = defender.stance === 'hold-fire';
   const counterFired = inRange && canTarget && defender.count > 0 && !holdsFire;
 
+  // defender.damageBonus rides along: a veteran's counter-fire keeps its rank bonus (gang-up B is still 0).
   const defenderCounterDealt = counterFired
     ? attackDamage({
         attacker: defender,

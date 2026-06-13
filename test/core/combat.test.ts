@@ -218,11 +218,15 @@ describe('veterancy damageBonus (v0.8 §rank)', () => {
     expect(vetTerms.A).toBe(baseTerms.A + 2);
     expect(vetTerms.vet).toBe(2);
     expect(vetTerms.p).toBeGreaterThanOrEqual(baseTerms.p);
+    // Exact: A=5, Ta=0, D=5, Td=0, B=0 → p = 0.5 + 0.05*(5-5) = 0.50
+    expect(vetTerms.p).toBeCloseTo(0.5);
   });
 
   // Test B: base A === 0 (infantry vs naval) — bonus is NOT applied.
   // INF.attackStrengths.naval === 0; adding damageBonus=5 must have no effect.
   test('Test B: damageBonus is suppressed when base attack strength is 0 (cannot engage armor type)', () => {
+    // A synthetic naval-armor unit is used because no roster unit has armorType 'naval',
+    // making it the cleanest way to force infantry's base attack strength to 0.
     const frigate: UnitType = { ...TNK, armorType: 'naval', key: 'frigate' };
     const vetTerms = explainAttack({
       attacker: { ...c(INF), damageBonus: 5 },

@@ -23,6 +23,7 @@ const bd = (over: Partial<AttackBreakdown> = {}): AttackBreakdown => ({
   D: 6,
   Td: 0,
   B: 0,
+  vet: 0,
   p: 0.45,
   damage: 5,
   gangUp: { total: 0, contributions: [] },

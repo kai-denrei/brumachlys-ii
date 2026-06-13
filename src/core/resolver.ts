@@ -746,7 +746,7 @@ function breakdownFor(
 ): AttackBreakdown {
   const terms = model.explainAttack
     ? model.explainAttack(ctx)
-    : { A: 0, Ta: 0, D: 0, Td: 0, B: ctx.bonusB, p: 0, damage: model.attackDamage(ctx) };
+    : { A: 0, Ta: 0, D: 0, Td: 0, B: ctx.bonusB, vet: 0, p: 0, damage: model.attackDamage(ctx) };
   return { ...terms, gangUp: gang ?? { total: 0, contributions: [] } };
 }
 
