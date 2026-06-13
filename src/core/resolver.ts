@@ -169,6 +169,15 @@ export function resolveRound(
     delete next.units[u.id];
   };
 
+  // v0.8 veterancy: credit the killer with 10% of the victim TYPE's cost.
+  // Accrues even if the killer later dies — promotion (end of round) filters
+  // to survivors, so a dead killer's xp simply never matures.
+  const awardXp = (killer: UnitInstance, victim: UnitInstance): void => {
+    const vt = unitTypes[victim.type];
+    if (!vt) return;
+    killer.xp = (killer.xp ?? 0) + Math.round(0.1 * vt.cost);
+  };
+
   // ── 0. Stance orders apply first (§2.3) ───────────────────────────────────
   const stanceUnits = [...stanceOf.keys()].map((id) => next.units[id]!).sort(cmpUnits);
   for (const u of stanceUnits) {
@@ -392,8 +401,9 @@ export function resolveRound(
       }
 
       // Stances ignored by OMITTING stance (§2.6); both share the terrain.
-      const attC: Combatant = { count: att.count, type: attType, terrain };
-      const defC: Combatant = { count: def.count, type: defType, terrain };
+      // v0.8 veterancy: carry damageBonus so a veteran's rank bonus applies in brawls.
+      const attC: Combatant = { count: att.count, type: attType, terrain, damageBonus: att.rank ?? 0 };
+      const defC: Combatant = { count: def.count, type: defType, terrain, damageBonus: def.rank ?? 0 };
       const r = model.battleExchange({
         attacker: attC,
         defender: defC,
@@ -416,6 +426,10 @@ export function resolveRound(
           ? breakdownFor(model, { attacker: defC, defender: attC, bonusB: 0 })
           : null,
       });
+      // v0.8 veterancy: credit XP before removing — mutual annihilation credits
+      // both sides (each will be deleted; neither will reach the promotion step).
+      if (def.count <= 0) awardXp(att, def);
+      if (att.count <= 0) awardXp(def, att);
       if (def.count <= 0) killUnit(def);
       if (att.count <= 0) killUnit(att);
       // Mutual immunity: no progress possible — both survive on the cell.
@@ -465,12 +479,14 @@ export function resolveRound(
       type: attType,
       terrain: terrainOf(att.cell),
       stance: att.stance,
+      damageBonus: att.rank ?? 0, // v0.8 veterancy: rank bonus applies to strikes
     };
     const defC: Combatant = {
       count: target.count,
       type: defType,
       terrain: terrainOf(target.cell),
       stance: target.stance,
+      damageBonus: target.rank ?? 0, // v0.8 veterancy: counter inherits rank via defender pass-through
     };
     const r = model.battleExchange({
       attacker: attC,
@@ -508,8 +524,18 @@ export function resolveRound(
         breakdown: breakdownFor(model, { attacker: defC, defender: attC, bonusB: 0 }),
       });
     }
-    if (target.count <= 0) killUnit(target);
-    if (att.count <= 0) killUnit(att);
+    // v0.8 veterancy: award XP to the killer BEFORE removing the unit from state.
+    // att killed target (main strike); target's counter killed att (counter-fire).
+    if (target.count <= 0) {
+      awardXp(att, target);
+      killUnit(target);
+    }
+    if (att.count <= 0) {
+      // att died — credit the counter-firer (the original defender) if its
+      // counter fired and it's still alive to claim the kill.
+      if (r.counterFired && target.count > 0) awardXp(target, att);
+      killUnit(att);
+    }
   }
 
   // ── B.5. Captures (conquest only — addendum §B.2, v0.6 rules change) ──────
@@ -544,6 +570,30 @@ export function resolveRound(
         unitConsumed: true,
       });
       delete next.units[u.id]; // spent in the claim — distinct from a kill
+    }
+  }
+
+  // ── Veterancy promotion (v0.8) — survivors only, repeatable. Runs after
+  // capture (consumed claimants are already gone) and before attackedFrom is
+  // cleared. rank = floor(2*xp / ownCost); each rank gained heals +2 (max 10).
+  for (const u of Object.values(next.units)) {
+    if (u.count <= 0) continue;
+    const ut = unitTypes[u.type];
+    if (!ut || ut.cost <= 0) continue;
+    const newRank = Math.floor((2 * (u.xp ?? 0)) / ut.cost);
+    const oldRank = u.rank ?? 0;
+    if (newRank > oldRank) {
+      const heal = 2 * (newRank - oldRank);
+      u.count = Math.min(10, u.count + heal);
+      u.rank = newRank;
+      events.push({
+        type: 'promotion',
+        unitId: u.id,
+        cell: u.cell,
+        faction: u.faction,
+        rank: newRank,
+        healedTo: u.count,
+      });
     }
   }
 
