@@ -1473,6 +1473,175 @@ body {
   opacity: 0.7;
 }
 
+/* --- v0.8 pipeline additions: versioning block, usage panel, commit links -- */
+
+/* VERSION block — prominent header showing current build */
+.pipeline-versioning {
+  margin-bottom: 1.05rem;
+  padding: 0.6rem 0.75rem 0.55rem;
+  background: rgba(232, 128, 107, 0.1);
+  border: 1.5px solid rgba(232, 128, 107, 0.3);
+  border-radius: 10px;
+}
+
+.pipeline-versioning-label {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin-bottom: 0.3rem;
+}
+
+.pipeline-versioning-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.pipeline-versioning-ver {
+  font-weight: 800;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pipeline-versioning-date {
+  font-size: 0.72rem;
+  opacity: 0.55;
+}
+
+/* Session usage collapsible */
+.pipeline-usage-section {
+  margin-bottom: 1.05rem;
+  padding: 0.45rem 0.65rem;
+  background: #fff;
+  border-radius: 10px;
+}
+
+.pipeline-usage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pipeline-usage-label {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.pipeline-usage-toggle {
+  border: 1.5px solid rgba(74, 68, 58, 0.2);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.pipeline-usage-body {
+  margin-top: 0.45rem;
+}
+
+.pipeline-usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  margin-bottom: 0.4rem;
+}
+
+.pipeline-usage-table td {
+  padding: 0.18rem 0.2rem;
+  vertical-align: top;
+}
+
+.pus-label {
+  opacity: 0.6;
+  font-weight: 600;
+  width: 6rem;
+  white-space: nowrap;
+}
+
+.pus-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.pus-model-head {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  margin: 0.3rem 0 0.2rem;
+}
+
+.pipeline-usage-models {
+  font-size: 0.65rem;
+}
+
+.pipeline-usage-models th,
+.pipeline-usage-models td {
+  padding: 0.14rem 0.2rem;
+}
+
+.pus-th {
+  font-weight: 600;
+  opacity: 0.5;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-align: right;
+  padding-bottom: 0.2rem;
+}
+
+.pus-th:first-child {
+  text-align: left;
+}
+
+.pus-model-name {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.64rem;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.pus-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  white-space: nowrap;
+}
+
+/* GitHub commit link — monospace, dim, inline next to version */
+.pipeline-commit {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.65rem;
+  opacity: 0.45;
+  color: inherit;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+  padding: 0.05rem 0.25rem;
+  border: 1px solid rgba(74, 68, 58, 0.18);
+  border-radius: 4px;
+  transition: opacity 0.15s ease;
+}
+
+.pipeline-commit:hover {
+  opacity: 0.75;
+  text-decoration: underline;
+}
+
 /* --- v1.1 Feature A: unit hover card (mouse only) ------------------------- */
 
 /* v1.2 tweak 3: the glance — identity line + one monospace stat line. */

@@ -16,6 +16,9 @@ export type PipelineEntry = {
   title: string;
   /** Laconic one liners. */
   items: string[];
+  /** Short git SHA (7 chars). When set, a GitHub commit link is rendered next
+   *  to the version label. Leave undefined for unshipped entries. */
+  commit?: string;
 };
 
 /** Chronological, the parking lot last. Append new releases at the bottom
@@ -33,6 +36,7 @@ export const PIPELINE: PipelineEntry[] = [
       'fog honest replay',
       'GitHub Pages pipeline',
     ],
+    commit: '8be1448',
   },
   {
     version: '0.3.x',
@@ -45,6 +49,7 @@ export const PIPELINE: PipelineEntry[] = [
       'skirmish log · hover cards',
       'replay feel: stagger, trails, casualty recap',
     ],
+    commit: 'b72f4e7',
   },
   {
     version: '0.4.0',
@@ -52,6 +57,7 @@ export const PIPELINE: PipelineEntry[] = [
     status: 'shipped',
     title: 'discovery fog',
     items: ['dark / memory / live tiers', 'silhouette previews'],
+    commit: 'c898151',
   },
   {
     version: '0.5.x',
@@ -63,6 +69,22 @@ export const PIPELINE: PipelineEntry[] = [
       'win modes · economy AI · mode select',
       'idle pulse · victory dashboard',
     ],
+    commit: '76d9fe7',
+  },
+  {
+    version: '0.8.x',
+    date: 'Jun 14',
+    status: 'shipped',
+    title: 'veterancy · deliberate capture · faster resolution',
+    items: [
+      'veterancy ranks: xp · promotion · pips',
+      'deliberate opt in base capture',
+      'simultaneous replay: all moves then all combats',
+      'size adaptive maps: small to large',
+      'refreshed bases · capture claim animation',
+      'auto advance turns · Enter to commit',
+    ],
+    commit: 'c1f61ca',
   },
   {
     version: 'next',
@@ -84,4 +106,4 @@ export const PIPELINE: PipelineEntry[] = [
  *  output would couple the bundle to the test runner. Update alongside the
  *  version bump; the pipeline test pins it to this constant, not to the
  *  live suite. */
-export const TEST_COUNT = 561;
+export const TEST_COUNT = 692;
