@@ -932,6 +932,8 @@ export function createGreedyPlanner(
           /** Brawl charge: move INTO this enemy's cell, no attack order. */
           charge: EnemyInfo | null;
           chargeDamage: number; // counts the brawl sim expects to destroy
+          /** Brawl: our expected count AFTER the exchange (0 = we die). */
+          chargeOurEnd: number;
         };
         let best: Pick | null = null;
 
@@ -1027,6 +1029,7 @@ export function createGreedyPlanner(
                 tie,
                 charge: targetEi,
                 chargeDamage,
+                chargeOurEnd: sim.ourEnd,
               };
             }
             continue;
@@ -1180,6 +1183,7 @@ export function createGreedyPlanner(
               tie,
               charge: null,
               chargeDamage: 0,
+              chargeOurEnd: 0, // not a charge; field unused
             };
           }
         }
@@ -1218,6 +1222,21 @@ export function createGreedyPlanner(
         const stance: Stance =
           !best.target && !best.charge && best.taken > 0 ? 'defensive' : 'aggressive';
         if (stance !== u.stance) orders.push({ kind: 'stance', unitId: u.id, stance });
+
+        // v0.8 — capture is now opt-in (resolver B.5 intent gate). Emit the
+        // order iff: conquest mode, personnel unit, landing on a capturable base
+        // (not own). For a brawl charge, the scoring only priced a capture if
+        // the sim expected the unit to survive (chargeOurEnd > 0); emit only
+        // then — a charge that kills the unit should not also attempt a claim.
+        if (cq && ut.armorType === 'personnel') {
+          const bi = baseAt.get(landedOn);
+          if (bi && bi.owner !== view.faction) {
+            const willCaptureAfterCharge = best.charge === null || best.chargeOurEnd > 0;
+            if (willCaptureAfterCharge) {
+              orders.push({ kind: 'capture', unitId: u.id });
+            }
+          }
+        }
 
         friendlyOccupied.delete(u.cell);
         friendlyOccupied.add(landedOn);

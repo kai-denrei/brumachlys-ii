@@ -134,6 +134,7 @@ export function resolveRound(
   const stanceOf = new Map<string, StanceOrder>();
   const moveOf = new Map<string, MoveOrder>();
   const attackOf = new Map<string, AttackOrder>();
+  const captureOf = new Set<string>(); // v0.8 — unit ids that opted to claim
   for (const faction of [0, 1] as const) {
     for (const order of ordersByFaction[faction] ?? []) {
       const u = next.units[order.unitId];
@@ -141,7 +142,7 @@ export function resolveRound(
       if (order.kind === 'stance') stanceOf.set(order.unitId, order);
       else if (order.kind === 'move') moveOf.set(order.unitId, order);
       else if (order.kind === 'attack') attackOf.set(order.unitId, order);
-      // 'capture' — v0.8: resolver gating is a separate task; no-op here for now.
+      else if (order.kind === 'capture') captureOf.add(order.unitId); // v0.8 — opt-in claim
     }
   }
 
@@ -541,15 +542,16 @@ export function resolveRound(
     }
   }
 
-  // ── B.5. Captures (conquest only — addendum §B.2, v0.6 rules change) ──────
+  // ── B.5. Captures (conquest only — addendum §B.2, v0.8 opt-in rule) ───────
   // A personnel unit ending the round alive on a base cell not owned by its
-  // faction flips it immediately — and is CONSUMED by the claim: the unit is
-  // removed from state (operator rules change, v0.6). The capture event
+  // faction flips it (and is CONSUMED) ONLY when it has a { kind: 'capture' }
+  // order this round (v0.8 deliberate-capture change). Without the order the
+  // unit stands on the base, survives, and flips nothing. The capture event
   // carries `unitConsumed: true`; no `kill` event is emitted (this is not a
   // combat death — replay renders a dissolve, casualty rows still count it
   // as a loss for its owner). B.5 runs AFTER all Phase B combat, so every
-  // order the unit held this round already resolved; only its future-round
-  // orders are moot (the sanitize pass drops orders for unknown units).
+  // combat order the unit held this round already resolved; only its future-
+  // round orders are moot (the sanitize pass drops orders for unknown units).
   // Vehicles never capture. Init order (the round's one ordering mechanism,
   // §2.2) — deterministic when units of both factions share a base cell
   // (mutual-immunity brawl edge: flips run in sequence, each claimant
@@ -559,6 +561,7 @@ export function resolveRound(
     const bases = next.bases!;
     for (const u of alive().sort(cmpUnits)) {
       if (!(u.cell in bases)) continue;
+      if (!captureOf.has(u.id)) continue; // v0.8 — capture is deliberate now
       const ut = unitTypes[u.type];
       if (!ut || ut.armorType !== 'personnel') continue;
       const from = bases[u.cell]!;
