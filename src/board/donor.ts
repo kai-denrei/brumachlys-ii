@@ -174,15 +174,20 @@ function donorFrame(donor: DonorMap): DonorFrame {
   };
 }
 
-/** Worst-case fraction of MESH cells that survive to the final playable board
- * for a compact (square-ish) donor: silhouette deletion (§4.1 step 5) trims the
- * mesh corners that fall outside the donor's rounded hex silhouette, and the
- * connectivity guard prunes off-component land + keeps only adjacent water.
- * Measured over the bundled donors across seeds 1..16: compact donors realise
- * ≥ 0.65 of their mesh target (large-square donors ~0.90; the worst single seed
- * on a tiny donor bottomed at ~0.65). We size the mesh FLOOR off this worst
- * case so even an unlucky seed clears PLAYABLE_FLOOR_CELLS without retrying.
- * Aspect (thin-donor) loss is handled separately by keptFraction below. */
+/** DENSITY ESTIMATE (not a hard bound) of the fraction of MESH cells that
+ * survive to the final playable board for a compact (square-ish) donor:
+ * silhouette deletion (§4.1 step 5) trims mesh corners outside the donor's
+ * rounded hex silhouette, and the connectivity guard prunes off-component land +
+ * keeps only adjacent water. Typical realised yield across the bundled donors
+ * (seeds 1..16): large-square donors ~0.90, compact tiny donors ~0.65–0.75.
+ * We divide the mesh target by this estimate to BIAS the mesh count upward, so
+ * an average seed comfortably clears PLAYABLE_FLOOR_CELLS without retrying.
+ *
+ * This is NOT a guaranteed worst case: an unlucky seed can yield below 0.65
+ * (donor "5" at seeds 55/87 realised ~0.613 → a 57-cell board). The actual
+ * playable-floor GUARANTEE is the runtime floor guard in attempt() (a board
+ * below PLAYABLE_FLOOR_CELLS fails the attempt and retries with seed+1), NOT
+ * this constant. Aspect (thin-donor) loss is handled separately by keptFraction. */
 export const SILHOUETTE_YIELD = 0.65;
 
 /** §4.1 steps 4–5: how many MESH cells to aim for so the post-silhouette BOARD
@@ -205,8 +210,9 @@ export const SILHOUETTE_YIELD = 0.65;
  * 300-tile square donor keeps its ~250 target untouched. */
 function meshTargetFor(targetCells: number, frame: DonorFrame): number {
   const aspectCompensated = Math.round(targetCells / Math.max(frame.keptFraction, 0.25));
-  // Floor: enough mesh that worst-case silhouette yield still clears the
-  // playable floor. Only bites when the donor's target is small.
+  // Floor: bias the mesh count up so a TYPICAL silhouette yield clears the
+  // playable floor (the runtime floor guard in attempt() retries any unlucky
+  // seed that still falls short). Only bites when the donor's target is small.
   const floorForPlayable = Math.ceil(
     Math.min(targetCells, PLAYABLE_FLOOR_CELLS) / SILHOUETTE_YIELD,
   );
@@ -409,6 +415,20 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
   }
   pruneNeighbors(cells);
 
+  // Step 4 RUNTIME FLOOR GUARD: the post-silhouette board must clear the
+  // playable floor. meshTargetFor biases the mesh upward (SILHOUETTE_YIELD) so
+  // this almost always holds first try, but the yield is a density ESTIMATE,
+  // not a hard bound — an unlucky seed (e.g. donor "5" at seeds 55/87) can land
+  // a 57-cell board. Treat that exactly like a connectivity-guard failure: it
+  // does NOT satisfy the attempt, so generateBoard retries with seed+1. This is
+  // what actually GUARANTEES the floor at runtime (cf. SILHOUETTE_YIELD doc).
+  if (cells.size < PLAYABLE_FLOOR_CELLS) {
+    return {
+      ok: false,
+      reason: `board ${cells.size} cells < playable floor ${PLAYABLE_FLOOR_CELLS}`,
+    };
+  }
+
   // Step 7: anchors — nearest passable cell to each faction's donor anchor.
   const board: Board = { cells, seed, donorMapId: donor.id };
   const anchors: CellId[] = [];
@@ -423,7 +443,7 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
   }
   // Placeability probe (§4.1 step 7 / §6.4), size-adaptive: a normal board must
   // host two GUARD_FORCE_SIZE forces, but a tiny board only needs to host its
-  // smaller adaptive force at each anchor. The mesh floor (meshTargetFor) keeps
+  // smaller adaptive force at each anchor. The runtime floor guard above keeps
   // boards ≥ PLAYABLE_FLOOR_CELLS so this probe is ~always the full 8; the
   // scaling is the safety net for any board that still comes out small.
   const probe = adaptiveForceSizeFor(board);
@@ -485,10 +505,12 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
  * Board generation from a Weewar donor (spec §3.3 / §4.1). Pure & deterministic:
  * same (donor, seed, targetCells) → identical Board.
  *
- * Connectivity-guard failures retry with seed+1, up to `maxRetries` (default 8,
- * §4.1 step 6); `maxRetries: 0` = first-try-only (donor curation uses this).
- * Cell-count variance at small targets is ±30% — the guard judges connectivity
- * fractions and placeability, never absolute counts, so drift is tolerated.
+ * Connectivity-guard AND playable-floor failures retry with seed+1, up to
+ * `maxRetries` (default 8, §4.1 step 6); `maxRetries: 0` = first-try-only (donor
+ * curation uses this). Cell-count variance at small targets is ±30%: the mesh
+ * target is biased upward so the floor is usually cleared first try, but the
+ * runtime floor guard (board < PLAYABLE_FLOOR_CELLS ⇒ retry) is what actually
+ * GUARANTEES every returned board is at least PLAYABLE_FLOOR_CELLS.
  */
 export function generateBoard(
   donor: DonorMap,
@@ -505,8 +527,8 @@ export function generateBoard(
     reasons.push(`seed ${seed + k}: ${result.reason}`);
   }
   throw new Error(
-    `generateBoard: donor "${donor.id}" failed the connectivity guard after ${
+    `generateBoard: donor "${donor.id}" failed to produce a playable board after ${
       maxRetries + 1
-    } attempt(s) —\n  ${reasons.join('\n  ')}`,
+    } attempt(s) (connectivity guard and/or the ${PLAYABLE_FLOOR_CELLS}-cell playable floor) —\n  ${reasons.join('\n  ')}`,
   );
 }

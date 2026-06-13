@@ -264,8 +264,30 @@ describe('donor pipeline — connectivity guard failure modes', () => {
       ],
       startUnits: [],
     };
-    expect(() => generateBoard(donor, 7)).toThrow(/connectivity guard/);
+    expect(() => generateBoard(donor, 7)).toThrow(/playable board|connectivity guard/);
     expect(MIN_LAND_FRACTION).toBe(0.8);
+  });
+
+  it('runtime floor guard: donor "5" seeds 55/87 (raw 57-cell) retry up to the playable floor', () => {
+    // Regression: meshTargetFor only BIASES the mesh up (SILHOUETTE_YIELD is an
+    // estimate, not a bound). Donor "5" at these seeds realises a 57-cell board
+    // (< PLAYABLE_FLOOR_CELLS) on the first attempt; the floor guard must treat
+    // that like a connectivity failure and retry with seed+1 until it clears.
+    const donor = loadDonorFile('5.xml');
+    for (const seed of [55, 87]) {
+      // First attempt alone is genuinely under-floor: with no retries the guard
+      // FAILS the attempt and throws, naming the cell-count floor (proves the
+      // test has teeth — without the guard this would silently return a 57-cell
+      // board).
+      expect(
+        () => generateBoard(donor, seed, undefined, { maxRetries: 0 }),
+        `seed ${seed} first attempt`,
+      ).toThrow(new RegExp(`${PLAYABLE_FLOOR_CELLS}-cell playable floor`));
+      // With retries the guard pushes past the floor (and records the real seed).
+      const board = generateBoard(donor, seed);
+      expect(board.cells.size, `seed ${seed} guarded`).toBeGreaterThanOrEqual(PLAYABLE_FLOOR_CELLS);
+      expect(board.seed, `seed ${seed} retried`).toBeGreaterThan(seed);
+    }
   });
 });
 
@@ -294,11 +316,14 @@ describe('donor pipeline — bundled donors (data/maps/), size-adaptive contract
   //     each anchor,
   //   - every terrain is a valid §6.2 key,
   //   - every base site renders as 'base'.
-  // Swept over seeds 1..16 so an unlucky seed cannot hide a regression.
-  const SWEEP_SEEDS = Array.from({ length: 16 }, (_, i) => i + 1);
+  // Swept over seeds 1..64 so an unlucky seed cannot hide a regression. The wide
+  // sweep has TEETH on the playable floor: donor "5" at seeds 55/87 realises a
+  // raw 57-cell board (below the 60 floor) — the runtime floor guard in donor.ts
+  // must retry those away, so every seed here clears PLAYABLE_FLOOR_CELLS.
+  const SWEEP_SEEDS = Array.from({ length: 64 }, (_, i) => i + 1);
 
   for (const file of files) {
-    it(`${file} generates a valid playable board across seeds 1..16`, () => {
+    it(`${file} generates a valid playable board across seeds 1..64`, () => {
       const donor = loadDonorFile(file);
       for (const seed of SWEEP_SEEDS) {
         const board = generateBoard(donor, seed);
