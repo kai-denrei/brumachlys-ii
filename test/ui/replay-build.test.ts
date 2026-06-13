@@ -645,6 +645,47 @@ describe('replay builder — concurrent movement (Phase 4.1)', () => {
     expect(moveFrames[0]!.focus).toContain(1);
     expect(moveFrames[1]!.focus).toContain(2);
   });
+
+  it('moves do NOT fragment when a path-truncated interleaves the run (v0.8 pacing fix)', () => {
+    // The resolver interleaves a `path-truncated` IMMEDIATELY after the mover
+    // whose walk fell short, before the next mover's `move`. The move-run
+    // scanner must continue across it so the round stays ONE move beat.
+    //   pi1 at 0 walks to 1 (truncated — "budget"); pi2 at 5 walks to 7.
+    const units = [makeUnit('pi1', 0, 0), makeUnit('pi2', 0, 5)];
+    const events: ResolutionEvent[] = [
+      { type: 'move', unitId: 'pi1', from: 0, to: 1, pathTaken: [1] },
+      { type: 'path-truncated', unitId: 'pi1', planned: 3, actual: 1, reason: 'budget' },
+      { type: 'move', unitId: 'pi2', from: 5, to: 7, pathTaken: [6, 7] },
+    ];
+    const script = build(units, events, 12);
+    // EXACTLY ONE move beat — not two.
+    expect(script.slots.filter((s) => s.kind === 'move').length).toBe(1);
+    // Both movers animate to their (actual) destinations in the run.
+    const moveFrames = script.frames.filter((f) => script.slots[f.slot]?.kind === 'move');
+    const last = moveFrames[moveFrames.length - 1]!;
+    expect(last.units.some((u) => u.id === 'pi1' && u.cell === 1)).toBe(true);
+    expect(last.units.some((u) => u.id === 'pi2' && u.cell === 7)).toBe(true);
+    // The truncation's side-effect — its own-unit log line — is still present.
+    const truncLine = script.log.find((e) => e.segs.some((s) => s.t.includes('out of reach')));
+    expect(truncLine).toBeDefined();
+  });
+
+  it('fog still drops a wholly-fogged truncated move (truncation does not resurrect it)', () => {
+    // Player infantry at 0 sees 0..2. An AI ranger moves wholly in the mist
+    // (6→7, truncated). It must stay silent — no slot, no frame, no log line —
+    // even though a path-truncated event rides with it.
+    const units = [makeUnit('pi', 0, 0), makeUnit('ai', 1, 6, 'ranger')];
+    const events: ResolutionEvent[] = [
+      { type: 'move', unitId: 'ai', from: 6, to: 7, pathTaken: [7] },
+      { type: 'path-truncated', unitId: 'ai', planned: 9, actual: 7, reason: 'budget' },
+    ];
+    const script = build(units, events, 12);
+    expect(script.frames.length).toBe(1); // establishing only
+    expect(script.slots.length).toBe(0);
+    expect(script.log.length).toBe(0); // AI truncation reason stays secret
+    // applied silently: ai is at its truncated cell, never rendered
+    for (const f of script.frames) expect(f.units.some((u) => u.id === 'ai')).toBe(false);
+  });
 });
 
 describe('replay builder — concurrent combat (Phase 4.2)', () => {
@@ -837,5 +878,103 @@ describe('replay builder — concurrent combat (Phase 4.2)', () => {
     // No frame after the kill should include e1.
     const lastFrame = script.frames[script.frames.length - 1]!;
     expect(lastFrame.units.some((u) => u.id === 'e1')).toBe(false);
+  });
+
+  it('combat does NOT fragment when a lost-target fizzle interleaves the run (v0.8 pacing fix)', () => {
+    // The resolver interleaves a `lost-target` (target evaporated) between real
+    // attacks, in initiative order. The attack-run scanner must continue across
+    // it so the round stays ONE volley beat — the fizzle folds in, it does not
+    // split the volley into volley/fizzle/volley.
+    //   a1 (player infantry at 0) hits e1 at 3; pf (player infantry at 5) fizzles;
+    //   a2 (player ranger at 9) hits e2 at 7.
+    const units = [
+      makeUnit('a1', 0, 0),
+      makeUnit('pf', 0, 5),
+      makeUnit('a2', 0, 9, 'ranger'),
+      makeUnit('e1', 1, 3),
+      makeUnit('e2', 1, 7),
+    ];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'a1',
+        defenderId: 'e1',
+        attackerCell: 0,
+        defenderCell: 3,
+        damage: 5,
+        bonusB: 0,
+        defenderCountAfter: 5,
+        counterFired: false,
+        breakdown: bd({ damage: 5 }),
+      },
+      { type: 'lost-target', attackerId: 'pf', targetCell: 6 },
+      {
+        type: 'attack',
+        attackerId: 'a2',
+        defenderId: 'e2',
+        attackerCell: 9,
+        defenderCell: 7,
+        damage: 4,
+        bonusB: 0,
+        defenderCountAfter: 6,
+        counterFired: false,
+        breakdown: bd({ damage: 4 }),
+      },
+    ];
+    const script = build(units, events, 12);
+    // EXACTLY ONE volley beat — no separate 'fizzle' slot splitting it.
+    expect(script.slots.filter((s) => s.kind === 'volley').length).toBe(1);
+    expect(script.slots.some((s) => s.kind === 'fizzle')).toBe(false);
+    // Both real strikes land on the combined slot for the breakdown modal.
+    const volley = script.slots.find((s) => s.kind === 'volley')!;
+    expect(volley.strikes.map((s) => s.attackerId).sort()).toEqual(['a1', 'a2']);
+    // The fizzle's side-effect — counted + its log line — is preserved.
+    expect(script.summary.fizzles).toBe(1);
+    const fizzLine = script.log.find((e) => e.segs.some((s) => s.t.includes('target lost')));
+    expect(fizzLine).toBeDefined();
+  });
+
+  it('a brawl-exchange after an attack run starts its own beat (not swallowed)', () => {
+    // Regression guard: the attack-run scanner consumes attacks (+lost-target),
+    // but a brawl-exchange must NOT be folded into the volley — it keeps its
+    // own brawl slot + clash burst (P9 compression handling).
+    const units = [
+      makeUnit('pa', 0, 0),
+      makeUnit('e1', 1, 3),
+      makeUnit('pt', 0, 5, 'tank'),
+      makeUnit('ei', 1, 5, 'infantry'),
+    ];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pa',
+        defenderId: 'e1',
+        attackerCell: 0,
+        defenderCell: 3,
+        damage: 5,
+        bonusB: 0,
+        defenderCountAfter: 5,
+        counterFired: false,
+        breakdown: bd({ damage: 5 }),
+      },
+      { type: 'lost-target', attackerId: 'pa', targetCell: 4 },
+      {
+        type: 'brawl-exchange',
+        cell: 5,
+        higherInitId: 'ei',
+        lowerInitId: 'pt',
+        higherInitDamageDealt: 4,
+        lowerInitDamageDealt: 5,
+        higherInitCountAfter: 5,
+        lowerInitCountAfter: 6,
+        higherInitBreakdown: bd({ damage: 4 }),
+        lowerInitBreakdown: bd(),
+      },
+    ];
+    const script = build(units, events, 12);
+    expect(script.slots.filter((s) => s.kind === 'volley').length).toBe(1);
+    expect(script.slots.filter((s) => s.kind === 'brawl').length).toBe(1);
+    // The brawl keeps its own clash burst frame.
+    expect(script.frames.some((f) => f.bursts.length > 0)).toBe(true);
   });
 });

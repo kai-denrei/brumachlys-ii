@@ -383,6 +383,14 @@ export function buildReplay(
       // the existing per-mover fog contract exactly.
 
       // ── collect the contiguous run of move events ──────────────────────────
+      // v0.8 pacing fix: the resolver INTERLEAVES `path-truncated` events into
+      // this run — a mover whose walk fell short (or bounced on a vacancy) emits
+      // its `path-truncated` right after its own `move`, before the next mover.
+      // We must NOT stop the run at one (that fragments the simultaneous beat).
+      // Continue across `path-truncated`, folding its supplementary feedback
+      // (the own-unit "why it stopped" log line) into this same move beat. The
+      // `move`'s pathTaken already reflects the truncated path, so the mover
+      // animates correctly; the truncation is feedback only.
       type MoverDesc = {
         u: UnitInstance;
         from: CellId;
@@ -390,11 +398,37 @@ export function buildReplay(
         visiblyMoves: boolean;
       };
       const run: MoverDesc[] = [];
+      // Own-unit truncation log lines, gathered across the run so they emit
+      // inside this single beat (own plans only; AI truncation reasons stay
+      // secret — surfacing one would leak what the AI intended).
+      const truncLines: LogSeg[][] = [];
       let runEnd = i;
       {
         const visBefore = vision();
-        while (runEnd < events.length && events[runEnd]!.type === 'move') {
-          const mev = events[runEnd] as Extract<ResolutionEvent, { type: 'move' }>;
+        while (
+          runEnd < events.length &&
+          (events[runEnd]!.type === 'move' || events[runEnd]!.type === 'path-truncated')
+        ) {
+          const cur = events[runEnd]!;
+          if (cur.type === 'path-truncated') {
+            const tu = sim.get(cur.unitId);
+            if (tu && tu.faction === player) {
+              const why: Record<string, string> = {
+                'enemy-contact': ' runs into the enemy',
+                'friendly-occupied': ' stops short — tile occupied',
+                'vacancy-failed': ' falls back — tile never cleared',
+                budget: ' halts — out of reach',
+                'invalid-step': ' halts — order failed',
+              };
+              truncLines.push([
+                { t: nameOf(tu.type), f: tu.faction },
+                { t: why[cur.reason] ?? ' halts' },
+              ]);
+            }
+            runEnd++;
+            continue;
+          }
+          const mev = cur as Extract<ResolutionEvent, { type: 'move' }>;
           const mu = sim.get(mev.unitId);
           if (mu) {
             const visibly =
@@ -491,14 +525,21 @@ export function buildReplay(
         });
       }
 
+      // Fold the run's own-unit truncation feedback into THIS beat: the player
+      // is told why their move stopped short, on the last move frame of the
+      // beat. (Empty when no own mover was truncated — and a wholly-fogged run
+      // never gathered any, since own units always count as visible movers.)
+      for (const segs of truncLines) log.push({ atFrame: lastFrame(), segs });
+
       i = runEnd;
       continue;
     }
 
     if (ev.type === 'path-truncated') {
-      // The move frames already show the real path. Skirmish log: the player
-      // is told why THEIR OWN move stopped short; AI plans stay secret (a
-      // truncation reason would leak what the AI intended).
+      // A stray `path-truncated` not attached to a move run (defensive — the
+      // resolver always emits it right after the truncated mover's `move`, so
+      // the move branch above folds it in). The move frames already show the
+      // real path; only the own-unit "why it stopped" log line is supplementary.
       const u = sim.get(ev.unitId);
       if (u && u.faction === player) {
         const why: Record<string, string> = {
@@ -517,13 +558,15 @@ export function buildReplay(
       continue;
     }
 
-    if (ev.type === 'attack') {
+    if (ev.type === 'attack' || ev.type === 'lost-target') {
       // Phase 4.2: gather the maximal contiguous run of attack/counter/kill
-      // events and emit them into a minimal number of dense frames where all
-      // simultaneously-visible arcs, floaters, and bursts appear together.
-      // Each "exchange" = one attack (+ optional counter) + trailing kills.
-      // All visible exchanges from the run land in a SINGLE combined volley
-      // frame so the player sees them all at once.
+      // events (+ interleaved lost-target fizzles, v0.8 pacing fix) and emit
+      // them into a minimal number of dense frames where all simultaneously-
+      // visible arcs, floaters, and bursts appear together. Each "exchange" =
+      // one attack (+ optional counter) + trailing kills. All visible exchanges
+      // from the run land in a SINGLE combined volley frame so the player sees
+      // them all at once. A run of ONLY lost-target events degrades to a lone
+      // 'fizzle' beat, identical to the legacy standalone handler.
 
       const combinedStrikes: Strike[] = [];
       const combinedArcs: ReplayFrame['arcs'] = [];
@@ -539,14 +582,57 @@ export function buildReplay(
       let firstAttType: string | null = null;
       let firstAttFaction: FactionId | null = null;
       let firstIsMist = false;
+      // v0.8 pacing fix: an explicit attack whose target evaporated emits a
+      // `lost-target` INTERLEAVED between real attacks (in initiative order).
+      // Folding it into this run keeps the volley a single beat instead of
+      // splitting into volley/fizzle/volley. Its existing feedback is preserved
+      // inside the combined frame (fizzle floater on the attacker, fizzle log
+      // line, summary tally). The first shown fizzle's glyph backs the slot when
+      // the run is fizzle-only, so a lone fizzle still looks exactly as before.
+      let shownFizzles = 0;
+      let fizzleGlyphType: string | null = null;
+      let fizzleGlyphFaction: FactionId | null = null;
 
       // We'll scan forward to collect the full run of attacks (each may have a
-      // counter + kills inline). The brawlChain reset (already done above at
+      // counter + kills inline) plus any interleaved lost-target fizzles. The
+      // brawlChain reset (already done above at
       // `if (ev.type !== 'brawl-exchange') brawlChain = null`) still fires when
       // we hit the attack, so that's handled. We consume events into j.
       let j = i;
 
-      while (j < events.length && events[j]!.type === 'attack') {
+      while (
+        j < events.length &&
+        (events[j]!.type === 'attack' || events[j]!.type === 'lost-target')
+      ) {
+        if (events[j]!.type === 'lost-target') {
+          // Fold the fizzle into the run without breaking the volley. Same
+          // visibility rule as the standalone handler: shown when the player
+          // can see the attacker's cell (own units always).
+          const le = events[j] as Extract<ResolutionEvent, { type: 'lost-target' }>;
+          const lAtt = sim.get(le.attackerId);
+          const lVis = vision();
+          if (lAtt && seen(lAtt.faction, lAtt.cell, lVis)) {
+            summary.fizzles += 1;
+            shownFizzles += 1;
+            combinedFloaters.push({
+              id: `fcombat-${combinedFloaters.length}`,
+              cell: lAtt.cell,
+              text: 'no target',
+              mist: false,
+              slot: slots.length, // patched to the shared slot below
+            });
+            combinedLogLines.push([
+              { t: nameOf(lAtt.type), f: lAtt.faction },
+              { t: ' holds fire — target lost' },
+            ]);
+            if (fizzleGlyphType === null && fizzleGlyphFaction === null) {
+              fizzleGlyphType = lAtt.type;
+              fizzleGlyphFaction = lAtt.faction;
+            }
+          }
+          j += 1;
+          continue;
+        }
         const aev = events[j] as Extract<ResolutionEvent, { type: 'attack' }>;
         const vis = vision(); // recompute for each attack — a prior kill may have shifted fog
         const att = sim.get(aev.attackerId);
@@ -659,30 +745,47 @@ export function buildReplay(
         }
       }
 
-      if (combinedStrikes.length > 0 || combinedKills.length > 0) {
+      if (combinedStrikes.length > 0 || combinedKills.length > 0 || shownFizzles > 0) {
         // Fix floater slot references to the new shared slot index.
         const slot = slots.length;
         for (const fl of combinedFloaters) fl.slot = slot;
 
-        // Determine slot glyph: mist if the first shown strike was from mist.
-        slots.push({
-          kind: 'volley',
-          actorType: firstIsMist ? null : firstAttType,
-          actorFaction: firstIsMist ? null : firstAttFaction,
-          strikes: combinedStrikes,
-        });
+        // Slot kind/glyph: a real strike (mist or not) owns the chip and makes
+        // this a 'volley'. A run with ONLY fizzles keeps the standalone-fizzle
+        // behavior — a 'fizzle' slot carrying the first shown fizzler's glyph.
+        const hasStrike = combinedStrikes.length > 0 || combinedKills.length > 0;
+        slots.push(
+          hasStrike
+            ? {
+                kind: 'volley',
+                actorType: firstIsMist ? null : firstAttType,
+                actorFaction: firstIsMist ? null : firstAttFaction,
+                strikes: combinedStrikes,
+              }
+            : {
+                kind: 'fizzle',
+                actorType: fizzleGlyphType,
+                actorFaction: fizzleGlyphFaction,
+                strikes: [],
+              },
+        );
 
-        // Camera: all attacker+defender cells of shown strikes + kills.
+        // Camera: all attacker+defender cells of shown strikes + kills, plus
+        // any fizzle floater cell (so a fizzle-only run frames the fizzler,
+        // matching the standalone handler; harmless when strikes dominate).
         const focus = new Set<CellId>();
         for (const s of combinedStrikes) {
           if (s.attackerCell !== null) focus.add(s.attackerCell);
           focus.add(s.defenderCell);
         }
         for (const k of combinedKills) focus.add(k.cell);
+        if (!hasStrike) for (const fl of combinedFloaters) focus.add(fl.cell);
 
         const visAfter = vision(); // deaths shrink player vision
         frames.push({
-          duration: VOLLEY_MS,
+          // A real strike anywhere in the run makes this a full volley beat; a
+          // fizzle-only run keeps the shorter standalone-fizzle duration.
+          duration: hasStrike ? VOLLEY_MS : FIZZLE_MS,
           slot,
           units: renderUnits(visAfter),
           ...fogFields(visAfter),
@@ -791,30 +894,10 @@ export function buildReplay(
       continue;
     }
 
-    if (ev.type === 'lost-target') {
-      const att = sim.get(ev.attackerId);
-      const vis = vision();
-      if (att && seen(att.faction, att.cell, vis)) {
-        summary.fizzles += 1;
-        const slot = slots.length;
-        slots.push({ kind: 'fizzle', actorType: att.type, actorFaction: att.faction, strikes: [] });
-        frames.push({
-          duration: FIZZLE_MS,
-          slot,
-          units: renderUnits(vis),
-          ...fogFields(vis),
-          ...emptyFx(),
-          floaters: [{ id: `f${slot}-0`, cell: att.cell, text: 'no target', mist: false, slot }],
-          focus: [att.cell],
-        });
-        log.push({
-          atFrame: frames.length - 1,
-          segs: [{ t: nameOf(att.type), f: att.faction }, { t: ' holds fire — target lost' }],
-        });
-      }
-      i++;
-      continue;
-    }
+    // NOTE: `lost-target` (fizzle) is handled entirely by the combat branch
+    // above — it enters on `attack` OR `lost-target` and folds interleaved
+    // fizzles into the volley beat (or degrades to a lone 'fizzle' beat). There
+    // is no separate standalone handler, so a fizzle can never split a volley.
 
     // ── E3 conquest events (addendum §B) — the BLIND-BUY FILTER. Own-faction
     // events always show; enemy capture/spawn/spawn-failed show only when the
