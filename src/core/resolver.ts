@@ -140,7 +140,8 @@ export function resolveRound(
       if (!u || u.faction !== faction || u.count <= 0) continue;
       if (order.kind === 'stance') stanceOf.set(order.unitId, order);
       else if (order.kind === 'move') moveOf.set(order.unitId, order);
-      else attackOf.set(order.unitId, order);
+      else if (order.kind === 'attack') attackOf.set(order.unitId, order);
+      // 'capture' — v0.8: resolver gating is a separate task; no-op here for now.
     }
   }
 

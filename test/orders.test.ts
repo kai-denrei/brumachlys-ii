@@ -403,3 +403,18 @@ describe('order queues', () => {
     expect(conv.get(2)).toEqual(['a', 'b']);
   });
 });
+
+// --- capture orders (v0.8 deliberate claim) -----------------------------------
+
+describe('capture orders', () => {
+  it('queues and flattens a capture order (one per unit, like other kinds)', () => {
+    let q: OrderQueues = {};
+    q = queueOrder(q, { kind: 'capture', unitId: 'u1' });
+    expect(flattenOrders(q)).toContainEqual({ kind: 'capture', unitId: 'u1' });
+  });
+  it('removes a capture order', () => {
+    let q: OrderQueues = queueOrder({}, { kind: 'capture', unitId: 'u1' });
+    q = removeOrder(q, 'u1', 'capture');
+    expect(orderedUnitIds(q).has('u1')).toBe(false);
+  });
+});

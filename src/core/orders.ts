@@ -18,11 +18,13 @@ import { IMPASSABLE } from './pathing';
 export type Order =
   | { kind: 'move'; unitId: string; path: CellId[] } // destination cells only, start excluded
   | { kind: 'attack'; unitId: string; targetCell: CellId }
-  | { kind: 'stance'; unitId: string; stance: Stance };
+  | { kind: 'stance'; unitId: string; stance: Stance }
+  | { kind: 'capture'; unitId: string }; // v0.8 — opt-in claim (consumes the unit)
 
 export type MoveOrder = Extract<Order, { kind: 'move' }>;
 export type AttackOrder = Extract<Order, { kind: 'attack' }>;
 export type StanceOrder = Extract<Order, { kind: 'stance' }>;
+export type CaptureOrder = Extract<Order, { kind: 'capture' }>;
 export type OrderKind = Order['kind'];
 
 /** A unit's planned round: at most one order per kind (spec §2.3). */
@@ -30,6 +32,7 @@ export type UnitOrders = {
   move?: MoveOrder;
   attack?: AttackOrder;
   stance?: StanceOrder;
+  capture?: CaptureOrder; // v0.8
 };
 
 /** All queued orders for one faction, by unit id. Treated as immutable. */
@@ -129,6 +132,10 @@ export function validateOrder(ctx: OrderContext, order: Order): ValidationResult
       if (order.stance === 'hold-fire' && ctx.queued?.attack) {
         return reject('hold-fire-blocks-attack');
       }
+      return OK;
+    case 'capture':
+      // capture is always queueable; the resolver decides if it actually fires
+      // (personnel + ends on a capturable base) — otherwise it's a harmless no-op.
       return OK;
   }
 }
@@ -238,7 +245,7 @@ export function removeOrder(queues: OrderQueues, unitId: string, kind: OrderKind
 export function orderedUnitIds(queues: OrderQueues): Set<string> {
   const ids = new Set<string>();
   for (const [unitId, uo] of Object.entries(queues)) {
-    if (uo.move || uo.attack || uo.stance) ids.add(unitId);
+    if (uo.move || uo.attack || uo.stance || uo.capture) ids.add(unitId);
   }
   return ids;
 }
@@ -255,6 +262,7 @@ export function flattenOrders(queues: OrderQueues): Order[] {
     if (uo.stance) orders.push(uo.stance);
     if (uo.move) orders.push(uo.move);
     if (uo.attack) orders.push(uo.attack);
+    if (uo.capture) orders.push(uo.capture);
   }
   return orders;
 }
