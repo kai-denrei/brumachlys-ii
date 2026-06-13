@@ -1228,6 +1228,9 @@ export function createGreedyPlanner(
         // (not own). For a brawl charge, the scoring only priced a capture if
         // the sim expected the unit to survive (chargeOurEnd > 0); emit only
         // then — a charge that kills the unit should not also attempt a claim.
+        // Trust the scorer: the unit already chose this destination, and
+        // cqBonusAt competed the capture value against alternatives (§8.2),
+        // so emitting the order here is consistent with that decision.
         if (cq && ut.armorType === 'personnel') {
           const bi = baseAt.get(landedOn);
           if (bi && bi.owner !== view.faction) {

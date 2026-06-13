@@ -14,7 +14,7 @@ import type { Board, CellId } from '../../src/board/types';
 import { loadUnits } from '../../src/io/data-loader';
 import { buildFactionView } from '../../src/ai/view';
 import { planRound } from '../../src/ai/planner';
-import { greedyPlanner } from '../../src/ai/planner-greedy';
+import { greedyPlanner, createGreedyPlanner } from '../../src/ai/planner-greedy';
 import { lineBoard, makeUnit } from '../core/synthetic';
 
 const types = loadUnits();
@@ -97,5 +97,90 @@ describe('planner capture-order emission (§B.7)', () => {
     // Sanity: the infantry on the neutral base DOES get a capture order.
     const infCapture = plan.orders.some((o) => o.kind === 'capture' && o.unitId === 'inf-cap');
     expect(infCapture).toBe(true);
+  });
+
+  // ── brawl-charge-onto-a-base (§B.7 chargeOurEnd branch) ─────────────────────
+  //
+  // When a personnel unit CHARGES (moves into an enemy-occupied cell), the
+  // planner only emits a capture order if the brawl sim says the unit
+  // survives (chargeOurEnd > 0). Two tests cover each branch.
+
+  it('charge survives (ourEnd > 0) → capture order IS emitted', () => {
+    // Board: 2 plains/base cells in a line.
+    // Cells: 0(faction-0 base / plains) — 1(enemy base)
+    // AI unit:   faction-0 ranger, count=8, at cell 0.
+    // Enemy:     faction-1 infantry, count=1, at cell 1 (enemy base).
+    //
+    // Brawl sim (both on base terrain, ranger initiative 11 > infantry initiative 8
+    // so ranger strikes first each tick):
+    //   tick 1: ranger A=7,Ta=0 vs infantry D=6,Td=2(base) → p=0.5+0.05*(7-6-2)=0.45 → eng=1 → dmg=1
+    //           infantry A=6,Ta=0 vs ranger D=5,Td=2(base) → p=0.5+0.05*(6-5-2)=0.45 → eng=1 → dmg=1
+    //           → ourEnd=7, theirEnd=0  (enemy destroyed, ranger survives, loss=1 ≤ CHARGE_MAX_LOSS=7)
+    //
+    // The conquest capture bonus (captureBonusEff ≈ 10 at round 1, pressure=0)
+    // minus unit-loss cost gives a strongly positive score, so the default
+    // weights choose the charge.
+    const board = lineBoard(['plains', 'base']);
+    const ai = makeUnit('rgr-8', 0, 0, 'ranger', 8);
+    const enemy = makeUnit('inf-1', 1, 1, 'infantry', 1);
+    const state = makeConquestState(board, [ai, enemy], { 0: 0, 1: 1 });
+    const view = buildFactionView(board, state, 0, types);
+    const plan = planRound(greedyPlanner, view, createRng(7));
+
+    // The planner should MOVE to the enemy base (charge) …
+    const moveToBase = plan.orders.some(
+      (o) => o.kind === 'move' && o.unitId === 'rgr-8' && o.path[o.path.length - 1] === 1,
+    );
+    expect(moveToBase).toBe(true);
+    // … and then emit a capture order because the unit survives the brawl.
+    const capture = plan.orders.some((o) => o.kind === 'capture' && o.unitId === 'rgr-8');
+    expect(capture).toBe(true);
+  });
+
+  it('charge dies (ourEnd === 0) → capture order is NOT emitted', () => {
+    // Board: 2 cells in a line.
+    // Cells: 0(plains) — 1(enemy base)
+    // AI unit:   faction-0 ranger, count=5, at cell 0.
+    // Enemy:     faction-1 ranger, count=5, at cell 1 (enemy base).
+    //
+    // Brawl sim (equal type, same initiative 11 → oursHigher=true, rangers strike first):
+    //   tick 1: ranger A=7,Ta=0 vs ranger D=5,Td=2(base) → p=0.5+0.05*(7-5-2)=0.5 → eng=5 → dmg=3
+    //           (mutual, same exchange) → a=2, b=2
+    //   tick 2: eng=2 → dmg=1 each → a=1, b=1
+    //   tick 3: eng=1 → dmg=1 each → a=0, b=0  → mutual annihilation
+    //   ourEnd=0, theirEnd=0, loss=5 ≤ CHARGE_MAX_LOSS=7  (the charge passes the filter)
+    //
+    // With default weights the CHARGE_DEATH_PENALTY=5 and no capture bonus
+    // (survives=false → cqBonusAt returns 0) make the dying charge less
+    // attractive than a ranged attack from stay-put: the ranged attack deals
+    // 3 counts from cell 0 (distance 1) with the counter offset by the sunk
+    // auto-fire exposure, whereas the charge value at default weights is
+    //   value = 1.0*5 + 0.6*menace − 5 − 5 ≈ −3.2
+    // which loses to the attack score. We use damageDealt=5.0 so that the
+    // kill credit dominates:
+    //   chargeValue = 5.0*5 + 0.6*3 − 5 − 5 = 16.8  (> ranged-attack score)
+    // This directly exercises the branch-suppression guard without calibrating
+    // the real weights.
+    const highDmgPlanner = createGreedyPlanner({ damageDealt: 5.0 });
+    const board = lineBoard(['plains', 'base']);
+    const ai = makeUnit('rgr-die', 0, 0, 'ranger', 5);
+    const enemy = makeUnit('rgr-enemy', 1, 1, 'ranger', 5);
+    // No own base: bases = {1:1} only (no cell-0 base — plain start).
+    const state = makeConquestState(board, [ai, enemy], { 1: 1 });
+    const view = buildFactionView(board, state, 0, types);
+    const plan = planRound(highDmgPlanner, view, createRng(7));
+
+    // The planner must have chosen the charge (move to cell 1, enemy's base)
+    // for the test to exercise the branch. With damageDealt=5.0 the charge
+    // value of 16.8 far exceeds the ranged-attack score of ~11, so the
+    // planner moves into the enemy cell (no separate attack order is emitted
+    // — a charge move replaces the attack).
+    const moveToBase = plan.orders.some(
+      (o) => o.kind === 'move' && o.unitId === 'rgr-die' && o.path[o.path.length - 1] === 1,
+    );
+    expect(moveToBase).toBe(true);
+    // The unit dies (ourEnd=0), so NO capture order should be emitted.
+    const capture = plan.orders.find((o) => o.kind === 'capture' && o.unitId === 'rgr-die');
+    expect(capture).toBeUndefined();
   });
 });

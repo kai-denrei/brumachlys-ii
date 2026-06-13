@@ -63,7 +63,7 @@ function baseLine(n: number, baseCells: CellId[]): Board {
 
 // ── Phase B.5: capture (§B.2) ─────────────────────────────────────────────────
 
-describe('capture (Phase B.5) — the claim consumes the claimant (v0.6)', () => {
+describe('capture (Phase B.5) — opt-in claim consumes the claimant (v0.8)', () => {
   test('personnel ending the round on an ENEMY base flips it + capture event; unit is CONSUMED', () => {
     const board = baseLine(5, [1]);
     const state = makeConquestState(
