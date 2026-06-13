@@ -10,6 +10,8 @@
 
 export type { ConquestView, FactionView, KnownBases } from './view';
 export { buildFactionView } from './view';
+export type { GroupDirective } from './directives';
+export { planDirective } from './directives';
 export type { ConquestPlan, OrderPlanner } from './planner';
 export { planRound } from './planner';
 export {

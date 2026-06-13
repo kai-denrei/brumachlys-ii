@@ -8,13 +8,15 @@
     "threatConcentration": 0.5
   },
   "conquest": {
-    "captureBonus": 8.0,
+    "captureBonus": 10.0,
+    "captureUnitLoss": 0.3,
+    "captureCostLoss": 3.0,
     "baseThreat": 0.4,
     "claimSpread": 4.0,
-    "defendBase": 3.0,
+    "defendBase": 0.0,
     "spawnBlock": 1.0,
     "vehicleSquat": 2.0,
-    "personnelFloor": 0.4,
+    "personnelFloor": 0.5,
     "pressurePerBaseDown": 0.34,
     "pressurePerBaseUp": 0.0,
     "capturePressure": 3.0,
@@ -22,7 +24,7 @@
     "stallPressureStart": 8,
     "stallPressureRamp": 10,
     "overdriveRamp": 10,
-    "maxForce": 12,
+    "maxForce": 18,
     "forcePerBase": 2.5,
     "richFloor": 800,
     "raidThreshold": 99

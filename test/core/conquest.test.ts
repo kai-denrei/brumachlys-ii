@@ -63,8 +63,8 @@ function baseLine(n: number, baseCells: CellId[]): Board {
 
 // ── Phase B.5: capture (§B.2) ─────────────────────────────────────────────────
 
-describe('capture (Phase B.5)', () => {
-  test('personnel ending the round on an ENEMY base flips it + capture event', () => {
+describe('capture (Phase B.5) — the claim consumes the claimant (v0.6)', () => {
+  test('personnel ending the round on an ENEMY base flips it + capture event; unit is CONSUMED', () => {
     const board = baseLine(5, [1]);
     const state = makeConquestState(
       board,
@@ -74,11 +74,15 @@ describe('capture (Phase B.5)', () => {
     const { state: s, events } = resolve(board, state, [{ kind: 'move', unitId: 'inf', path: [1] }]);
     expect(s.bases![1]).toBe(0);
     expect(ofType(events, 'capture')).toEqual([
-      { type: 'capture', unitId: 'inf', cell: 1, from: 1, to: 0 },
+      { type: 'capture', unitId: 'inf', cell: 1, from: 1, to: 0, unitConsumed: true },
     ]);
+    // Consumed, not killed: gone from state, but NO kill event (the UI's
+    // dissolve-into-the-flag vs combat death distinction rides on this).
+    expect(s.units['inf']).toBeUndefined();
+    expect(ofType(events, 'kill')).toHaveLength(0);
   });
 
-  test('personnel on a NEUTRAL base flips it (from: null)', () => {
+  test('personnel on a NEUTRAL base flips it (from: null) and is consumed', () => {
     const board = baseLine(5, [1]);
     const state = makeConquestState(
       board,
@@ -88,11 +92,13 @@ describe('capture (Phase B.5)', () => {
     const { state: s, events } = resolve(board, state);
     expect(s.bases![1]).toBe(0);
     expect(ofType(events, 'capture')).toEqual([
-      { type: 'capture', unitId: 'rgr', cell: 1, from: null, to: 0 },
+      { type: 'capture', unitId: 'rgr', cell: 1, from: null, to: 0, unitConsumed: true },
     ]);
+    expect(s.units['rgr']).toBeUndefined();
+    expect(ofType(events, 'kill')).toHaveLength(0);
   });
 
-  test('all four personnel types capture; vehicles never do', () => {
+  test('all four personnel types capture (and are consumed); vehicles never do', () => {
     for (const key of ['infantry', 'ranger', 'sniper', 'grenadier']) {
       const board = baseLine(3, [0]);
       const state = makeConquestState(
@@ -100,7 +106,9 @@ describe('capture (Phase B.5)', () => {
         [makeUnit('u', 0, 0, key), makeUnit('far', 1, 2, 'infantry')],
         { bases: { 0: null } },
       );
-      expect(resolve(board, state).state.bases![0]).toBe(0);
+      const { state: s } = resolve(board, state);
+      expect(s.bases![0]).toBe(0);
+      expect(s.units['u']).toBeUndefined();
     }
     for (const key of ['humvee', 'tank', 'artillery', 'heavytank']) {
       const board = baseLine(3, [0]);
@@ -112,6 +120,7 @@ describe('capture (Phase B.5)', () => {
       const { state: s, events } = resolve(board, state);
       expect(s.bases![0]).toBe(null);
       expect(ofType(events, 'capture')).toHaveLength(0);
+      expect(s.units['u']).toBeDefined(); // no capture ⇒ no consumption
     }
   });
 
@@ -130,7 +139,7 @@ describe('capture (Phase B.5)', () => {
     expect(ofType(events, 'capture')).toHaveLength(0);
   });
 
-  test('own base: no flip, no event', () => {
+  test('own base: no flip, no event, no consumption', () => {
     const board = baseLine(3, [0]);
     const state = makeConquestState(
       board,
@@ -140,6 +149,110 @@ describe('capture (Phase B.5)', () => {
     const { state: s, events } = resolve(board, state);
     expect(s.bases![0]).toBe(0);
     expect(ofType(events, 'capture')).toHaveLength(0);
+    expect(s.units['inf']).toBeDefined();
+  });
+
+  test('B.5 runs AFTER Phase B combat: the capturer fires its attack first, THEN is consumed', () => {
+    const board = baseLine(4, [1]);
+    // Sniper moves onto the enemy base at 1 and explicitly attacks the enemy
+    // infantry at 2 (range 1 from the base). Phase B: the attack fires.
+    // Phase B.5: the sniper flips the base and is consumed.
+    const state = makeConquestState(
+      board,
+      [makeUnit('snp', 0, 0, 'sniper'), makeUnit('inf', 1, 2, 'infantry')],
+      { bases: { 1: 1 } },
+    );
+    const { state: s, events } = resolve(
+      board,
+      state,
+      [
+        { kind: 'move', unitId: 'snp', path: [1] },
+        { kind: 'attack', unitId: 'snp', targetCell: 2 },
+      ],
+      [{ kind: 'stance', unitId: 'inf', stance: 'hold-fire' }],
+    );
+    const attackIdx = events.findIndex((e) => e.type === 'attack');
+    const captureIdx = events.findIndex((e) => e.type === 'capture');
+    expect(attackIdx).toBeGreaterThanOrEqual(0); // the attack really fired
+    expect(captureIdx).toBeGreaterThan(attackIdx); // capture strictly after combat
+    expect(ofType(events, 'attack')[0]!.attackerId).toBe('snp');
+    expect(s.bases![1]).toBe(0);
+    expect(s.units['snp']).toBeUndefined();
+  });
+
+  test('a capturer that SURVIVED Phase B fire still flips (then is consumed); accumulator leaves no trace', () => {
+    const board = baseLine(3, [0]);
+    // Full infantry stands on the enemy base; the adjacent enemy sniper hits
+    // it in Phase B (gang-up accumulator gets an entry) but cannot kill a
+    // 10-count in one strike. It survives to B.5 → the flip stands, the unit
+    // is consumed, and no attackedFrom state lingers (the unit is gone).
+    const state = makeConquestState(
+      board,
+      [makeUnit('inf', 0, 0, 'infantry'), makeUnit('snp', 1, 1, 'sniper')],
+      { bases: { 0: 1 } },
+    );
+    const { state: s, events } = resolve(board, state, [
+      { kind: 'stance', unitId: 'inf', stance: 'hold-fire' },
+    ]);
+    const hits = ofType(events, 'attack').filter((a) => a.defenderId === 'inf');
+    expect(hits.length).toBeGreaterThan(0); // it really was shot
+    expect(hits[0]!.defenderCountAfter).toBeGreaterThan(0); // ...and survived
+    expect(s.bases![0]).toBe(0);
+    expect(ofType(events, 'capture')).toEqual([
+      { type: 'capture', unitId: 'inf', cell: 0, from: 1, to: 0, unitConsumed: true },
+    ]);
+    expect(s.units['inf']).toBeUndefined();
+    expect(ofType(events, 'kill')).toHaveLength(0);
+  });
+
+  test('future-round orders addressed to a consumed unit are dropped silently', () => {
+    const board = baseLine(5, [1]);
+    const state = makeConquestState(
+      board,
+      [makeUnit('inf', 0, 1, 'infantry'), makeUnit('far', 1, 4, 'infantry')],
+      { bases: { 1: null } },
+    );
+    const r1 = resolve(board, state);
+    expect(r1.state.units['inf']).toBeUndefined(); // consumed in round 1
+    // Round 2: orders for the consumed id must be ignored — no move, no
+    // attack, no lost-target, nothing referencing it.
+    const r2 = resolve(board, r1.state, [
+      { kind: 'move', unitId: 'inf', path: [2] },
+      { kind: 'attack', unitId: 'inf', targetCell: 4 },
+      { kind: 'stance', unitId: 'inf', stance: 'defensive' },
+    ]);
+    expect(r2.events.some((e) => 'unitId' in e && e.unitId === 'inf')).toBe(false);
+    expect(r2.events.some((e) => e.type === 'lost-target' && e.attackerId === 'inf')).toBe(false);
+  });
+
+  test('the consumed unit no longer blocks Phase E production on the captured base', () => {
+    // Capture vacates the base at B.5, so the OLD owner's queued buy fails
+    // 'base-lost' (not 'occupied'), and next round the NEW owner can spawn
+    // there — the cell is empty.
+    const board = baseLine(4, [1]);
+    board.economy = { initialCredits: 0, perBaseCredits: 0 };
+    const state = makeConquestState(
+      board,
+      [makeUnit('rgr', 0, 0, 'ranger'), makeUnit('far', 1, 3, 'infantry')],
+      { bases: { 1: 1 }, credits: { 0: 500, 1: 500 } },
+    );
+    const r1 = resolve(
+      board,
+      state,
+      [{ kind: 'move', unitId: 'rgr', path: [1] }],
+      [],
+      { 0: [], 1: [{ kind: 'buy', baseCell: 1, unitTypeKey: 'infantry' }] },
+    );
+    expect(r1.state.bases![1]).toBe(0);
+    expect(ofType(r1.events, 'spawn-failed')).toEqual([
+      { type: 'spawn-failed', cell: 1, faction: 1, unitTypeKey: 'infantry', reason: 'base-lost' },
+    ]);
+    const r2 = resolve(board, r1.state, [], [], {
+      0: [{ kind: 'buy', baseCell: 1, unitTypeKey: 'infantry' }],
+      1: [],
+    });
+    expect(ofType(r2.events, 'spawn')).toHaveLength(1);
+    expect(r2.state.units['f0-r2-b1-infantry']).toBeDefined();
   });
 
   test('skirmish mode emits no conquest events even with units on base terrain', () => {

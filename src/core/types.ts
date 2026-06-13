@@ -160,6 +160,13 @@ export type ResolutionEvent =
       cell: CellId;
       from: FactionId | null; // null = was neutral
       to: FactionId;
+      /** v0.6 — the claim CONSUMES the claimant: the unit is removed from
+       *  state by this event (no separate `kill` is emitted — it did not die
+       *  in combat; the UI renders a dissolve-into-the-flag, not a death).
+       *  Casualty accounting MUST still count it as a loss for its owner
+       *  (the owner is `to` — the capturing faction). Always `true`; kept
+       *  explicit so the replay/UI contract is visible in the event itself. */
+      unitConsumed: true;
     }
   | {
       type: 'income'; // Phase E — perBase × bases owned at that moment (§B.3)

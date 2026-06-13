@@ -512,12 +512,20 @@ export function resolveRound(
     if (att.count <= 0) killUnit(att);
   }
 
-  // ── B.5. Captures (conquest only — addendum §B.2) ─────────────────────────
+  // ── B.5. Captures (conquest only — addendum §B.2, v0.6 rules change) ──────
   // A personnel unit ending the round alive on a base cell not owned by its
-  // faction flips it immediately. Vehicles never capture. Init order (the
-  // round's one ordering mechanism, §2.2) — deterministic when units of both
-  // factions share a base cell (mutual-immunity brawl edge: the LAST flip,
-  // i.e. the lowest-initiative unit's, stands).
+  // faction flips it immediately — and is CONSUMED by the claim: the unit is
+  // removed from state (operator rules change, v0.6). The capture event
+  // carries `unitConsumed: true`; no `kill` event is emitted (this is not a
+  // combat death — replay renders a dissolve, casualty rows still count it
+  // as a loss for its owner). B.5 runs AFTER all Phase B combat, so every
+  // order the unit held this round already resolved; only its future-round
+  // orders are moot (the sanitize pass drops orders for unknown units).
+  // Vehicles never capture. Init order (the round's one ordering mechanism,
+  // §2.2) — deterministic when units of both factions share a base cell
+  // (mutual-immunity brawl edge: flips run in sequence, each claimant
+  // consumed in turn — the LAST flip, i.e. the lowest-initiative unit's,
+  // stands, and ALL of them are spent).
   if (conquest) {
     const bases = next.bases!;
     for (const u of alive().sort(cmpUnits)) {
@@ -527,7 +535,15 @@ export function resolveRound(
       const from = bases[u.cell]!;
       if (from === u.faction) continue; // own base — no-op
       bases[u.cell] = u.faction;
-      events.push({ type: 'capture', unitId: u.id, cell: u.cell, from, to: u.faction });
+      events.push({
+        type: 'capture',
+        unitId: u.id,
+        cell: u.cell,
+        from,
+        to: u.faction,
+        unitConsumed: true,
+      });
+      delete next.units[u.id]; // spent in the claim — distinct from a kill
     }
   }
 

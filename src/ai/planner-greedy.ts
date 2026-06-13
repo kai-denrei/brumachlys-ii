@@ -71,16 +71,16 @@
 // (acceptance test reports it) — far under the ~50 ms UI-thread budget.
 
 import aiJson from '../../data/ai.json';
-import type { Board, CellId, TerrainKey } from '../board/types';
+import type { CellId, TerrainKey } from '../board/types';
 import { attackDamage, battleExchange } from '../core/combat/weewar';
 import type { Order } from '../core/orders';
-import { IMPASSABLE, findPath, movementCostsFor, reachableCells } from '../core/pathing';
-import type { MovementCosts } from '../core/pathing';
+import { findPath, movementCostsFor, reachableCells } from '../core/pathing';
 import { ROUND_LIMIT } from '../core/resolver';
 import { fnv1a32, initTieKey } from '../core/rng';
 import type { Rng } from '../core/rng';
 import type { FactionId, Stance, UnitInstance, UnitType } from '../core/types';
 import { planConquestBuys } from './conquest-economy';
+import { bfsHops, multiSourceCost, multiSourceHops } from './fields';
 import type { ConquestPlan, OrderPlanner } from './planner';
 import type { FactionView } from './view';
 
@@ -105,13 +105,30 @@ export const DEFAULT_GREEDY_WEIGHTS: GreedyWeights = aiJson.greedy;
 export type ConquestWeights = {
   /** Ending a personnel unit's round on a capturable base (§B.2 flip). */
   captureBonus: number;
+  /** v0.6 — capture CONSUMES the claimant (resolver B.5): price the spent
+   *  unit's remaining strength, per count. Counts are the planner's damage
+   *  currency (the charge logic prices brawl losses at 1/count), but a claim
+   *  buys a permanent income stream, so the slope sits well under parity —
+   *  and a depleted unit is naturally the cheaper claim fuel. */
+  captureUnitLoss: number;
+  /** v0.6 — the spent unit's REPLACEMENT cost, per 100 credits. This is the
+   *  term that separates the fuel from the assets: infantry (75) stays a
+   *  cheap claimant, a sniper (200) prices out of casual flips until the
+   *  pressure curve (capturePressure × pressure) overwhelms it. */
+  captureCostLoss: number;
   /** Per visible-enemy-count threat near a base, when CHOOSING capture
    *  targets — hot bases are worth approaching with force, not solo. */
   baseThreat: number;
   /** Target-assignment spread: penalty per ally already claiming a base. */
   claimSpread: number;
   /** Standing on (full) / covering (scaled) an own base under visible
-   *  threat — an occupied base cannot be flipped (§B.2 needs to END there). */
+   *  threat — an occupied base cannot be flipped (§B.2 needs to END there).
+   *  v0.6 RETUNE: 0.0. Under capture-consumes rules a garrison is nearly
+   *  unbreakable (equal-personnel charges decline, ranged kills re-garrison
+   *  from production) — with both sides garrisoning, mirror games froze at
+   *  ZERO captures for 40 straight rounds (traced, seed 11). Disabling the
+   *  impulse restored the flip war and mirror decisiveness; the weight stays
+   *  for experiments. */
   defendBase: number;
   /** Tax for parking on an own SAFE base — it blocks Phase E production. */
   spawnBlock: number;
@@ -161,7 +178,10 @@ export type ConquestWeights = {
   /** Stop buying at this many own living units — units beyond what the map
    *  can maneuver just gridlock the frontier (observed in the same stall:
    *  uncapped mirror games grew 70–80-unit hordes that out-produced each
-   *  other in place and flipped nothing). */
+   *  other in place and flipped nothing). v0.6 RETUNE: 12 → 18. At 12 the
+   *  ceiling clipped the forcePerBase snowball from 5 bases up (2.5×5 ≥ 12),
+   *  so a base lead converted to nothing; 18 lets the leader's per-base cap
+   *  really diverge while forcePerBase still binds. */
   maxForce: number;
   /** Force cap per believed-own base (supply): effective cap =
    *  min(maxForce, forcePerBase × own bases). THE conquest snowball — a
@@ -180,25 +200,6 @@ export const DEFAULT_CONQUEST_WEIGHTS: ConquestWeights = aiJson.conquest;
 
 /** Hop radius within which visible enemies register as threat on a base. */
 const BASE_THREAT_RADIUS = 4;
-
-/** Full-board BFS hop distances from `from` (optionally depth-capped).
- *  Hop metric matches graphDistance — range and vision are hop-based. */
-function bfsHops(board: Board, from: CellId, maxHops = Infinity): Map<CellId, number> {
-  const dist = new Map<CellId, number>([[from, 0]]);
-  let frontier: CellId[] = [from];
-  for (let d = 1; d <= maxHops && frontier.length > 0; d++) {
-    const next: CellId[] = [];
-    for (const id of frontier) {
-      for (const n of board.cells.get(id)!.neighbors) {
-        if (dist.has(n)) continue;
-        dist.set(n, d);
-        next.push(n);
-      }
-    }
-    frontier = next;
-  }
-  return dist;
-}
 
 /** Advance distances are walking costs in tenths; one plains step is 3, so
  *  dividing by this makes w.advance read "per plains-cell-equivalent". */
@@ -273,67 +274,6 @@ function simulateBrawl(
  *  agree with the visible-state one, which kills the observed period-2
  *  limit cycle (advance in fog → see 5 enemies → retreat → fog → repeat). */
 const PHANTOM_THREAT = 5;
-
-/** Multi-source BFS hop distances (terrain-blind). */
-function multiSourceHops(board: Board, sources: readonly CellId[]): Map<CellId, number> {
-  const dist = new Map<CellId, number>();
-  let frontier: CellId[] = [];
-  for (const s of sources) {
-    if (!board.cells.has(s) || dist.has(s)) continue;
-    dist.set(s, 0);
-    frontier.push(s);
-  }
-  for (let d = 1; frontier.length > 0; d++) {
-    const next: CellId[] = [];
-    for (const id of frontier) {
-      for (const n of board.cells.get(id)!.neighbors) {
-        if (dist.has(n)) continue;
-        dist.set(n, d);
-        next.push(n);
-      }
-    }
-    frontier = next;
-  }
-  return dist;
-}
-
-/** Multi-source Dijkstra: cheapest walking cost (tenths, in this unit's
- *  terrain costs) from the nearest source. Sources seed at 0 even when the
- *  unit could not stand there (enemy on a mountain, fog cell in the hills);
- *  expansion only ever enters cells the unit can pass. */
-function multiSourceCost(
-  board: Board,
-  costs: MovementCosts,
-  sources: readonly CellId[],
-): Map<CellId, number> {
-  const dist = new Map<CellId, number>();
-  const queue: { cell: CellId; cost: number }[] = [];
-  for (const s of sources) {
-    if (!board.cells.has(s)) continue;
-    dist.set(s, 0);
-    queue.push({ cell: s, cost: 0 });
-  }
-  while (queue.length > 0) {
-    let bi = 0;
-    for (let i = 1; i < queue.length; i++) {
-      if (queue[i]!.cost < queue[bi]!.cost) bi = i;
-    }
-    const cur = queue.splice(bi, 1)[0]!;
-    if (cur.cost > (dist.get(cur.cell) ?? Infinity)) continue;
-    for (const n of board.cells.get(cur.cell)!.neighbors) {
-      const cell = board.cells.get(n);
-      if (!cell) continue;
-      const step = costs[cell.terrain] ?? IMPASSABLE;
-      if (step >= IMPASSABLE) continue;
-      const nd = cur.cost + step;
-      if (nd < (dist.get(n) ?? Infinity)) {
-        dist.set(n, nd);
-        queue.push({ cell: n, cost: nd });
-      }
-    }
-  }
-  return dist;
-}
 
 type EnemyInfo = {
   unit: UnitInstance;
@@ -503,6 +443,13 @@ export function createGreedyPlanner(
       // march itself must outbid a round of trading, so the thrust actually
       // moves; captures, not kills, are what convert a conquest standoff.
       const advWeight = cq ? w.advance * (1 + cw.advancePressure * pressure) : w.advance;
+      // The vehicle-squat tax must scale WITH the advance weight (v0.6 fix):
+      // an escort's advance field zeroes ON the objective base, so under
+      // pressure the flat tax was outbid by pressure-scaled advance credit —
+      // a tank parked itself on the flag and blocked the flip forever
+      // (observed: 9-1 vs do-nothing frozen for 100 rounds, the LAST enemy
+      // base squatted by its own escort).
+      const vehicleSquatEff = cq ? cw.vehicleSquat * (1 + cw.advancePressure * pressure) : 0;
 
       // Advance objective (per-unit field built below, terrain-aware):
       //   1. visible enemies → walk toward the nearest one;
@@ -886,6 +833,16 @@ export function createGreedyPlanner(
         // (0 in skirmish). Capture flips need the unit ALIVE at Phase B.5 —
         // the charge branch passes its brawl-survival verdict.
         const isPersonnel = ut.armorType === 'personnel';
+        // v0.6: the flip CONSUMES the claimant (resolver B.5). Net capture
+        // value = pressure-scaled payoff − the spent unit (remaining counts
+        // + replacement cost). May go NEGATIVE for expensive/healthy units
+        // at low pressure — correctly steering a sniper AWAY from a base
+        // cell the engine would spend it on; desperation (captureBonusEff
+        // grows with pressure) overrides, and a depleted cheap infantry is
+        // the preferred claim fuel.
+        const captureLoss = cq
+          ? cw.captureUnitLoss * u.count + cw.captureCostLoss * (ut.cost / 100)
+          : 0;
         const cqBonusAt = (cell: CellId, survives: boolean): number => {
           if (!cq) return 0;
           let bonus = 0;
@@ -893,11 +850,12 @@ export function createGreedyPlanner(
           if (bi) {
             if (bi.owner !== view.faction) {
               // Ending here flips it (§B.2) — the conquest payoff itself,
-              // pressure-scaled (captureBonusEff). Vehicles cannot capture:
-              // squatting an objective both wastes the escort and blocks the
-              // flip a personnel ally would make.
-              if (isPersonnel) bonus += survives ? captureBonusEff : 0;
-              else bonus -= cw.vehicleSquat;
+              // pressure-scaled (captureBonusEff), MINUS the unit the claim
+              // consumes (v0.6). Vehicles cannot capture: squatting an
+              // objective both wastes the escort and blocks the flip a
+              // personnel ally would make.
+              if (isPersonnel) bonus += survives ? captureBonusEff - captureLoss : 0;
+              else bonus -= vehicleSquatEff;
             } else if (bi.threat > 0) {
               // Standing ON an own threatened base denies the flip outright
               // (§B.2 requires the capturer to END there — occupied means a
@@ -905,7 +863,7 @@ export function createGreedyPlanner(
               bonus += cw.defendBase;
             } else {
               // Parking on an own SAFE base blocks Phase E production.
-              bonus -= cw.spawnBlock + (isPersonnel ? 0 : cw.vehicleSquat);
+              bonus -= cw.spawnBlock + (isPersonnel ? 0 : vehicleSquatEff);
             }
           }
           // Defend-base impulse: cells COVERING an own base under visible
