@@ -750,6 +750,13 @@ describe('replay builder — concurrent combat (Phase 4.2)', () => {
     for (const f of volleyFrames) {
       expect(f.units.some((u) => u.id === 'aa')).toBe(false);
     }
+    // §7 regression: the FIRST shown strike is the mist one — it owns the slot
+    // glyph, so the chip must stay anonymous even though a later visible sniper
+    // strike shares the combined volley. (Guards the firstAttSet sentinel: a
+    // null firstAttType from a mist strike must NOT let the sniper hijack it.)
+    const volleySlot = script.slots.find((s) => s.kind === 'volley');
+    expect(volleySlot?.actorType).toBeNull();
+    expect(volleySlot?.actorFaction).toBeNull();
   });
 
   it('concurrent group preserves all strike data for breakdown modal', () => {

@@ -530,7 +530,12 @@ export function buildReplay(
       const combinedFloaters: Floater[] = [];
       const combinedLogLines: LogSeg[][] = [];
       const allShownVictims = new Set<string>();
-      // First visible attacker/type for the slot (used for slot glyph).
+      // First visible attacker/type for the slot (used for slot glyph). The
+      // `firstAttSet` flag is the sentinel — NOT `firstAttType === null`, since
+      // a mist strike legitimately sets firstAttType to null and would
+      // otherwise let a later visible strike hijack the slot glyph (the first
+      // shown strike owns the chip, mist or not).
+      let firstAttSet = false;
       let firstAttType: string | null = null;
       let firstAttFaction: FactionId | null = null;
       let firstIsMist = false;
@@ -581,8 +586,10 @@ export function buildReplay(
                   { t: nameOf(def.type), f: def.faction },
                   { t: ` −${aev.damage}` },
                 ];
-            // Record the first visible attacker for the slot glyph.
-            if (firstAttType === null) {
+            // Record the first visible attacker for the slot glyph (mist or
+            // not — the first shown strike owns the chip).
+            if (!firstAttSet) {
+              firstAttSet = true;
               firstAttType = mist ? null : att.type;
               firstAttFaction = mist ? null : att.faction;
               firstIsMist = mist;
@@ -637,17 +644,10 @@ export function buildReplay(
         j = innerJ;
       }
 
-      // Gather shown kills to include in the frame (re-scan: consumeKills
-      // already zeroed out counts, but we need the snapshots).
-      // We took snapshots inside consumeKills during the loop above. We need
-      // to reconstruct them. Instead, re-use the shown list from the last call.
-      // Actually: consumeKills returns shown snapshots — we need to accumulate.
-      // Refactor: collect kills separately.
-      // We redo this by re-scanning killed units (count==0, not in consumedIds)
-      // that were in allShownVictims. Simpler: track them during the loop.
-
-      // Collect the dead shown victims for the kill frame. They're already
-      // removed from living(), so we snapshot from sim directly.
+      // Collect the dead shown victims for this run's kill frame. consumeKills
+      // already zeroed their counts and recorded them in summary.kills during
+      // the loop; we snapshot the (now count==0) units from sim here so all
+      // deaths in the run fade together in the single combined frame.
       const combinedKills: UnitInstance[] = [];
       for (const id of allShownVictims) {
         const u = sim.get(id);
