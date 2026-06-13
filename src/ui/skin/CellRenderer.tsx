@@ -137,55 +137,150 @@ function swampDashes(rng: () => number, c: Pt, r: number): JSX.Element[] {
   });
 }
 
-/** Tent + palisade motif for neutral camps (sand-tone ink, no flag). Drawn
- * in the same anchor box the flag pip uses, so camps and bases read as the
- * same "findable settlement" vocabulary at a glance. */
+/** Tent + stockade motif for neutral camps (sand-tone ink, no flag). An
+ * inviting-but-unclaimed fortification: a ridge-pole tent with a ridge-cap
+ * crossbar, set inside a partial-circle stockade arc. Reads distinctly from
+ * the keep motif on owned bases — same vocabulary, different status. */
 function CampMotif({ c, r, ink }: { c: Pt; r: number; ink: string }) {
-  const w = r * 0.52; // tent half-width
-  const h = r * 0.5; // tent height
-  const baseY = r * 0.32; // tent baseline below cell center
+  const tw = r * 0.46; // tent half-width
+  const th = r * 0.44; // tent height
+  const baseY = r * 0.28; // tent baseline (y-down, so positive = lower on screen)
+  const topY = baseY - th; // tent peak
+  const sw = r * 0.085; // standard stroke weight
+  // stockade: an arc from ~220° to ~320° (lower-rear) so it frames the tent
+  // without obscuring it — 5 stub posts on the curve.
+  const stockR = r * 0.82;
+  const postCount = 5;
+  const arcStart = (220 * Math.PI) / 180;
+  const arcEnd = (320 * Math.PI) / 180;
   return (
     <g className="camp-pip" pointerEvents="none" transform={`translate(${c[0]} ${c[1]})`}>
-      {/* tent: triangle outline + center seam */}
+      {/* stockade arc posts */}
+      {Array.from({ length: postCount }, (_, i) => {
+        const t = arcStart + (i / (postCount - 1)) * (arcEnd - arcStart);
+        const px = Math.cos(t) * stockR;
+        const py = Math.sin(t) * stockR;
+        // post points toward center — draw it inward
+        const inR = stockR * 0.72;
+        return (
+          <line
+            key={`p${i}`}
+            x1={px}
+            y1={py}
+            x2={Math.cos(t) * inR}
+            y2={Math.sin(t) * inR}
+            stroke={ink}
+            strokeWidth={sw * 0.8}
+            strokeLinecap="round"
+          />
+        );
+      })}
+      {/* tent body: filled lightly so it reads as a solid form, not just wire */}
       <path
-        d={`M${-w} ${baseY} L0 ${baseY - h} L${w} ${baseY} Z`}
-        fill="none"
+        d={`M${-tw} ${baseY} L0 ${topY} L${tw} ${baseY} Z`}
+        fill={ink}
+        fillOpacity={0.13}
         stroke={ink}
-        strokeWidth={r * 0.08}
+        strokeWidth={sw}
         strokeLinejoin="round"
       />
+      {/* ridge-pole crossbar at the peak — marks the center post */}
+      <line
+        x1={-tw * 0.28}
+        y1={topY + th * 0.06}
+        x2={tw * 0.28}
+        y2={topY + th * 0.06}
+        stroke={ink}
+        strokeWidth={sw * 0.75}
+        strokeLinecap="round"
+      />
+      {/* center seam */}
       <line
         x1={0}
-        y1={baseY - h}
+        y1={topY}
         x2={0}
         y2={baseY}
         stroke={ink}
-        strokeWidth={r * 0.06}
+        strokeWidth={sw * 0.65}
+        strokeLinecap="round"
+        strokeOpacity={0.55}
+      />
+    </g>
+  );
+}
+
+/** Keep/standard motif for owned bases — a crenellated tower silhouette
+ * with the faction flag on a mast. Far more legible than the former small
+ * pennant at phone zoom; the tower outline reads the same in memory tier. */
+function OwnedBaseMotif({ c, r, color }: { c: Pt; r: number; color: string }) {
+  // Tower geometry (centered, y-down)
+  const tw = r * 0.46; // tower half-width
+  const tH = r * 0.66; // tower total height
+  const topY = -r * 0.34; // top of battlements
+  const botY = topY + tH; // tower base
+  const merlonW = tw * 0.28; // merlon (raised) width
+  const merlonH = r * 0.14; // merlon protrusion
+  const gateW = tw * 0.38; // gate arch half-width
+  const gateH = r * 0.22; // gate arch height
+  const sw = r * 0.07; // stroke weight
+  // Tower body (filled with faction color at low opacity)
+  const towerFill = color;
+  // Battlement: 3 merlons centered on the tower top
+  const merX = [-merlonW, 0, merlonW];
+  return (
+    <g className="base-keep" pointerEvents="none" transform={`translate(${c[0]} ${c[1]})`}>
+      {/* tower body */}
+      <rect
+        x={-tw}
+        y={topY}
+        width={tw * 2}
+        height={tH}
+        fill={towerFill}
+        fillOpacity={0.22}
+        stroke={color}
+        strokeWidth={sw}
+        strokeLinejoin="round"
+      />
+      {/* battlements — 3 merlons across the top */}
+      {merX.map((mx, i) => (
+        <rect
+          key={`m${i}`}
+          x={mx - merlonW * 0.45}
+          y={topY - merlonH}
+          width={merlonW * 0.9}
+          height={merlonH}
+          fill={towerFill}
+          fillOpacity={0.28}
+          stroke={color}
+          strokeWidth={sw * 0.8}
+          strokeLinejoin="round"
+        />
+      ))}
+      {/* arched gate — filled dark so it reads as an opening */}
+      <path
+        d={`M${-gateW} ${botY} L${-gateW} ${botY - gateH * 0.6} A${gateW} ${gateH * 0.6} 0 0 1 ${gateW} ${botY - gateH * 0.6} L${gateW} ${botY} Z`}
+        fill={color}
+        fillOpacity={0.55}
+        stroke={color}
+        strokeWidth={sw * 0.7}
+        strokeLinejoin="round"
+      />
+      {/* flag mast rising from center merlon */}
+      <line
+        x1={0}
+        y1={topY - merlonH}
+        x2={0}
+        y2={topY - merlonH - r * 0.48}
+        stroke={color}
+        strokeWidth={sw * 0.85}
         strokeLinecap="round"
       />
-      {/* palisade stubs flanking the tent */}
-      {[-1, 1].map((side) => (
-        <g key={side}>
-          <line
-            x1={side * w * 1.45}
-            y1={baseY}
-            x2={side * w * 1.45}
-            y2={baseY - r * 0.26}
-            stroke={ink}
-            strokeWidth={r * 0.07}
-            strokeLinecap="round"
-          />
-          <line
-            x1={side * w * 1.75}
-            y1={baseY}
-            x2={side * w * 1.75}
-            y2={baseY - r * 0.18}
-            stroke={ink}
-            strokeWidth={r * 0.07}
-            strokeLinecap="round"
-          />
-        </g>
-      ))}
+      {/* flag banner — a proper rect so it reads clearly at small size */}
+      <path
+        d={`M0 ${topY - merlonH - r * 0.46} L${r * 0.44} ${topY - merlonH - r * 0.3} L0 ${topY - merlonH - r * 0.14} Z`}
+        fill={color}
+        stroke="none"
+      />
     </g>
   );
 }
@@ -289,28 +384,16 @@ export const CellRenderer = memo(function CellRenderer({
       )}
       {cell.terrain === 'base' &&
         (isCamp ? (
-          // v0.6 Ask 3: a camp flies NO flag — tent + palisade, sand ink,
+          // v0.6 Ask 3: a camp flies NO flag — tent + stockade, sand ink,
           // slightly faded so it reads "for the taking", not "productive".
-          <g opacity={memory ? 0.65 : 0.85}>
-            <CampMotif c={c} r={r} ink={darken(PALETTE.base, 0.4)} />
+          <g opacity={memory ? 0.6 : 0.82}>
+            <CampMotif c={c} r={r} ink={darken(PALETTE.base, 0.42)} />
           </g>
         ) : (
-          <g
-            className="base-pip"
-            pointerEvents="none"
-            transform={`translate(${c[0]} ${c[1] - r * 0.5})`}
-            opacity={memory ? 0.75 : 1}
-          >
-            <line
-              x1={0}
-              y1={0}
-              x2={0}
-              y2={r * 0.62}
-              stroke={pipColor}
-              strokeWidth={r * 0.08}
-              strokeLinecap="round"
-            />
-            <path d={`M0 0 L${r * 0.42} ${r * 0.14} L0 ${r * 0.28} Z`} fill={pipColor} />
+          // Owned base: keep/standard motif — tower + battlements + faction flag.
+          // The base-pip class is retained so test selectors keep working.
+          <g className="base-pip" pointerEvents="none" opacity={memory ? 0.72 : 1}>
+            <OwnedBaseMotif c={c} r={r} color={pipColor} />
           </g>
         ))}
       {igniting && (

@@ -2413,36 +2413,47 @@ body {
   }
 }
 
-/* capture = fill / flip / pulse — 150 ms tile pulse → paint-fill sweep across
-   the polygon (claimant color, clipped to the rounded cell outline) → flag
-   flip-in + short shimmer. The CONSUMED capturing unit dissolves INTO the
-   flag (v0.6 capture-consumes rule, made legible). 500 ms end to end. */
+/* capture = pulse → deliberate paint-fill claim → flag raising + shimmer.
+   v0.8 strengthened: the sweep is a solid stain, not a ghost; the flag waves
+   as it plants; the consumed unit dissolves into the mast tip with sparks.
+   Total timing: ~700 ms (CAPTURE_MS). */
+
+/* double-ring border pulse: inner ring starts bright, outer rings delayed */
 .fx-capture-pulse {
-  animation: fx-cap-pulse 0.15s ease-out both;
+  animation: fx-cap-pulse 0.2s ease-out both;
+}
+
+.fx-capture-pulse-outer {
+  animation: fx-cap-pulse 0.3s ease-out 0.06s both;
 }
 
 @keyframes fx-cap-pulse {
   0% {
-    opacity: 0.85;
+    opacity: 0.9;
+    stroke-width: inherit;
+  }
+  55% {
+    opacity: 0.6;
   }
   100% {
     opacity: 0;
   }
 }
 
+/* paint-fill sweep: expands from center, more opaque so it reads as a CLAIM */
 .fx-capture-sweep {
   transform-box: fill-box;
   transform-origin: center;
-  animation: fx-cap-sweep 0.35s ease-out 0.15s both;
+  animation: fx-cap-sweep 0.38s ease-out 0.15s both;
 }
 
 @keyframes fx-cap-sweep {
   0% {
-    opacity: 0.55;
-    transform: scale(0.04);
+    opacity: 0.72;
+    transform: scale(0.03);
   }
-  60% {
-    opacity: 0.45;
+  50% {
+    opacity: 0.55;
     transform: scale(1);
   }
   100% {
@@ -2451,20 +2462,47 @@ body {
   }
 }
 
-.fx-capture-flag {
+/* lingering stain: stays at low opacity after the sweep fades — the cell
+   reads as freshly painted even before the static base tint takes over */
+.fx-capture-stain {
   transform-box: fill-box;
   transform-origin: center;
-  animation: fx-capture-raise 0.26s ease-out 0.22s both;
+  animation: fx-cap-stain 0.5s ease-out 0.2s both;
+}
+
+@keyframes fx-cap-stain {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  30% {
+    opacity: 0.22;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+/* flag raise: plants itself with a wave (overshoot + oscillation) */
+.fx-capture-flag {
+  transform-box: fill-box;
+  transform-origin: center bottom; /* pivot at the base of the pole */
+  animation: fx-capture-raise 0.32s cubic-bezier(0.22, 1.4, 0.5, 1) 0.25s both;
 }
 
 @keyframes fx-capture-raise {
   from {
     opacity: 0;
-    transform: scale(0.2) rotate(-22deg);
+    transform: scale(0.15) rotate(-30deg);
   }
-  60% {
+  55% {
     opacity: 1;
-    transform: scale(1.12) rotate(5deg);
+    transform: scale(1.08) rotate(8deg); /* banner waves as it plants */
+  }
+  78% {
+    transform: scale(1.02) rotate(-3deg); /* settles back */
   }
   to {
     opacity: 1;
@@ -2472,36 +2510,66 @@ body {
   }
 }
 
+/* shimmer streak across the banner — fires after the flag is up */
 .fx-capture-shimmer {
-  animation: fx-cap-shimmer 0.14s ease-out 0.4s both;
+  animation: fx-cap-shimmer 0.18s ease-out 0.5s both;
 }
 
 @keyframes fx-cap-shimmer {
   0% {
     opacity: 0;
   }
-  50% {
-    opacity: 0.9;
+  40% {
+    opacity: 0.95;
   }
   100% {
     opacity: 0;
   }
 }
 
+/* consumed unit: rises and compresses into the flag tip — the cost of the
+   capture made legible. Delayed until after the pulse so the token is
+   seen before it dissolves. */
 .fx-capture-consume {
   transform-box: fill-box;
   transform-origin: center;
-  animation: fx-cap-consume 0.3s ease-in 0.15s both;
+  animation: fx-cap-consume 0.38s ease-in 0.15s both;
 }
 
 @keyframes fx-cap-consume {
   0% {
-    opacity: 0.9;
+    opacity: 0.92;
     transform: translate(0, 0) scale(1);
+  }
+  60% {
+    opacity: 0.55;
+    transform: translate(0, -40%) scale(0.45);
   }
   100% {
     opacity: 0;
-    transform: translate(0, -55%) scale(0.12); /* streams into the flag point */
+    transform: translate(0, -62%) scale(0.08); /* merges into the flag tip */
+  }
+}
+
+/* dissolve sparks: orbit the rising token then vanish as it merges up */
+.fx-capture-spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-cap-spark 0.38s ease-in 0.15s both;
+}
+
+@keyframes fx-cap-spark {
+  0% {
+    opacity: 0.9;
+    transform: translate(0, 0) scale(1);
+  }
+  40% {
+    opacity: 0.7;
+    transform: translate(0, -25%) scale(0.7);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(0, -70%) scale(0.1);
   }
 }
 
@@ -2595,9 +2663,12 @@ body {
   .fx-death-cheer,
   .fx-death-outline,
   .fx-capture-pulse,
+  .fx-capture-pulse-outer,
   .fx-capture-sweep,
+  .fx-capture-stain,
   .fx-capture-shimmer,
   .fx-capture-consume,
+  .fx-capture-spark,
   .fx-promote,
   .banner-scrim-win::before,
   .banner-scrim-win::after,
@@ -2614,9 +2685,12 @@ body {
   .fx-death-cheer,
   .fx-death-outline,
   .fx-capture-pulse,
+  .fx-capture-pulse-outer,
   .fx-capture-sweep,
+  .fx-capture-stain,
   .fx-capture-shimmer,
   .fx-capture-consume,
+  .fx-capture-spark,
   .fx-promote {
     opacity: 0;
   }
