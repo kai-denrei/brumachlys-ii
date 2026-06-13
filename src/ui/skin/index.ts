@@ -14,7 +14,7 @@ export {
 } from './palette';
 export { roundedPolygonPath, ringCentroid, ringRadius } from './rounded';
 export type { Pt } from './rounded';
-export { CellRenderer, CELL_STROKE_WIDTH } from './CellRenderer';
+export { CellRenderer, CELL_STROKE_WIDTH, CAMP_DESATURATION } from './CellRenderer';
 export type { CellRendererProps } from './CellRenderer';
 export { UnitRenderer } from './UnitRenderer';
 export type { UnitRendererProps } from './UnitRenderer';
@@ -32,4 +32,4 @@ export {
 } from './EffectRenderer';
 export type { BuyGhostMark, EffectRendererProps, GhostOrder } from './EffectRenderer';
 export { ReplayFx, ReplayTrails } from './ReplayFx';
-export type { ReplayFxData, ReplayFxProps, TrailMark } from './ReplayFx';
+export type { ImpactMark, ReplayFxData, ReplayFxProps, TrailMark } from './ReplayFx';

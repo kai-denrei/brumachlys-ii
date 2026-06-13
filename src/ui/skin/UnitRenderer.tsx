@@ -35,6 +35,13 @@ export type UnitRendererProps = {
    * red threat-ring vocabulary (faster ring-pulse on target cells). Under
    * prefers-reduced-motion the CSS swaps it for a static dotted outline. */
   pulse?: boolean;
+  /** v0.6 Ask 7 (impact verb, recoil half): screen-unit lunge-back vector —
+   * away from the defender, along the attack line. The animation lives on an
+   * INNER group (the outer transform attribute must never carry a CSS
+   * transform animation — P9 note) and remounts per `recoilKey` so
+   * consecutive volleys restart it. ~220 ms: 120 ms back + 100 ms settle. */
+  recoil?: { dx: number; dy: number } | null;
+  recoilKey?: number;
   onTap?: (unitId: string) => void;
 };
 
@@ -47,6 +54,8 @@ export const UnitRenderer = memo(function UnitRenderer({
   scale = 1,
   minimal = false,
   pulse = false,
+  recoil = null,
+  recoilKey = 0,
   onTap,
 }: UnitRendererProps) {
   const color = factionColor(unit.faction);
@@ -61,14 +70,8 @@ export const UnitRenderer = memo(function UnitRenderer({
 
   const pipR = size * 0.21;
 
-  return (
-    <g
-      className={`unit-token unit-faction-${unit.faction}${selected ? ' unit-selected' : ''}`}
-      data-unit-id={unit.id}
-      data-unit-type={unit.type}
-      transform={`translate(${x} ${y})${scale !== 1 ? ` scale(${scale})` : ''}${selected ? ` translate(0 ${-size * 0.14})` : ''}`}
-      onClick={onTap ? () => onTap(unit.id) : undefined}
-    >
+  const body = (
+    <>
       {selected && <ellipse cx={0} cy={size * 0.5} rx={h * 0.9} ry={h * 0.3} fill="rgba(74,68,58,0.18)" />}
       {pulse && (
         <g className="idle-pulse" pointerEvents="none" aria-hidden="true">
@@ -126,6 +129,29 @@ export const UnitRenderer = memo(function UnitRenderer({
             {unit.count}
           </text>
         </g>
+      )}
+    </>
+  );
+
+  return (
+    <g
+      className={`unit-token unit-faction-${unit.faction}${selected ? ' unit-selected' : ''}`}
+      data-unit-id={unit.id}
+      data-unit-type={unit.type}
+      transform={`translate(${x} ${y})${scale !== 1 ? ` scale(${scale})` : ''}${selected ? ` translate(0 ${-size * 0.14})` : ''}`}
+      onClick={onTap ? () => onTap(unit.id) : undefined}
+    >
+      {recoil ? (
+        // v0.6 recoil: inner group, CSS-var vector, remounted per volley.
+        <g
+          key={`rc${recoilKey}`}
+          className="fx-recoil"
+          style={{ '--rdx': `${recoil.dx}px`, '--rdy': `${recoil.dy}px` } as React.CSSProperties}
+        >
+          {body}
+        </g>
+      ) : (
+        body
       )}
     </g>
   );

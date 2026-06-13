@@ -32,7 +32,8 @@ describe('RulesModal', () => {
     // initiative-descending order; spot-check the sniper row end to end
     const sniper = [...rows].find((r) => r.textContent!.includes('Sniper'))!;
     const cells = [...sniper.querySelectorAll('td')].slice(1).map((c) => c.textContent);
-    expect(cells).toEqual(['Sniper', '13', '4', '1–2', '4', '9', '2']);
+    // v0.6 Ask 4: m column (raw movement budget, tenths) after h
+    expect(cells).toEqual(['Sniper', '13', '4', '1–2', '4', '9', '2', '6']);
     // every row carries the skin's icon art (not a per-site glyph)
     expect(
       baseElement.querySelectorAll('[data-testid="rules-units-table"] .unit-glyph').length,

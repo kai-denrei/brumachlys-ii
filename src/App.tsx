@@ -55,7 +55,9 @@ import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
 import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
 import { TopBar, type CreditsHud } from './ui/TopBar';
-import type { BuyGhostMark, GhostOrder, TrailMark } from './ui/skin';
+import { TopCta } from './ui/TopCta';
+import type { BuyGhostMark, GhostOrder, ImpactMark, TrailMark } from './ui/skin';
+import { resolvePlanDirective } from './state/store';
 
 /** v1.3 Tweak B: a finished trail lingers (fading) this long before removal —
  * the CSS opacity transition (~1.6 s) runs inside this window. */
@@ -84,6 +86,9 @@ function BattleScreen() {
   const replaySpeed = useAppStore((s) => s.replaySpeed);
   const orders = useAppStore((s) => s.orders);
   const buys = useAppStore((s) => s.buys);
+  const directive = useAppStore((s) => s.directive);
+  const applyDirective = useAppStore((s) => s.applyDirective);
+  const clearOrders = useAppStore((s) => s.clearOrders);
   const selectedUnitId = useAppStore((s) => s.selectedUnitId);
   const focus = useAppStore((s) => s.focus);
   const notice = useAppStore((s) => s.notice);
@@ -590,6 +595,27 @@ function BattleScreen() {
         ? frame.floaters
         : (linger?.floaters.map((f) => ({ ...f, linger: true })) ?? []);
 
+  // v0.6 Ask 7 ("unit hit" verb): flash on the defender + recoil on the
+  // attacker for every shown strike whose defender SURVIVES this frame —
+  // dying defenders get the destruction verb (fx.kills) instead. Strikes come
+  // from the frame's own timeline slot, so this only fires on the strike
+  // frame itself (never on lingered floaters). Mist strikes already carry
+  // attackerCell null — flash only, the source stays withheld.
+  const fxImpacts: ImpactMark[] = (() => {
+    if (!script || !frame || frame.slot < 0 || frame.floaters.length === 0) return [];
+    const strikes = script.slots[frame.slot]?.strikes ?? [];
+    if (strikes.length === 0) return [];
+    const killed = new Set(frame.kills.map((k) => k.id));
+    return strikes
+      .filter((s) => !killed.has(s.defenderId))
+      .map((s) => ({
+        attackerId: s.attackerId,
+        attackerCell: s.attackerCell,
+        defenderId: s.defenderId,
+        defenderCell: s.defenderCell,
+      }));
+  })();
+
   const own = units.filter((u) => u.faction === PLAYER_FACTION);
   const orderedIds = orderedUnitIds(orders);
 
@@ -643,6 +669,23 @@ function BattleScreen() {
           no bases — {graceLeft} round{graceLeft === 1 ? '' : 's'} to retake one
         </div>
       )}
+      {/* v0.6 Ask 1: the primary CTA floats top-center, below the bar —
+          COMMIT during planning, CONTINUE over the round summary. Replay
+          keeps its speed controls in the bottom dock. */}
+      {(uiPhase === 'planning' || (uiPhase === 'summary' && breakdownSlot === null)) && (
+        <TopCta
+          phase={uiPhase === 'planning' ? 'planning' : 'summary'}
+          done={own.filter((u) => orderedIds.has(u.id)).length}
+          total={own.length}
+          buys={dockBuys.length}
+          directive={directive}
+          directivesEnabled={resolvePlanDirective() !== null}
+          onCommit={() => commit()}
+          onContinue={closeSummary}
+          onDirective={applyDirective}
+          onClearAll={clearOrders}
+        />
+      )}
       <main className="board-area">
         {frame ? (
           <Board
@@ -661,6 +704,7 @@ function BattleScreen() {
                 kills: frame.kills,
                 spawns: frame.spawns,
                 captures: frame.captures,
+                impacts: fxImpacts,
               },
             }}
             trails={trails}
@@ -745,7 +789,6 @@ function BattleScreen() {
             centerOn(unit.cell);
           }}
           onBuyChipTap={openBuildSheet}
-          onCommit={() => commit()}
         />
       )}
       {breakdownSlot !== null && script?.slots[breakdownSlot] && (

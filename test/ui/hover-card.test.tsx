@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // v1.1 Feature A / v1.2 tweak 3 — unit hover cards: mouse-only (~250 ms
 // delay), one-glance card near the token (name + count + stance line, then a
-// single monospace stat line `i: a: r: v: p: h:`), dismissed on tap/leave;
+// single monospace stat line `i: a: r: v: p: h: m:`), dismissed on tap/leave;
 // touch behavior unchanged. The verbose layout lives in the long-press sheet.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -78,7 +78,9 @@ describe('unit hover cards (mouse only)', () => {
     // identity line: name + count + stance
     expect(card.querySelector('.hover-card-head')!.textContent).toBe('Humvee×10 · aggressive');
     // the single monospace stat line, exact vocabulary (humvee per §6.1)
-    expect(card.querySelector('.hover-card-stats')!.textContent).toBe('i:12 a:4 r:1 v:3 p:6 h:3');
+    expect(card.querySelector('.hover-card-stats')!.textContent).toBe(
+      'i:12 a:4 r:1 v:3 p:6 h:3 m:15',
+    );
   });
 
   it('collapses range to min–max only when they differ (sniper r:1–2)', () => {
@@ -90,7 +92,7 @@ describe('unit hover cards (mouse only)', () => {
     act(() => vi.advanceTimersByTime(260));
     expect(
       baseElement.querySelector('[data-testid="unit-hover-card"] .hover-card-stats')!.textContent,
-    ).toBe('i:13 a:4 r:1–2 v:4 p:9 h:2');
+    ).toBe('i:13 a:4 r:1–2 v:4 p:9 h:2 m:6');
   });
 
   it("shows VISIBLE enemy units' cards too", () => {

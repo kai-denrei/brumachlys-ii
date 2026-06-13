@@ -103,7 +103,7 @@ export function BuildSheet({
                   <span className="build-row-name">{t.name}</span>
                   <span className="build-row-stats">
                     i:{t.initiative} a:{t.armor} r:{fmtRange(t.minRange, t.maxRange)} v:{t.vision}{' '}
-                    p:{t.attackStrengths.personnel} h:{t.attackStrengths.armored}
+                    p:{t.attackStrengths.personnel} h:{t.attackStrengths.armored} m:{t.movement}
                   </span>
                 </span>
                 <span className="build-row-cost">◈ {t.cost}</span>

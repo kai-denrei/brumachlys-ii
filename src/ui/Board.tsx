@@ -631,6 +631,34 @@ export function Board({
 
   const unitById = useMemo(() => new Map(units.map((u) => [u.id, u])), [units]);
 
+  // --- v0.6 Ask 7 (impact verb, recoil half): per-unit lunge-back vectors ----
+  // For every shown strike with a known attacker this frame, the attacker's
+  // token kicks back along the attack line (screen units, ~0.16 token). Mist
+  // strikes carry attackerCell null and brawls share a cell — both skip.
+  const recoilByUnit = useMemo(() => {
+    const out = new Map<string, { dx: number; dy: number }>();
+    const impacts = replayFx?.fx.impacts;
+    if (!impacts) return out;
+    for (const im of impacts) {
+      if (!im.attackerId || im.attackerCell === null || im.attackerCell === im.defenderCell) {
+        continue;
+      }
+      const a = board.cells.get(im.attackerCell);
+      const d = board.cells.get(im.defenderCell);
+      if (!a || !d) continue;
+      const pa = toScreen(a.center);
+      const pd = toScreen(d.center);
+      const dx = pa[0] - pd[0];
+      const dy = pa[1] - pd[1];
+      const len = Math.hypot(dx, dy) || 1;
+      out.set(im.attackerId, {
+        dx: (dx / len) * tokenSize * 0.16,
+        dy: (dy / len) * tokenSize * 0.16,
+      });
+    }
+    return out;
+  }, [replayFx, board, toScreen, tokenSize]);
+
   // --- v1.4: idle "awaiting orders" pulse --------------------------------------
   // Own units with NO queued order get a slow breathing halo during the
   // planning phase — an on-board echo of the hollow dock chips. The Board
@@ -721,6 +749,14 @@ export function Board({
                 igniting={tier === 'live' && (ignite?.has(cell.id) ?? false)}
                 silhouette={silhouette}
                 baseTintFaction={baseTint.get(cell.id) ?? null}
+                // v0.6 Ask 3 (conquest only — `bases` present): an unowned
+                // base renders as a neutral camp. Skirmish keeps the legacy
+                // proximity-tinted flag pips.
+                camp={
+                  bases !== undefined &&
+                  cell.terrain === 'base' &&
+                  (bases[cell.id] ?? null) === null
+                }
                 onTap={tapGuard(onCellTap)}
               />
             );
@@ -806,6 +842,8 @@ export function Board({
                 scale={slot?.scale}
                 selected={unit.id === selectedUnitId}
                 pulse={idlePulse(unit)}
+                recoil={recoilByUnit.get(unit.id) ?? null}
+                recoilKey={replayFx?.key ?? 0}
                 onTap={tapGuard(onUnitTap)}
               />
             );
@@ -818,6 +856,7 @@ export function Board({
             toScreen={toScreen}
             tokenSize={tokenSize}
             fx={replayFx.fx}
+            player={PLAYER_FACTION}
             onFloaterTap={tapGuard(onFloaterTap)}
           />
         )}

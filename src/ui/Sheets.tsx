@@ -242,8 +242,10 @@ export function UnitCard({ unit, unitType }: { unit: UnitInstance; unitType: Uni
 /** v1.1 Feature A / v1.2 tweak 3 — the hover card is the GLANCE (the
  * long-press info sheet keeps the verbose detail view): one line of identity
  * (name + count + stance), one monospace stat line in the fixed vocabulary
- * `i:13 a:4 r:1–2 v:4 p:9 h:2` — initiative, armor, range (min–max collapsed
- * when equal), vision, attack vs personnel, attack vs heavy/armored.
+ * `i:13 a:4 r:1–2 v:4 p:9 h:2 m:6` — initiative, armor, range (min–max
+ * collapsed when equal), vision, attack vs personnel, attack vs
+ * heavy/armored, and (v0.6 Ask 4) m = raw movement budget in tenths,
+ * consistent with the terrain cost table.
  * Mouse only; the Board owns detection/dismissal, this is pure presentation.
  * Position is fixed at hover time — any pan/zoom dismisses the card. */
 export function UnitHoverCard({
@@ -283,7 +285,8 @@ export function UnitHoverCard({
       <div className="hover-card-stats">
         i:{unitType.initiative} a:{unitType.armor} r:
         {fmtRange(unitType.minRange, unitType.maxRange)} v:{unitType.vision} p:
-        {unitType.attackStrengths.personnel} h:{unitType.attackStrengths.armored}
+        {unitType.attackStrengths.personnel} h:{unitType.attackStrengths.armored} m:
+        {unitType.movement}
       </div>
     </div>
   );
