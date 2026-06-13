@@ -384,6 +384,21 @@ function BattleScreen() {
     setAnnouncement(null);
   }, []);
 
+  // FIX B: when the phase leaves planning (e.g., commit → 'replay'), clear the
+  // announcement state AND cancel its pending backstop timer so the pill never
+  // floats over the replay strip or the game-over summary.
+  //
+  // Implementation note: we track the PREVIOUS phase in a ref so the effect
+  // only fires on the transition FROM 'planning', not on the initial mount when
+  // uiPhase may already be 'summary' (where the announcement hasn't been set yet
+  // and dismissAnnouncement would race with the auto-advance effect).
+  const prevUiPhaseRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevUiPhaseRef.current;
+    prevUiPhaseRef.current = uiPhase;
+    if (prev === 'planning' && uiPhase !== 'planning') dismissAnnouncement();
+  }, [uiPhase, dismissAnnouncement]);
+
   // --- #6 [Enter] finalizes the current action -----------------------------------
   // Global keydown listener: Enter commits during planning when ≥1 order or buy
   // is queued (mirrors only the non-zero branch of the CTA pill — the zero-orders
@@ -919,8 +934,10 @@ function BattleScreen() {
       {/* #5 "Your turn" announcement — transient, non-blocking, self-fading.
           The overlay is pointer-events: none so planning input is never blocked;
           tapping the pill itself still dismisses it early (pointer-events: auto
-          on the inner element). */}
-      {announcement && (
+          on the inner element). FIX B belt-and-suspenders: also gated on
+          uiPhase === 'planning' so a stale pill can never render over replay
+          or the game-over summary even before the effect clears it. */}
+      {announcement && uiPhase === 'planning' && (
         <div
           key={announcement.token}
           className="your-turn-announcement-wrap"

@@ -34,6 +34,7 @@ import {
   type ValidationResult,
   flattenBuys,
   flattenOrders,
+  plannedEndCell,
   queueBuy,
   queueOrder,
   removeBuy,
@@ -293,6 +294,23 @@ export function settleDependentOrders(
           cur = removeOrder(cur, unitId, kind);
           dropped.push({ unitId, kind });
           removedThisPass = true;
+        }
+      }
+      // FIX C: drop a stale capture order when the unit's planned end cell is
+      // no longer a capturable (unowned) base — mirrors the capture-toggle gate
+      // in App.tsx (bases[endCell] must be defined and not owned by the player).
+      // Only relevant in conquest (game.bases is absent in skirmish).
+      if (uo.capture && game.bases) {
+        const unit = known.find((u) => u.id === unitId);
+        if (unit) {
+          const endCell = plannedEndCell(unit, cur[unitId]);
+          const baseOwner = game.bases[endCell];
+          // Drop when the cell is not a base (undefined) OR owned by the player.
+          if (baseOwner === undefined || baseOwner === PLAYER_FACTION) {
+            cur = removeOrder(cur, unitId, 'capture');
+            dropped.push({ unitId, kind: 'capture' });
+            removedThisPass = true;
+          }
         }
       }
     }

@@ -187,6 +187,14 @@ function StrikeBreakdown({
             <td className="bd-label">attack strength</td>
             <td className="bd-value">{b.A}</td>
           </tr>
+          {/* v0.8: veterancy bonus is folded into A — itemize it so the math is never invisible. */}
+          {b.vet > 0 && (
+            <tr className="bd-gangup-row">
+              <td className="bd-term" />
+              <td className="bd-label">↳ veterancy</td>
+              <td className="bd-value">+{b.vet}</td>
+            </tr>
+          )}
           <tr>
             <td className="bd-term">+ Ta</td>
             <td className="bd-label">terrain attack bonus</td>

@@ -101,6 +101,25 @@ describe('BreakdownModal (§9.4)', () => {
     expect(screen.getByText('Counter-attack')).toBeTruthy();
   });
 
+  it('renders a "↳ veterancy" sub-row when vet > 0, hidden when vet === 0', () => {
+    // vet === 0 (the base fixture): no veterancy row
+    render(<BreakdownModal slot={slot([strike()])} unitTypes={types} onClose={() => {}} />);
+    expect(screen.queryByText('↳ veterancy')).toBeNull();
+    cleanup();
+
+    // vet > 0: the sub-row appears under A with the correct signed value
+    const vetBreakdown: AttackBreakdown = { ...breakdown, A: 7, vet: 2 };
+    render(
+      <BreakdownModal
+        slot={slot([strike({ breakdown: vetBreakdown })])}
+        unitTypes={types}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByText('↳ veterancy')).toBeTruthy();
+    expect(screen.getByText('+2')).toBeTruthy(); // the vet value cell
+  });
+
   it('withholds the attacker for fire-from-the-mist strikes', () => {
     const mist = strike({
       fromMist: true,

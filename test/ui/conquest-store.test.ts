@@ -220,6 +220,29 @@ describe('conquest store (E3)', () => {
     expect(s().directive?.modified).toBe(true);
   });
 
+  it('FIX C: capture order is dropped when the move no longer ends on a capturable base', () => {
+    seedConquest();
+    // Move 'pi' from cell 2 to enemy base (cell 5) and arm a capture.
+    s().tryQueueOrder({ kind: 'move', unitId: 'pi', path: [3, 4, 5] });
+    s().queueCapture('pi');
+    expect(s().orders['pi']?.capture).toBeDefined();
+
+    // Replace the move so the unit ends on cell 3 (a plain) — no longer a base.
+    s().tryQueueOrder({ kind: 'move', unitId: 'pi', path: [3] });
+    // settleDependentOrders fires inside tryQueueOrder; the capture must be gone.
+    expect(s().orders['pi']?.capture).toBeUndefined();
+  });
+
+  it('FIX C: capture order is NOT dropped when the move still ends on an unowned base', () => {
+    seedConquest();
+    s().tryQueueOrder({ kind: 'move', unitId: 'pi', path: [3, 4, 5] });
+    s().queueCapture('pi');
+    expect(s().orders['pi']?.capture).toBeDefined();
+    // Re-queue the same move — still ends on the enemy base (cell 5, owned by faction 1).
+    s().tryQueueOrder({ kind: 'move', unitId: 'pi', path: [3, 4, 5] });
+    expect(s().orders['pi']?.capture).toBeDefined();
+  });
+
   it('queueCapture orders survive flattenOrders and reach the resolver', () => {
     seedConquest();
     // Move 'pi' to the enemy base (cell 5) and arm a capture so the

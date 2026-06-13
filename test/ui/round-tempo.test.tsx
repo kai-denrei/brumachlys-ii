@@ -246,6 +246,27 @@ describe('[Enter] dismisses the announcement', () => {
   });
 });
 
+// ── FIX B: announcement must not linger over replay / game-over ───────────────
+
+describe('announcement cleared when phase leaves planning', () => {
+  it('committing (uiPhase → replay) while an announcement is showing clears it', () => {
+    // Start in 'summary' so auto-advance fires and the announcement appears.
+    seedBattle([unit('a', 0, 0), unit('b', 0, 4), unit('e', 1, 10)], { uiPhase: 'summary' });
+    const { container } = render(<App />);
+    // Auto-advance fired → uiPhase = 'planning', announcement is visible.
+    expect(useAppStore.getState().uiPhase).toBe('planning');
+    expect(container.querySelector('.your-turn-announcement')).not.toBeNull();
+    // Queue an order so commit() is accepted, then commit → uiPhase = 'replay'.
+    useAppStore.getState().tryQueueOrder({ kind: 'move', unitId: 'a', path: [1] });
+    act(() => {
+      useAppStore.getState().commit();
+    });
+    expect(useAppStore.getState().uiPhase).toBe('replay');
+    // The announcement must be gone — not floating over the replay strip.
+    expect(container.querySelector('.your-turn-announcement')).toBeNull();
+  });
+});
+
 // ── 5. Backstop timer (reduced-motion path) ───────────────────────────────────
 
 describe('backstop timer', () => {
