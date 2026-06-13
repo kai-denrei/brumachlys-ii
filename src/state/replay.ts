@@ -198,12 +198,12 @@ export type ReplayScript = {
   discovered: ReadonlySet<CellId>;
 };
 
-const MOVE_STEP_MS = 250;
-const VOLLEY_MS = 800;
+const MOVE_STEP_MS = 160;
+const VOLLEY_MS = 520;
 /** Follow-up exchanges of the SAME brawl compress (P9 pacing). */
-const BRAWL_FOLLOWUP_MS = 350;
-const FIZZLE_MS = 500;
-const ESTABLISH_MS = 350;
+const BRAWL_FOLLOWUP_MS = 240;
+const FIZZLE_MS = 320;
+const ESTABLISH_MS = 300;
 /** E3 conquest: capture flag swap / spawn materialization / income tick. */
 const CAPTURE_MS = 700;
 const SPAWN_MS = 700;
@@ -376,55 +376,122 @@ export function buildReplay(
     }
 
     if (ev.type === 'move') {
-      const u = sim.get(ev.unitId);
-      if (!u) {
-        i++;
+      // Phase 4.1: gather the maximal contiguous run of move events and animate
+      // all visible movers simultaneously. Each step index k advances ALL movers
+      // to step k in one shared frame, recomputing vision once over all combined
+      // positions.  Wholly-fogged movers advance silently (no slot), matching
+      // the existing per-mover fog contract exactly.
+
+      // ── collect the contiguous run of move events ──────────────────────────
+      type MoverDesc = {
+        u: UnitInstance;
+        from: CellId;
+        pathTaken: CellId[];
+        visiblyMoves: boolean;
+      };
+      const run: MoverDesc[] = [];
+      let runEnd = i;
+      {
+        const visBefore = vision();
+        while (runEnd < events.length && events[runEnd]!.type === 'move') {
+          const mev = events[runEnd] as Extract<ResolutionEvent, { type: 'move' }>;
+          const mu = sim.get(mev.unitId);
+          if (mu) {
+            const visibly =
+              mu.faction === player ||
+              seen(mu.faction, mev.from, visBefore) ||
+              mev.pathTaken.some((c) => visBefore.has(c));
+            run.push({ u: mu, from: mev.from, pathTaken: mev.pathTaken, visiblyMoves: visibly });
+          }
+          runEnd++;
+        }
+      }
+
+      // ── apply wholly-fogged movers silently ───────────────────────────────
+      // Separate visible from silent movers so silent ones still update their
+      // sim position (fog contract: they moved, the builder just doesn't show it).
+      const visibleMovers = run.filter((m) => m.visiblyMoves);
+      const silentMovers = run.filter((m) => !m.visiblyMoves);
+      for (const m of silentMovers) {
+        m.u.cell = m.pathTaken[m.pathTaken.length - 1] ?? m.u.cell;
+      }
+
+      if (visibleMovers.length === 0) {
+        // Nothing to animate — consume the run and move on.
+        i = runEnd;
         continue;
       }
-      const visBefore = vision();
-      const visiblyMoves =
-        u.faction === player ||
-        seen(u.faction, ev.from, visBefore) ||
-        ev.pathTaken.some((c) => visBefore.has(c));
-      if (!visiblyMoves) {
-        u.cell = ev.to; // wholly in the mist: applied silently, no slot
-        i++;
-        continue;
-      }
+
+      // ── emit ONE shared slot for the whole movement beat ───────────────────
+      // Use the first visible mover's info for the slot glyph (arbitrary — the
+      // strip shows one chip for the beat). Log enemy moves.
       const slot = slots.length;
-      slots.push({ kind: 'move', actorType: u.type, actorFaction: u.faction, strikes: [] });
-      // Skirmish log: AI movement the player can see. Own moves stay silent
-      // (the player gave the order) unless truncated — see path-truncated.
-      if (u.faction !== player) {
-        log.push({
-          atFrame: frames.length,
-          segs: [{ t: 'enemy ' }, { t: nameOf(u.type), f: u.faction }, { t: ' on the move' }],
-        });
+      const firstVis = visibleMovers[0]!;
+      slots.push({ kind: 'move', actorType: firstVis.u.type, actorFaction: firstVis.u.faction, strikes: [] });
+      for (const m of visibleMovers) {
+        if (m.u.faction !== player) {
+          log.push({
+            atFrame: frames.length,
+            segs: [{ t: 'enemy ' }, { t: nameOf(m.u.type), f: m.u.faction }, { t: ' on the move' }],
+          });
+        }
       }
-      // v1.3 Tweak B: origin trail — only cells the player saw the mover on.
-      // Own moves are fully witnessed; for AI movers each cell is included
-      // iff it was inside the player's vision AT THAT STEP (same rule that
-      // gates the token render), so the trail never dips into the mist.
-      const trailPath: CellId[] = [];
-      if (seen(u.faction, ev.from, visBefore)) trailPath.push(ev.from);
-      for (const step of ev.pathTaken) {
-        u.cell = step; // player movers drag their vision along with them
-        const vis = vision();
-        if (seen(u.faction, step, vis)) trailPath.push(step);
+
+      // ── per-mover trail state ──────────────────────────────────────────────
+      const trailPaths = new Map<string, CellId[]>();
+      const visBefore = vision();
+      for (const m of visibleMovers) {
+        const trail: CellId[] = [];
+        if (seen(m.u.faction, m.from, visBefore)) trail.push(m.from);
+        trailPaths.set(m.u.id, trail);
+      }
+
+      // ── concurrent step frames ────────────────────────────────────────────
+      // maxSteps = longest path among visible movers. In frame k, advance each
+      // visible mover to min(k, lastStep) (so shorter movers hold at their
+      // final cell). Recompute vision ONCE per frame over the combined positions.
+      const maxSteps = Math.max(...visibleMovers.map((m) => m.pathTaken.length));
+
+      for (let k = 0; k < maxSteps; k++) {
+        // advance each visible mover to step k (or hold at final if exhausted)
+        for (const m of visibleMovers) {
+          const stepK = m.pathTaken[k] ?? m.pathTaken[m.pathTaken.length - 1]!;
+          m.u.cell = stepK;
+        }
+        const vis = vision(); // combined positions for this step
+
+        // update trail paths for visible movers on this step
+        const activeTrails: TrailFx[] = [];
+        for (const m of visibleMovers) {
+          const stepK = m.pathTaken[k] ?? m.pathTaken[m.pathTaken.length - 1]!;
+          const trail = trailPaths.get(m.u.id)!;
+          if (seen(m.u.faction, stepK, vis)) {
+            if (trail[trail.length - 1] !== stepK) trail.push(stepK);
+          }
+          if (trail.length >= 2) {
+            activeTrails.push({ id: `t${slot}-${m.u.id}`, faction: m.u.faction, path: [...trail] });
+          }
+        }
+
+        // camera: focus on the step-k cell of the first visible mover (or all)
+        const focusCells: CellId[] = [];
+        for (const m of visibleMovers) {
+          const stepK = m.pathTaken[k] ?? m.pathTaken[m.pathTaken.length - 1]!;
+          if (!focusCells.includes(stepK)) focusCells.push(stepK);
+        }
+
         frames.push({
           duration: MOVE_STEP_MS,
           slot,
           units: renderUnits(vis),
           ...fogFields(vis),
           ...emptyFx(),
-          trails:
-            trailPath.length >= 2
-              ? [{ id: `t${slot}`, faction: u.faction, path: [...trailPath] }]
-              : [],
-          focus: [step], // camera follows the mover cell-by-cell
+          trails: activeTrails,
+          focus: focusCells,
         });
       }
-      i++;
+
+      i = runEnd;
       continue;
     }
 
@@ -451,119 +518,185 @@ export function buildReplay(
     }
 
     if (ev.type === 'attack') {
-      const vis = vision();
-      const strikes: Strike[] = [];
-      const fx = emptyFx();
-      const shownVictims = new Set<string>();
+      // Phase 4.2: gather the maximal contiguous run of attack/counter/kill
+      // events and emit them into a minimal number of dense frames where all
+      // simultaneously-visible arcs, floaters, and bursts appear together.
+      // Each "exchange" = one attack (+ optional counter) + trailing kills.
+      // All visible exchanges from the run land in a SINGLE combined volley
+      // frame so the player sees them all at once.
 
-      const att = sim.get(ev.attackerId);
-      const def = sim.get(ev.defenderId);
-      let j = i + 1;
-      let strikeLine: LogSeg[] | null = null;
+      const combinedStrikes: Strike[] = [];
+      const combinedArcs: ReplayFrame['arcs'] = [];
+      const combinedFloaters: Floater[] = [];
+      const combinedLogLines: LogSeg[][] = [];
+      const allShownVictims = new Set<string>();
+      // First visible attacker/type for the slot (used for slot glyph).
+      let firstAttType: string | null = null;
+      let firstAttFaction: FactionId | null = null;
+      let firstIsMist = false;
 
-      if (att && def) {
-        const attackerSeen = seen(att.faction, ev.attackerCell, vis);
-        const defenderSeen = seen(def.faction, ev.defenderCell, vis);
-        // Own attacks are always fully shown; otherwise the defender must be
-        // visible (an AI strike on an unseen AI unit cannot occur in a
-        // 2-faction game, but the builder still withholds it).
-        const shown = att.faction === player || defenderSeen;
-        const mist = shown && att.faction !== player && !attackerSeen;
-        if (shown) {
-          strikes.push(
-            makeStrike('attack', ev.attackerId, att, ev.attackerCell, ev.defenderId, def, ev.defenderCell, ev.damage, mist, ev.breakdown),
-          );
-          shownVictims.add(ev.defenderId);
-          if (!mist) fx.arcs.push({ from: ev.attackerCell, to: ev.defenderCell, faction: att.faction });
-          fx.floaters.push({
-            id: `f${slots.length}-0`,
-            cell: ev.defenderCell,
-            text: `−${ev.damage}`,
-            mist,
-            slot: slots.length,
-          });
-          summary.damageDealt[att.faction] += ev.damage;
-          // Skirmish log line: attacker withheld when the strike is from the
-          // mist — the defender (the player's own unit) is named, nothing else.
-          strikeLine = mist
-            ? [
-                { t: nameOf(def.type), f: def.faction },
-                { t: ` −${ev.damage} ` },
-                { t: 'from the mist', f: 'mist' },
-              ]
-            : [
-                { t: nameOf(att.type), f: att.faction },
-                { t: ' → ' },
-                { t: nameOf(def.type), f: def.faction },
-                { t: ` −${ev.damage}` },
-              ];
-        }
-        def.count = ev.defenderCountAfter;
+      // We'll scan forward to collect the full run of attacks (each may have a
+      // counter + kills inline). The brawlChain reset (already done above at
+      // `if (ev.type !== 'brawl-exchange') brawlChain = null`) still fires when
+      // we hit the attack, so that's handled. We consume events into j.
+      let j = i;
 
-        if (ev.counterFired && j < events.length && events[j]!.type === 'counter') {
-          const ce = events[j]! as Extract<ResolutionEvent, { type: 'counter' }>;
-          // Counter roles: original defender returns fire at the attacker.
-          const cAtt = sim.get(ce.attackerId);
-          const cDef = sim.get(ce.defenderId);
-          if (cAtt && cDef) {
-            const cAttSeen = seen(cAtt.faction, ce.attackerCell, vis);
-            const cShown = cAtt.faction === player || seen(cDef.faction, ce.defenderCell, vis);
-            const cMist = cShown && cAtt.faction !== player && !cAttSeen;
-            if (cShown) {
-              strikes.push(
-                makeStrike('counter', ce.attackerId, cAtt, ce.attackerCell, ce.defenderId, cDef, ce.defenderCell, ce.damage, cMist, ce.breakdown),
-              );
-              shownVictims.add(ce.defenderId);
-              if (!cMist) fx.arcs.push({ from: ce.attackerCell, to: ce.defenderCell, faction: cAtt.faction });
-              fx.floaters.push({
-                id: `f${slots.length}-1`,
-                cell: ce.defenderCell,
-                text: `−${ce.damage}`,
-                mist: cMist,
-                slot: slots.length,
-              });
-              summary.damageDealt[cAtt.faction] += ce.damage;
-              if (strikeLine) strikeLine.push({ t: ` / counter −${ce.damage}` });
+      while (j < events.length && events[j]!.type === 'attack') {
+        const aev = events[j] as Extract<ResolutionEvent, { type: 'attack' }>;
+        const vis = vision(); // recompute for each attack — a prior kill may have shifted fog
+        const att = sim.get(aev.attackerId);
+        const def = sim.get(aev.defenderId);
+        let innerJ = j + 1;
+        let strikeLine: LogSeg[] | null = null;
+
+        if (att && def) {
+          const attackerSeen = seen(att.faction, aev.attackerCell, vis);
+          const defenderSeen = seen(def.faction, aev.defenderCell, vis);
+          const shown = att.faction === player || defenderSeen;
+          const mist = shown && att.faction !== player && !attackerSeen;
+
+          if (shown) {
+            combinedStrikes.push(
+              makeStrike('attack', aev.attackerId, att, aev.attackerCell, aev.defenderId, def, aev.defenderCell, aev.damage, mist, aev.breakdown),
+            );
+            allShownVictims.add(aev.defenderId);
+            if (!mist) combinedArcs.push({ from: aev.attackerCell, to: aev.defenderCell, faction: att.faction });
+            combinedFloaters.push({
+              id: `fcombat-${combinedFloaters.length}`,
+              cell: aev.defenderCell,
+              text: `−${aev.damage}`,
+              mist,
+              slot: slots.length, // will be updated to the shared slot index below
+            });
+            summary.damageDealt[att.faction] += aev.damage;
+            strikeLine = mist
+              ? [
+                  { t: nameOf(def.type), f: def.faction },
+                  { t: ` −${aev.damage} ` },
+                  { t: 'from the mist', f: 'mist' },
+                ]
+              : [
+                  { t: nameOf(att.type), f: att.faction },
+                  { t: ' → ' },
+                  { t: nameOf(def.type), f: def.faction },
+                  { t: ` −${aev.damage}` },
+                ];
+            // Record the first visible attacker for the slot glyph.
+            if (firstAttType === null) {
+              firstAttType = mist ? null : att.type;
+              firstAttFaction = mist ? null : att.faction;
+              firstIsMist = mist;
             }
-            cDef.count = ce.defenderCountAfter;
           }
-          j++;
+          def.count = aev.defenderCountAfter;
+
+          // Inline counter (same exchange).
+          if (aev.counterFired && innerJ < events.length && events[innerJ]!.type === 'counter') {
+            const ce = events[innerJ] as Extract<ResolutionEvent, { type: 'counter' }>;
+            const cAtt = sim.get(ce.attackerId);
+            const cDef = sim.get(ce.defenderId);
+            if (cAtt && cDef) {
+              const cAttSeen = seen(cAtt.faction, ce.attackerCell, vis);
+              const cShown = cAtt.faction === player || seen(cDef.faction, ce.defenderCell, vis);
+              const cMist = cShown && cAtt.faction !== player && !cAttSeen;
+              if (cShown) {
+                combinedStrikes.push(
+                  makeStrike('counter', ce.attackerId, cAtt, ce.attackerCell, ce.defenderId, cDef, ce.defenderCell, ce.damage, cMist, ce.breakdown),
+                );
+                allShownVictims.add(ce.defenderId);
+                if (!cMist) combinedArcs.push({ from: ce.attackerCell, to: ce.defenderCell, faction: cAtt.faction });
+                combinedFloaters.push({
+                  id: `fcombat-${combinedFloaters.length}`,
+                  cell: ce.defenderCell,
+                  text: `−${ce.damage}`,
+                  mist: cMist,
+                  slot: slots.length,
+                });
+                summary.damageDealt[cAtt.faction] += ce.damage;
+                if (strikeLine) strikeLine.push({ t: ` / counter −${ce.damage}` });
+              }
+              cDef.count = ce.defenderCountAfter;
+            }
+            innerJ++;
+          }
+        }
+
+        if (strikeLine) combinedLogLines.push(strikeLine);
+
+        // Consume trailing kills for this exchange (they may affect fog for
+        // subsequent attacks in the run — apply them now, but we'll render
+        // all kills in the shared frame below).
+        const kills = consumeKills(innerJ, vision(), allShownVictims);
+        // Note: consumeKills advances victim.count = 0, so fog is updated
+        // live for subsequent iterations of this while loop.
+        for (const k of kills.shown) {
+          // We'll collect shown kills separately and attach them to the frame.
+          allShownVictims.add(k.id);
+        }
+        innerJ = kills.next;
+        j = innerJ;
+      }
+
+      // Gather shown kills to include in the frame (re-scan: consumeKills
+      // already zeroed out counts, but we need the snapshots).
+      // We took snapshots inside consumeKills during the loop above. We need
+      // to reconstruct them. Instead, re-use the shown list from the last call.
+      // Actually: consumeKills returns shown snapshots — we need to accumulate.
+      // Refactor: collect kills separately.
+      // We redo this by re-scanning killed units (count==0, not in consumedIds)
+      // that were in allShownVictims. Simpler: track them during the loop.
+
+      // Collect the dead shown victims for the kill frame. They're already
+      // removed from living(), so we snapshot from sim directly.
+      const combinedKills: UnitInstance[] = [];
+      for (const id of allShownVictims) {
+        const u = sim.get(id);
+        if (u && u.count === 0 && !consumedIds.has(u.id)) {
+          // Check it was in the summary (added by consumeKills).
+          if (summary.kills.some((k) => k.id === id)) {
+            combinedKills.push({ ...u, attackedFrom: [] });
+          }
         }
       }
 
-      const kills = consumeKills(j, vis, shownVictims);
-      j = kills.next;
-      fx.kills = kills.shown;
-
-      if (strikes.length > 0 || fx.kills.length > 0) {
-        const mistSlot = strikes.length > 0 && strikes[0]!.fromMist;
+      if (combinedStrikes.length > 0 || combinedKills.length > 0) {
+        // Fix floater slot references to the new shared slot index.
         const slot = slots.length;
+        for (const fl of combinedFloaters) fl.slot = slot;
+
+        // Determine slot glyph: mist if the first shown strike was from mist.
         slots.push({
           kind: 'volley',
-          actorType: mistSlot ? null : (att?.type ?? null),
-          actorFaction: mistSlot ? null : (att?.faction ?? null),
-          strikes,
+          actorType: firstIsMist ? null : firstAttType,
+          actorFaction: firstIsMist ? null : firstAttFaction,
+          strikes: combinedStrikes,
         });
-        // Camera target: attacker+defender of shown strikes (mist attacker
-        // cells are already null — only the impact is framed) + shown kills.
+
+        // Camera: all attacker+defender cells of shown strikes + kills.
         const focus = new Set<CellId>();
-        for (const s of strikes) {
+        for (const s of combinedStrikes) {
           if (s.attackerCell !== null) focus.add(s.attackerCell);
           focus.add(s.defenderCell);
         }
-        for (const k of fx.kills) focus.add(k.cell);
-        const visAfter = vision(); // deaths may have shrunk player vision
+        for (const k of combinedKills) focus.add(k.cell);
+
+        const visAfter = vision(); // deaths shrink player vision
         frames.push({
           duration: VOLLEY_MS,
           slot,
           units: renderUnits(visAfter),
           ...fogFields(visAfter),
-          ...fx,
+          ...emptyFx(),
+          arcs: combinedArcs,
+          floaters: combinedFloaters,
+          kills: combinedKills,
           focus: [...focus],
         });
-        if (strikeLine) log.push({ atFrame: frames.length - 1, segs: strikeLine });
-        logKills(fx.kills, frames.length - 1);
+
+        for (const line of combinedLogLines) log.push({ atFrame: frames.length - 1, segs: line });
+        logKills(combinedKills, frames.length - 1);
       }
+
       i = j;
       continue;
     }

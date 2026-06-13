@@ -130,8 +130,9 @@ describe('replay builder — grouping', () => {
     const script = build(units, [exchange(4, 5, 5, 6), exchange(3, 1, 4, 3)]);
     expect(script.slots.length).toBe(2);
     // First exchange: full volley beat. Second (same cell + pair): compressed.
-    expect(script.frames[1]!.duration).toBe(800);
-    expect(script.frames[2]!.duration).toBe(350);
+    // (MOVE_STEP_MS=160, VOLLEY_MS=520, BRAWL_FOLLOWUP_MS=240 — Phase 4.2 constants)
+    expect(script.frames[1]!.duration).toBe(520);
+    expect(script.frames[2]!.duration).toBe(240);
     // Floaters show RUNNING totals: −4/−5, then −7/−6 — the sum stays readable.
     expect(script.frames[1]!.floaters.map((f) => f.text)).toEqual(['−4', '−5']);
     expect(script.frames[2]!.floaters.map((f) => f.text)).toEqual(['−7', '−6']);
@@ -162,8 +163,8 @@ describe('replay builder — grouping', () => {
     const script = build(units, [exchange, move, exchange]);
     const brawlFrames = script.frames.filter((f) => f.bursts.length > 0);
     expect(brawlFrames.length).toBe(2);
-    expect(brawlFrames[0]!.duration).toBe(800);
-    expect(brawlFrames[1]!.duration).toBe(800); // chain broken — full beat again
+    expect(brawlFrames[0]!.duration).toBe(520); // Phase 4.2 constant: VOLLEY_MS=520
+    expect(brawlFrames[1]!.duration).toBe(520); // chain broken — full beat again (Phase 4.2)
     expect(brawlFrames[1]!.floaters.map((f) => f.text)).toEqual(['−4', '−5']); // fresh totals
   });
 
@@ -249,8 +250,9 @@ describe('replay builder — movement origin trails (v1.3 Tweak B)', () => {
       [{ type: 'move', unitId: 'pi', from: 0, to: 2, pathTaken: [1, 2] }],
     );
     expect(script.frames[0]!.trails).toEqual([]); // establishing frame
-    expect(script.frames[1]!.trails).toEqual([{ id: 't0', faction: 0, path: [0, 1] }]);
-    expect(script.frames[2]!.trails).toEqual([{ id: 't0', faction: 0, path: [0, 1, 2] }]);
+    // Phase 4.1: trail id is now `t${slot}-${unitId}` to support multi-mover grouping.
+    expect(script.frames[1]!.trails).toEqual([{ id: 't0-pi', faction: 0, path: [0, 1] }]);
+    expect(script.frames[2]!.trails).toEqual([{ id: 't0-pi', faction: 0, path: [0, 1, 2] }]);
   });
 
   it('non-move frames carry no trails', () => {
@@ -284,7 +286,8 @@ describe('replay builder — movement origin trails (v1.3 Tweak B)', () => {
     // step onto 2 (visible): only one witnessed cell — still no line
     expect(script.frames[2]!.trails).toEqual([]);
     // step onto 1: trail spans the two witnessed cells only
-    expect(script.frames[3]!.trails).toEqual([{ id: 't0', faction: 1, path: [2, 1] }]);
+    // Phase 4.1: trail id is now `t${slot}-${unitId}`.
+    expect(script.frames[3]!.trails).toEqual([{ id: 't0-ai', faction: 1, path: [2, 1] }]);
     for (const f of script.frames) {
       for (const t of f.trails) {
         expect(t.path).not.toContain(4);
@@ -557,5 +560,275 @@ describe('replay builder — promotion events (v0.8 veterancy)', () => {
     for (const f of script.frames) {
       expect(Array.isArray(f.promotions)).toBe(true);
     }
+  });
+});
+
+// --- Phase 4: simultaneous pacing -----------------------------------------------
+
+describe('replay builder — concurrent movement (Phase 4.1)', () => {
+  it('animates a run of visible moves concurrently (fewer frames than sequential)', () => {
+    // Two player units each move 3 steps. Sequential = 6 move frames; concurrent = 3.
+    // Board: 0-1-2-3-4-5-6-7-8-9 (10 cells). Unit A at 0 moves to 3; unit B at 9 moves to 6.
+    const units = [makeUnit('pa', 0, 0), makeUnit('pb', 0, 9)];
+    const events: ResolutionEvent[] = [
+      { type: 'move', unitId: 'pa', from: 0, to: 3, pathTaken: [1, 2, 3] },
+      { type: 'move', unitId: 'pb', from: 9, to: 6, pathTaken: [8, 7, 6] },
+    ];
+    const script = build(units, events, 10);
+    const moveSlotIndices = script.slots
+      .map((s, i) => (s.kind === 'move' ? i : -1))
+      .filter((i) => i >= 0);
+    // Both movers share ONE move slot for the group.
+    expect(moveSlotIndices.length).toBe(1);
+    const moveFrames = script.frames.filter((f) => moveSlotIndices.includes(f.slot));
+    // Concurrent: max(3, 3) = 3 frames, NOT 3+3 = 6.
+    expect(moveFrames.length).toBeLessThanOrEqual(3);
+    // Both units should appear in the final move frame (both at their destination).
+    const lastMoveFrame = moveFrames[moveFrames.length - 1]!;
+    expect(lastMoveFrame.units.some((u) => u.id === 'pa' && u.cell === 3)).toBe(true);
+    expect(lastMoveFrame.units.some((u) => u.id === 'pb' && u.cell === 6)).toBe(true);
+  });
+
+  it('unequal-length concurrent moves: shorter mover holds at its final cell', () => {
+    // Unit A moves 1 step, unit B moves 3 steps. maxSteps = 3.
+    const units = [makeUnit('pa', 0, 0), makeUnit('pb', 0, 5)];
+    const events: ResolutionEvent[] = [
+      { type: 'move', unitId: 'pa', from: 0, to: 1, pathTaken: [1] },
+      { type: 'move', unitId: 'pb', from: 5, to: 8, pathTaken: [6, 7, 8] },
+    ];
+    const script = build(units, events, 12);
+    const moveSlotIndices = script.slots
+      .map((s, i) => (s.kind === 'move' ? i : -1))
+      .filter((i) => i >= 0);
+    expect(moveSlotIndices.length).toBe(1);
+    const moveFrames = script.frames.filter((f) => moveSlotIndices.includes(f.slot));
+    expect(moveFrames.length).toBeLessThanOrEqual(3);
+    // After step 1, pa is at cell 1 (its final) and holds there.
+    expect(moveFrames[0]!.units.some((u) => u.id === 'pa' && u.cell === 1)).toBe(true);
+    // In the last frame, pa is still at 1, pb is at 8.
+    const last = moveFrames[moveFrames.length - 1]!;
+    expect(last.units.some((u) => u.id === 'pa' && u.cell === 1)).toBe(true);
+    expect(last.units.some((u) => u.id === 'pb' && u.cell === 8)).toBe(true);
+  });
+
+  it('fog still holds: wholly-fogged enemy move in a concurrent run contributes no slot', () => {
+    // Player infantry at 0 (vision 2, sees 0..2). Two AI units move:
+    //   - one wholly beyond vision (cells 6→8) — must be silent
+    //   - one crossing into vision (cells 4→1) — must generate a move beat
+    // The silent mover must NOT get its own slot.
+    const units = [makeUnit('pi', 0, 0), makeUnit('a1', 1, 6, 'ranger'), makeUnit('a2', 1, 4, 'ranger')];
+    const events: ResolutionEvent[] = [
+      { type: 'move', unitId: 'a1', from: 6, to: 8, pathTaken: [7, 8] },
+      { type: 'move', unitId: 'a2', from: 4, to: 1, pathTaken: [3, 2, 1] },
+    ];
+    const script = build(units, events, 12);
+    // Only one slot: for the partially-visible mover; the wholly-fogged one is silent.
+    expect(script.slots.filter((s) => s.kind === 'move').length).toBe(1);
+    // a1 ends at 8 (applied silently), never appears in frames.
+    for (const f of script.frames) {
+      expect(f.units.some((u) => u.id === 'a1')).toBe(false);
+    }
+  });
+
+  it('a single mover still works correctly after the refactor', () => {
+    // Regression: single-mover case should still emit sequential step frames.
+    const units = [makeUnit('pi', 0, 0)];
+    const events: ResolutionEvent[] = [
+      { type: 'move', unitId: 'pi', from: 0, to: 2, pathTaken: [1, 2] },
+    ];
+    const script = build(units, events, 12);
+    expect(script.slots.filter((s) => s.kind === 'move').length).toBe(1);
+    const moveFrames = script.frames.filter((f) => script.slots[f.slot]?.kind === 'move');
+    // 2 steps = 2 move frames.
+    expect(moveFrames.length).toBe(2);
+    // Camera follows the mover cell-by-cell.
+    expect(moveFrames[0]!.focus).toContain(1);
+    expect(moveFrames[1]!.focus).toContain(2);
+  });
+});
+
+describe('replay builder — concurrent combat (Phase 4.2)', () => {
+  it('two independent visible attacks produce at least one frame with ≥2 arcs', () => {
+    // Two independent attacks in sequence — should be grouped into a combined frame.
+    // Player infantry at 0 attacks enemy at 3; player ranger at 5 attacks enemy at 7.
+    const units = [
+      makeUnit('pa', 0, 0),
+      makeUnit('pb', 0, 5, 'ranger'),
+      makeUnit('e1', 1, 3),
+      makeUnit('e2', 1, 7),
+    ];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pa',
+        defenderId: 'e1',
+        attackerCell: 0,
+        defenderCell: 3,
+        damage: 5,
+        bonusB: 0,
+        defenderCountAfter: 5,
+        counterFired: false,
+        breakdown: bd({ damage: 5 }),
+      },
+      {
+        type: 'attack',
+        attackerId: 'pb',
+        defenderId: 'e2',
+        attackerCell: 5,
+        defenderCell: 7,
+        damage: 4,
+        bonusB: 0,
+        defenderCountAfter: 6,
+        counterFired: false,
+        breakdown: bd({ damage: 4 }),
+      },
+    ];
+    const script = build(units, events, 12);
+    const volleyFrames = script.frames.filter((f) => script.slots[f.slot]?.kind === 'volley');
+    // At least one frame carries ≥2 arcs (concurrent).
+    expect(volleyFrames.some((f) => f.arcs.length >= 2)).toBe(true);
+    // Far fewer volley frames than sequential (sequential = 2 frames, concurrent ≤ 1 or 2).
+    expect(volleyFrames.length).toBeLessThan(3);
+    // Both damages should appear in the summary.
+    expect(script.summary.damageDealt[0]).toBe(9);
+  });
+
+  it('mist strike in a concurrent run: no arc, impact floater with mist=true, attacker withheld', () => {
+    // Player infantry at 0 (vision 2, sees 0..2). Enemy artillery at 6 (art has vision 1)
+    // fires at player infantry at 0. A second player attack happens simultaneously.
+    // Cell layout: 0-1-2-3-4-5-6-7-8-9-10-11
+    // Player infantry at 0 sees 0..2; artillery at 6 is completely fogged.
+    // Player ranger at 0 also (same cell as pi, so vision union still only 0..2 for infantry
+    // — actually ranger at 0 has vision 3: sees 0..3). Still, cell 6 is beyond vision 3
+    // from cell 0 on a line board (0+3=3), so cell 6 is fogged.
+    // We use a player sniper at 0 (vision 4 → sees 0..4) to attack enemy at 3,
+    // keeping the artillery at 6 beyond vision.
+    const units = [
+      makeUnit('pi', 0, 0),          // infantry at 0, vision 2 → sees 0..2
+      makeUnit('ps', 0, 0, 'sniper'), // sniper at 0, vision 4 → sees 0..4
+      makeUnit('aa', 1, 6, 'artillery'), // AI artillery at 6, beyond vision (6 > 4)
+      makeUnit('e2', 1, 3),           // AI infantry at 3 (visible to sniper)
+    ];
+    const events: ResolutionEvent[] = [
+      // Mist strike: artillery at 6 fires at infantry at 0 (defender visible, attacker fogged)
+      {
+        type: 'attack',
+        attackerId: 'aa',
+        defenderId: 'pi',
+        attackerCell: 6,
+        defenderCell: 0,
+        damage: 3,
+        bonusB: 0,
+        defenderCountAfter: 7,
+        counterFired: false,
+        breakdown: bd({ damage: 3 }),
+      },
+      // Concurrent player strike: sniper at 0 attacks enemy at 3
+      {
+        type: 'attack',
+        attackerId: 'ps',
+        defenderId: 'e2',
+        attackerCell: 0,
+        defenderCell: 3,
+        damage: 5,
+        bonusB: 0,
+        defenderCountAfter: 5,
+        counterFired: false,
+        breakdown: bd({ damage: 5 }),
+      },
+    ];
+    const script = build(units, events, 12);
+    const volleyFrames = script.frames.filter((f) => script.slots[f.slot]?.kind === 'volley');
+    // Mist strike must produce a floater with mist=true and no arc from cell 6.
+    const mistFloater = volleyFrames
+      .flatMap((f) => f.floaters)
+      .find((fl) => fl.mist);
+    expect(mistFloater).toBeDefined();
+    const arcFromMistCell = volleyFrames.flatMap((f) => f.arcs).find((a) => a.from === 6);
+    expect(arcFromMistCell).toBeUndefined();
+    // Artillery unit itself must not appear in rendered units.
+    for (const f of volleyFrames) {
+      expect(f.units.some((u) => u.id === 'aa')).toBe(false);
+    }
+  });
+
+  it('concurrent group preserves all strike data for breakdown modal', () => {
+    // Both strikes must be present on slots so the breakdown modal can open them.
+    const units = [
+      makeUnit('pa', 0, 0),
+      makeUnit('pb', 0, 5, 'ranger'),
+      makeUnit('e1', 1, 3),
+      makeUnit('e2', 1, 7),
+    ];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pa',
+        defenderId: 'e1',
+        attackerCell: 0,
+        defenderCell: 3,
+        damage: 5,
+        bonusB: 0,
+        defenderCountAfter: 5,
+        counterFired: false,
+        breakdown: bd({ damage: 5 }),
+      },
+      {
+        type: 'attack',
+        attackerId: 'pb',
+        defenderId: 'e2',
+        attackerCell: 5,
+        defenderCell: 7,
+        damage: 4,
+        bonusB: 0,
+        defenderCountAfter: 6,
+        counterFired: false,
+        breakdown: bd({ damage: 4 }),
+      },
+    ];
+    const script = build(units, events, 12);
+    // All strikes across all volley slots should be present for the breakdown modal.
+    const allStrikes = script.slots.filter((s) => s.kind === 'volley').flatMap((s) => s.strikes);
+    expect(allStrikes.length).toBe(2);
+    expect(allStrikes.map((s) => s.attackerId).sort()).toEqual(['pa', 'pb']);
+    expect(allStrikes.every((s) => s.breakdown !== undefined)).toBe(true);
+  });
+
+  it('kills in a concurrent combat group apply correctly, dead units excluded from later frames', () => {
+    // Two attacks, one kills. The killed unit should not appear after the combat.
+    const units = [makeUnit('pa', 0, 0), makeUnit('pb', 0, 5, 'ranger'), makeUnit('e1', 1, 3), makeUnit('e2', 1, 7)];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pa',
+        defenderId: 'e1',
+        attackerCell: 0,
+        defenderCell: 3,
+        damage: 10,
+        bonusB: 0,
+        defenderCountAfter: 0,
+        counterFired: false,
+        breakdown: bd({ damage: 10 }),
+      },
+      { type: 'kill', unitId: 'e1', cell: 3, faction: 1 },
+      {
+        type: 'attack',
+        attackerId: 'pb',
+        defenderId: 'e2',
+        attackerCell: 5,
+        defenderCell: 7,
+        damage: 3,
+        bonusB: 0,
+        defenderCountAfter: 7,
+        counterFired: false,
+        breakdown: bd({ damage: 3 }),
+      },
+    ];
+    const script = build(units, events, 12);
+    // e1 should be killed and appear in summary.kills.
+    expect(script.summary.kills.map((k) => k.id)).toContain('e1');
+    // No frame after the kill should include e1.
+    const lastFrame = script.frames[script.frames.length - 1]!;
+    expect(lastFrame.units.some((u) => u.id === 'e1')).toBe(false);
   });
 });
