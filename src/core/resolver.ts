@@ -680,6 +680,8 @@ export function resolveRound(
           count: 10,
           stance: 'aggressive',
           attackedFrom: [],
+          xp: 0,
+          rank: 0,
         };
         events.push({
           type: 'spawn',
