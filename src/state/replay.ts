@@ -140,8 +140,11 @@ export type ReplayFrame = {
    *  may see). The unit is withheld from `units` on its spawn frame so the
    *  fx layer alone draws it (fade/scale in); it joins `units` next frame. */
   spawns: UnitInstance[];
-  /** E3 conquest: bases flipping THIS frame (flag-swap FX). */
-  captures: { cell: CellId; to: FactionId }[];
+  /** E3 conquest: bases flipping THIS frame (claim FX). v0.6: when the
+   *  capture CONSUMED the capturing unit (core `unitConsumed` rule), its
+   *  snapshot rides along so the fx layer can dissolve the token INTO the
+   *  flag — a claim, not a death (it still lands in summary.kills). */
+  captures: { cell: CellId; to: FactionId; consumed?: UnitInstance }[];
   /** v1.3: active movement origin trails (fog-filtered, see TrailFx). */
   trails: TrailFx[];
   /** Cells the camera should keep in view this frame (auto-follow, P9).
@@ -278,6 +281,9 @@ export function buildReplay(
   const frames: ReplayFrame[] = [];
   const summary: RoundSummary = { kills: [], damageDealt: [0, 0], fizzles: 0 };
   const log: ReplayLogEntry[] = [];
+  // v0.6: units removed by capture-consumption — already accounted for as a
+  // claim; a (defensive) stray kill event for one of them must stay silent.
+  const consumedIds = new Set<string>();
 
   const nameOf = (type: string | null): string =>
     type === null ? '?' : (unitTypes[type]?.name ?? type);
@@ -330,7 +336,10 @@ export function buildReplay(
     while (j < events.length && events[j]!.type === 'kill') {
       const ev = events[j]! as Extract<ResolutionEvent, { type: 'kill' }>;
       const victim = sim.get(ev.unitId);
-      if (victim) {
+      // v0.6 guard: a capture-consumed unit can't die twice — if the core
+      // ever pairs a kill event with unitConsumed, the claim rendering and
+      // the single casualty entry stand.
+      if (victim && !consumedIds.has(victim.id)) {
         const isShown = seen(victim.faction, victim.cell, vis) || shownVictims.has(victim.id);
         if (isShown) {
           shown.push({ ...victim, attackedFrom: [] });
@@ -678,14 +687,32 @@ export function buildReplay(
       const visBefore = vision(); // visibility judged BEFORE the flip
       const own = ev.to === player;
       const shown = own || visBefore.has(ev.cell);
+      const u = sim.get(ev.unitId);
+      // v0.6 capture-consumes rule: with `unitConsumed: true` the capturing
+      // unit is REMOVED on capture (the resolver emits NO kill event for it).
+      // It counts as a loss in the casualty rows (summary.kills, fog-honest:
+      // only when the capture itself is shown) but renders as a CLAIM, not a
+      // death — the fx layer dissolves the token into the rising flag.
+      const consumed = ev.unitConsumed === true && !!u && u.count > 0;
+      const consumedSnapshot: UnitInstance | undefined = consumed
+        ? { ...u!, attackedFrom: [] }
+        : undefined;
       if (cq) cq.bases[ev.cell] = ev.to;
+      if (consumed) {
+        if (shown) summary.kills.push({ id: u!.id, type: u!.type, faction: u!.faction });
+        u!.count = 0; // removed — drops out of living()/vision before the frame renders
+        consumedIds.add(u!.id);
+      }
       if (shown) {
-        const u = sim.get(ev.unitId);
         const slot = slots.length;
         slots.push({ kind: 'capture', actorType: u?.type ?? null, actorFaction: ev.to, strikes: [] });
         const vis = vision(); // post-flip: a taken base extends the watch
         const fx = emptyFx();
-        fx.captures.push({ cell: ev.cell, to: ev.to });
+        fx.captures.push(
+          consumedSnapshot
+            ? { cell: ev.cell, to: ev.to, consumed: consumedSnapshot }
+            : { cell: ev.cell, to: ev.to },
+        );
         frames.push({
           duration: CAPTURE_MS,
           slot,

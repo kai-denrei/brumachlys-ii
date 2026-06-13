@@ -1,18 +1,46 @@
 // ReplayFx — Layer-3 "what happened" drawing (spec §9.4 / §10.4): attack
 // flash arcs, floating damage numbers, fire-from-the-mist impact markers,
-// brawl clash bursts, kill fades. All IN-SVG so effects track pan/zoom (P6
-// decision). Animations are CSS (styles.css `fx-*` classes); the Board
-// remounts this group per frame (key=frame index) so they restart cleanly.
+// brawl clash bursts, the v0.6 animation language (Ask 7). All IN-SVG so
+// effects track pan/zoom (P6 decision). Animations are CSS (styles.css
+// `fx-*` classes); the Board remounts this group per frame (key=frame index)
+// so they restart cleanly.
+//
+// v0.6 FX VOCABULARY (Ask 7) — minimal-vector verbs, ALL ≤500 ms, effects
+// confirm what the data already shows (never compete with it), and they
+// overlap the existing frame timing — playback never slows for them:
+//   impact  = flash / spark / recoil   (HitFlash here + token recoil in
+//             UnitRenderer, driven by ReplayFxData.impacts)
+//   death   = crumble / shrink / smoke-puff  (DeathFx: hit-spark → brief
+//             freeze/wobble → 3–5 vector fragments + smoke; enemy deaths add
+//             a tiny radial celebration pop in the PLAYER color, own deaths
+//             read heavier/muted with a dimming outline — loss, not a win)
+//   capture = fill / flip / pulse      (CaptureFx: 150 ms tile pulse → paint-
+//             fill sweep across the polygon → flag flip-in + shimmer; a
+//             CONSUMED capturing unit dissolves INTO the flag — the cost of
+//             the new capture-consumes rule made legible)
+//   victory/loss banner verbs live on the banner scrim (styles.css).
+// prefers-reduced-motion cuts every verb to its end state.
 //
 // Fog honesty (§7): this module draws exactly what it is given. The replay
 // builder (state/replay.ts) already withheld mist sources — a mist floater
-// arrives with `mist: true` and there is simply no arc to draw.
+// arrives with `mist: true`, impacts arrive with attackerCell null, and there
+// is simply no arc (or recoil) to draw.
 
 import type { Board, CellId } from '../../board/types';
 import type { FactionId, UnitInstance } from '../../core/types';
-import { factionColor } from './palette';
+import { darken, factionColor } from './palette';
 import { UnitRenderer } from './UnitRenderer';
-import type { Pt } from './rounded';
+import { roundedPolygonPath, type Pt } from './rounded';
+
+/** v0.6 Ask 7 — one shown strike whose defender SURVIVES the frame (deaths
+ * use the destruction verb instead). attacker fields are null for mist
+ * strikes: the flash lands, no recoil reveals the source. */
+export type ImpactMark = {
+  attackerId: string | null;
+  attackerCell: CellId | null;
+  defenderId: string;
+  defenderCell: CellId;
+};
 
 export type ReplayFxData = {
   arcs: { from: CellId; to: CellId; faction: FactionId }[];
@@ -32,9 +60,13 @@ export type ReplayFxData = {
   /** E3 conquest: units materializing this frame (Phase E spawns) — token
    *  fades/scales in (.fx-spawn-pop). Optional: skirmish never sends any. */
   spawns?: UnitInstance[];
-  /** E3 conquest: bases flipping this frame — flag pop in the new owner's
-   *  color + expanding ring (the cell tint swap rides frame.bases). */
-  captures?: { cell: CellId; to: FactionId }[];
+  /** E3 conquest: bases flipping this frame — the v0.6 claim verb (pulse →
+   *  paint-fill sweep → flag flip; the cell tint swap rides frame.bases).
+   *  `consumed`: the capturing unit's snapshot when the capture consumed it
+   *  (v0.6 rule) — its token dissolves into the flag. */
+  captures?: { cell: CellId; to: FactionId; consumed?: UnitInstance }[];
+  /** v0.6 Ask 7: surviving-defender strikes this frame (flash + recoil). */
+  impacts?: ImpactMark[];
 };
 
 export type ReplayFxProps = {
@@ -42,6 +74,9 @@ export type ReplayFxProps = {
   toScreen: (p: readonly [number, number]) => Pt;
   tokenSize: number;
   fx: ReplayFxData;
+  /** The viewing faction — "celebrate" pops use this color and fire only for
+   *  the OTHER side's deaths. */
+  player?: FactionId;
   /** Tap a floating damage number → breakdown modal for its slot (§9.4). */
   onFloaterTap?: (slot: number) => void;
 };
@@ -204,7 +239,218 @@ function MistImpact({ at, tokenSize }: { at: Pt; tokenSize: number }) {
   );
 }
 
-export function ReplayFx({ board, toScreen, tokenSize, fx, onFloaterTap }: ReplayFxProps) {
+// --- v0.6 Ask 7: the destruction verb ---------------------------------------
+// hit-spark → brief freeze/wobble → break into vector fragments + smoke puff,
+// ~400 ms total. Enemy deaths end on a tiny radial celebration burst in the
+// player's color; own deaths share the skeleton but pause longer, fade muted,
+// and dim through a hollow outline — they must read as loss. All geometry is
+// deterministic (fixed angles — no randomness in render).
+
+function DeathFx({
+  unit,
+  at,
+  tokenSize,
+  own,
+  cheerColor,
+}: {
+  unit: UnitInstance;
+  at: Pt;
+  tokenSize: number;
+  own: boolean;
+  cheerColor: string;
+}) {
+  const color = factionColor(unit.faction);
+  const h = tokenSize / 2;
+  // 4 shard triangles fanning out from the center (octagon vertices, fixed).
+  const verts = [...Array(8).keys()].map((k) => {
+    const t = (k / 8) * Math.PI * 2 + Math.PI / 8;
+    return [Math.cos(t) * h * 0.92, Math.sin(t) * h * 0.92] as const;
+  });
+  const travel = tokenSize * (own ? 0.55 : 0.95);
+  const frags = [0, 2, 4, 6].map((k, i) => {
+    const a = verts[k]!;
+    const b = verts[(k + 1) % 8]!;
+    const mx = (a[0] + b[0]) / 2;
+    const my = (a[1] + b[1]) / 2;
+    const len = Math.hypot(mx, my) || 1;
+    return {
+      d: `M0 0 L${a[0]} ${a[1]} L${b[0]} ${b[1]} Z`,
+      dx: (mx / len) * travel,
+      dy: (my / len) * travel,
+      rot: i % 2 === 0 ? 38 : -30,
+    };
+  });
+  const sparkR0 = tokenSize * 0.3;
+  const sparkR1 = tokenSize * 0.62;
+  const smoke: readonly (readonly [number, number, number])[] = [
+    [-0.18, -0.12, 0.26],
+    [0.17, -0.2, 0.2],
+    [0, 0.07, 0.3],
+  ];
+  return (
+    <g
+      className={`fx-death ${own ? 'fx-death-own' : 'fx-death-enemy'}`}
+      transform={`translate(${at[0]} ${at[1]})`}
+      pointerEvents="none"
+    >
+      <g className="fx-death-spark">
+        {[0, 1, 2, 3].map((k) => {
+          const t = (k / 4) * Math.PI * 2 + Math.PI / 4;
+          return (
+            <line
+              key={k}
+              x1={Math.cos(t) * sparkR0}
+              y1={Math.sin(t) * sparkR0}
+              x2={Math.cos(t) * sparkR1}
+              y2={Math.sin(t) * sparkR1}
+              stroke="#fff"
+              strokeWidth={tokenSize * 0.08}
+              strokeLinecap="round"
+            />
+          );
+        })}
+      </g>
+      {/* the token itself: freeze/wobble, then it is gone (frags take over) */}
+      <g className="fx-death-token">
+        <UnitRenderer unit={unit} x={0} y={0} size={tokenSize} />
+      </g>
+      {own && (
+        <rect
+          className="fx-death-outline"
+          x={-h}
+          y={-h}
+          width={tokenSize}
+          height={tokenSize}
+          rx={tokenSize * 0.3}
+          fill="none"
+          stroke={darken(color, 0.35)}
+          strokeWidth={tokenSize * 0.06}
+        />
+      )}
+      {frags.map((f, k) => (
+        <g
+          key={`fr${k}`}
+          className="fx-death-frag"
+          style={
+            {
+              '--fdx': `${f.dx}px`,
+              '--fdy': `${f.dy}px`,
+              '--frot': `${f.rot}deg`,
+            } as React.CSSProperties
+          }
+        >
+          <path d={f.d} fill={color} stroke="#fff" strokeWidth={tokenSize * 0.025} />
+        </g>
+      ))}
+      {smoke.map(([ox, oy, r], k) => (
+        <circle
+          key={`sm${k}`}
+          className="fx-death-smoke"
+          cx={ox * tokenSize}
+          cy={oy * tokenSize}
+          r={r * tokenSize}
+          fill="#8d8675"
+          style={{ animationDelay: `${0.14 + k * 0.04}s` }}
+        />
+      ))}
+      {!own && (
+        <g className="fx-death-cheer">
+          {[0, 1, 2, 3, 4, 5].map((k) => {
+            const t = (k / 6) * Math.PI * 2 - Math.PI / 2;
+            return (
+              <line
+                key={k}
+                x1={Math.cos(t) * tokenSize * 0.5}
+                y1={Math.sin(t) * tokenSize * 0.5}
+                x2={Math.cos(t) * tokenSize * 0.82}
+                y2={Math.sin(t) * tokenSize * 0.82}
+                stroke={cheerColor}
+                strokeWidth={tokenSize * 0.07}
+                strokeLinecap="round"
+              />
+            );
+          })}
+        </g>
+      )}
+    </g>
+  );
+}
+
+// --- v0.6 Ask 7: the claim verb ----------------------------------------------
+// 150 ms tile pulse → color fill sweep across the cell polygon (paint-fill,
+// clipped to the rounded outline) → flag flip-in + a short shimmer. When the
+// capture CONSUMED the capturing unit (v0.6 rule) its token shrinks and
+// streams up into the flag point — the cost is part of the celebration.
+
+function CaptureFx({
+  board,
+  toScreen,
+  tokenSize,
+  cell,
+  to,
+  consumed,
+}: {
+  board: Board;
+  toScreen: ReplayFxProps['toScreen'];
+  tokenSize: number;
+  cell: CellId;
+  to: FactionId;
+  consumed?: UnitInstance;
+}) {
+  const cellObj = board.cells.get(cell);
+  if (!cellObj) return null;
+  const at = toScreen(cellObj.center);
+  const pts = cellObj.polygon.map(toScreen);
+  const d = roundedPolygonPath(pts);
+  const color = factionColor(to);
+  const sweepR = Math.max(...pts.map((p) => Math.hypot(p[0] - at[0], p[1] - at[1]))) * 1.05;
+  const clipId = `fx-cap-clip-${cell}`;
+  return (
+    <g className="fx-capture" pointerEvents="none">
+      <path className="fx-capture-pulse" d={d} fill="none" stroke={color} strokeWidth={tokenSize * 0.12} />
+      <clipPath id={clipId}>
+        <path d={d} />
+      </clipPath>
+      <g clipPath={`url(#${clipId})`}>
+        <circle className="fx-capture-sweep" cx={at[0]} cy={at[1]} r={sweepR} fill={color} />
+      </g>
+      <g transform={`translate(${at[0]} ${at[1]})`}>
+        {consumed && (
+          <g className="fx-capture-consume">
+            <UnitRenderer unit={consumed} x={0} y={0} size={tokenSize} />
+          </g>
+        )}
+        <g className="fx-capture-flag">
+          <line
+            x1={0}
+            y1={tokenSize * 0.4}
+            x2={0}
+            y2={-tokenSize * 0.5}
+            stroke={color}
+            strokeWidth={tokenSize * 0.1}
+            strokeLinecap="round"
+          />
+          <path
+            d={`M0 ${-tokenSize * 0.5} L${tokenSize * 0.55} ${-tokenSize * 0.3} L0 ${-tokenSize * 0.1} Z`}
+            fill={color}
+          />
+          <line
+            className="fx-capture-shimmer"
+            x1={tokenSize * 0.06}
+            y1={-tokenSize * 0.44}
+            x2={tokenSize * 0.34}
+            y2={-tokenSize * 0.22}
+            stroke="#fff"
+            strokeWidth={tokenSize * 0.06}
+            strokeLinecap="round"
+          />
+        </g>
+      </g>
+    </g>
+  );
+}
+
+export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloaterTap }: ReplayFxProps) {
   // Stack same-cell floaters (brawl halves) side by side.
   const seenCells = new Map<CellId, number>();
   return (
@@ -285,13 +531,44 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, onFloaterTap }: Repla
           </g>
         );
       })}
+      {(fx.impacts ?? []).map((im, k) => {
+        // v0.6 impact verb (the flash half — the recoil half rides the
+        // attacker's real token, see Board/UnitRenderer): an 80 ms white
+        // flash over the surviving defender, settling out by ~300 ms.
+        const at = center(board, im.defenderCell, toScreen);
+        if (!at) return null;
+        const s = tokenSize * 1.08;
+        return (
+          <g
+            key={`i${k}`}
+            className="fx-hit"
+            transform={`translate(${at[0]} ${at[1]})`}
+            pointerEvents="none"
+          >
+            <rect
+              className="fx-hit-flash"
+              x={-s / 2}
+              y={-s / 2}
+              width={s}
+              height={s}
+              rx={s * 0.3}
+              fill="#fff"
+            />
+          </g>
+        );
+      })}
       {fx.kills.map((unit) => {
         const at = center(board, unit.cell, toScreen);
         if (!at) return null;
         return (
-          <g key={`k${unit.id}`} className="fx-kill" pointerEvents="none">
-            <UnitRenderer unit={unit} x={at[0]} y={at[1]} size={tokenSize} />
-          </g>
+          <DeathFx
+            key={`k${unit.id}`}
+            unit={unit}
+            at={at}
+            tokenSize={tokenSize}
+            own={unit.faction === player}
+            cheerColor={factionColor(player)}
+          />
         );
       })}
       {(fx.spawns ?? []).map((unit) => {
@@ -319,42 +596,17 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, onFloaterTap }: Repla
           </g>
         );
       })}
-      {(fx.captures ?? []).map(({ cell, to }, k) => {
-        const at = center(board, cell, toScreen);
-        if (!at) return null;
-        const color = factionColor(to);
-        return (
-          <g
-            key={`c${k}`}
-            className="fx-capture"
-            transform={`translate(${at[0]} ${at[1]})`}
-            pointerEvents="none"
-          >
-            <circle
-              className="fx-capture-ring"
-              r={tokenSize * 0.6}
-              fill="none"
-              stroke={color}
-              strokeWidth={tokenSize * 0.08}
-            />
-            <g className="fx-capture-flag">
-              <line
-                x1={0}
-                y1={tokenSize * 0.4}
-                x2={0}
-                y2={-tokenSize * 0.5}
-                stroke={color}
-                strokeWidth={tokenSize * 0.1}
-                strokeLinecap="round"
-              />
-              <path
-                d={`M0 ${-tokenSize * 0.5} L${tokenSize * 0.55} ${-tokenSize * 0.3} L0 ${-tokenSize * 0.1} Z`}
-                fill={color}
-              />
-            </g>
-          </g>
-        );
-      })}
+      {(fx.captures ?? []).map(({ cell, to, consumed }, k) => (
+        <CaptureFx
+          key={`c${k}`}
+          board={board}
+          toScreen={toScreen}
+          tokenSize={tokenSize}
+          cell={cell}
+          to={to}
+          consumed={consumed}
+        />
+      ))}
     </g>
   );
 }

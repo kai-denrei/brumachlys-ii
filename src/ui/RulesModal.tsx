@@ -161,7 +161,7 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
           <Section title="Units">
             <p className="rules-legend">
               i initiative · a armor · r range · v vision · p attack vs personnel · h attack vs
-              heavy/armored
+              heavy/armored · m movement budget (tenths, see terrain costs)
             </p>
             <table className="rules-table" data-testid="rules-units-table">
               <thead>
@@ -174,6 +174,7 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
                   <th>v</th>
                   <th>p</th>
                   <th>h</th>
+                  <th>m</th>
                 </tr>
               </thead>
               <tbody>
@@ -191,6 +192,7 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
                     <td>{t.vision}</td>
                     <td>{t.attackStrengths.personnel}</td>
                     <td>{t.attackStrengths.armored}</td>
+                    <td>{t.movement}</td>
                   </tr>
                 ))}
               </tbody>

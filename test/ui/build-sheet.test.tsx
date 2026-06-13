@@ -28,13 +28,14 @@ function sheet(over: Partial<Parameters<typeof BuildSheet>[0]> = {}) {
 }
 
 describe('BuildSheet', () => {
-  it('lists the full roster with cost and the i/a/r/v/p/h stat line', () => {
+  it('lists the full roster with cost and the i/a/r/v/p/h/m stat line', () => {
     const { baseElement } = sheet();
     const rows = baseElement.querySelectorAll('.build-row');
     expect(rows.length).toBe(Object.keys(unitsJson).length); // 8
     const sniper = [...rows].find((r) => r.textContent!.includes('Sniper'))!;
     expect(sniper.textContent).toContain('◈ 200');
-    expect(sniper.textContent).toContain('i:13 a:4 r:1–2 v:4 p:9 h:2');
+    // v0.6 Ask 4: m = raw movement budget (tenths) joins the vocabulary
+    expect(sniper.textContent).toContain('i:13 a:4 r:1–2 v:4 p:9 h:2 m:6');
     // skin art on every row
     expect(baseElement.querySelectorAll('.build-row .unit-glyph').length).toBe(rows.length);
   });

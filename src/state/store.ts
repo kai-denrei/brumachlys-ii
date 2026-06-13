@@ -19,6 +19,7 @@
 import { create } from 'zustand';
 import type { Board, CellId } from '../board/types';
 import { generateBoard } from '../board';
+import * as ai from '../ai';
 import { buildFactionView, greedyPlanner } from '../ai';
 import type { FactionId, GameMode, GameState } from '../core/types';
 import {
@@ -85,6 +86,40 @@ export type LoggedRound = { round: number; entries: ReplayLogEntry[] };
 
 /** v1.1: transient toast-level signal (dependent orders auto-removed). */
 export type OrderNotice = { text: string; token: number };
+
+// --- v0.6 group directives (Ask 2) -------------------------------------------
+// A directive is a BULK QUEUE FILL: the ai layer's planDirective generates a
+// full order set for the player's units and it replaces the current queues.
+// Every unit can then be re-ordered individually through the existing flows —
+// the chip flips to "modified" on the first individual edit, clears entirely
+// on clear-all/commit/new battle.
+
+export type DirectiveKind = 'forward-deploy' | 'tactical-retreat' | 'fortify';
+
+export type DirectiveState = { kind: DirectiveKind; modified: boolean } | null;
+
+/** CORE-AGENT SEAM (v0.6): `planDirective(kind, view, rng): Order[]` is being
+ * added to src/ai by the core agent. Probed optionally so the UI wiring ships
+ * first — until the export lands, the directive control renders disabled
+ * (resolvePlanDirective() === null) and applyDirective is a no-op. */
+export type PlanDirectiveFn = (
+  kind: DirectiveKind,
+  view: ReturnType<typeof buildFactionView>,
+  rng: ReturnType<typeof createRng>,
+) => Order[];
+
+export function resolvePlanDirective(): PlanDirectiveFn | null {
+  const fn = (ai as Record<string, unknown>).planDirective;
+  return typeof fn === 'function' ? (fn as PlanDirectiveFn) : null;
+}
+
+/** Distinct deterministic rng salt per directive kind (same round, different
+ * directives must not share a stream; re-tapping the same one is idempotent). */
+const DIRECTIVE_SALT: Record<DirectiveKind, number> = {
+  'forward-deploy': 0x00d1f0c4,
+  'tactical-retreat': 0x00d1f0c5,
+  fortify: 0x00d1f0c6,
+};
 
 /** v1.3 Tweak C: one witnessed casualty (chess-style recap row entry).
  * FOG-HONEST by construction: entries come ONLY from the fog-filtered replay
@@ -238,6 +273,9 @@ export type AppState = {
   /** E3 conquest: the player's queued buys, by base cell (core BuyQueues).
    *  Always {} in skirmish. Cleared on commit (the round spends them). */
   buys: BuyQueues;
+  /** v0.6 Ask 2: the active group directive chip (null = none). `modified`
+   * flips true on the first individual order edit after a directive fill. */
+  directive: DirectiveState;
   /** Bumped by centerOn; the Board pans to `cell` when token changes. */
   focus: { cell: CellId; token: number } | null;
   /** v1.1: transient signal when dependent orders were auto-removed. */
@@ -270,6 +308,10 @@ export type AppState = {
   tryQueueOrder: (order: Order) => ValidationResult;
   removeUnitOrder: (unitId: string, kind: OrderKind) => void;
   clearOrders: () => void;
+  /** v0.6 Ask 2: bulk-fill ALL units' queues from the ai layer's
+   * planDirective (replacing existing orders). No-op until the core agent's
+   * planDirective export lands (resolvePlanDirective probe). */
+  applyDirective: (kind: DirectiveKind) => void;
   /** E3 conquest: validate (own base, type, committed total ≤ credits) and
    *  queue a buy, REPLACING any buy on the same base (edit semantics). */
   tryQueueBuy: (order: BuyOrder) => BuyValidationResult;
@@ -313,6 +355,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedUnitId: null,
   orders: {},
   buys: {},
+  directive: null,
   focus: null,
   notice: null,
   battleLog: [],
@@ -353,6 +396,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedUnitId: null,
       orders: {},
       buys: {},
+      directive: null,
       focus: null,
       notice: null,
       battleLog: [],
@@ -371,6 +415,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedUnitId: null,
       orders: {},
       buys: {},
+      directive: null,
       focus: null,
       notice: null,
       battleLog: [],
@@ -415,7 +460,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       // v1.1: a REPLACED move can strand dependents (e.g. a vacancy move onto
       // this unit's cell) — settle the whole queue after the edit.
       const settled = settleDependentOrders(board, game, queueOrder(orders, order));
-      set({ orders: settled.queues });
+      set((s) => ({
+        orders: settled.queues,
+        // v0.6 Ask 2: an individual edit on top of a directive fill → the
+        // chip reads "modified" (the bulk plan no longer holds verbatim).
+        directive: s.directive ? { ...s.directive, modified: true } : null,
+      }));
       get().signalDropped(settled.dropped);
     }
     return verdict;
@@ -424,16 +474,46 @@ export const useAppStore = create<AppState>((set, get) => ({
   removeUnitOrder: (unitId, kind) => {
     const { board, game, orders } = get();
     const removed = removeOrder(orders, unitId, kind);
+    const markModified = (s: AppState): DirectiveState =>
+      s.directive ? { ...s.directive, modified: true } : null;
     if (!board || !game) {
-      set({ orders: removed });
+      set((s) => ({ orders: removed, directive: markModified(s) }));
       return;
     }
     const settled = settleDependentOrders(board, game, removed);
-    set({ orders: settled.queues });
+    set((s) => ({ orders: settled.queues, directive: markModified(s) }));
     get().signalDropped(settled.dropped);
   },
 
-  clearOrders: () => set({ orders: {}, notice: null }),
+  clearOrders: () => set({ orders: {}, directive: null, notice: null }),
+
+  // v0.6 Ask 2: bulk queue fill. planDirective is the ai layer's contract
+  // (fog-fair: it plans over the player's own FactionView); the returned
+  // orders REPLACE the whole queue, then settle through the same dependent
+  // re-validation every manual edit uses, so ghosts stay honest even if a
+  // generated order doesn't hold against the player's believed terrain.
+  applyDirective: (kind) => {
+    const { board, game, uiPhase } = get();
+    if (!board || !game || game.outcome || uiPhase !== 'planning') return;
+    const planDirective = resolvePlanDirective();
+    if (!planDirective) return; // core-agent export not landed yet — no-op
+    const types = loadUnits();
+    const view = buildFactionView(game.board, game, PLAYER_FACTION, types);
+    const planned = planDirective(
+      kind,
+      view,
+      createRng(plannerSeed(game.rngSeed ^ DIRECTIVE_SALT[kind], game.round, PLAYER_FACTION)),
+    );
+    let queues: OrderQueues = {};
+    for (const order of planned) queues = queueOrder(queues, order);
+    const settled = settleDependentOrders(board, game, queues);
+    set({
+      orders: settled.queues,
+      directive: { kind, modified: false },
+      selectedUnitId: null,
+      notice: null,
+    });
+  },
 
   // E3 conquest production (addendum §B.4): committed blind like all orders.
   // validateBuy re-checks own-base + total committed cost ≤ current credits
@@ -556,6 +636,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       uiPhase: 'replay',
       orders: {},
       buys: {},
+      directive: null,
       selectedUnitId: null,
       focus: null,
       notice: null,

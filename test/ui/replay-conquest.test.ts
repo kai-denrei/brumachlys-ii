@@ -47,16 +47,23 @@ describe('conquest replay — base vision + frame feeds', () => {
   });
 });
 
-describe('conquest replay — capture', () => {
-  it('own capture: flag fx, ownership flips on the frame, "raises the colors"', () => {
+describe('conquest replay — capture (v0.6: the capture CONSUMES the unit)', () => {
+  it('own capture: claim fx with the consumed snapshot, ownership flips, casualty entry', () => {
     const units = [makeUnit('pr', 0, 4, 'ranger'), makeUnit('ei', 1, 11)];
     const events: ResolutionEvent[] = [
-      { type: 'capture', unitId: 'pr', cell: 4, from: 1, to: 0 },
+      { type: 'capture', unitId: 'pr', cell: 4, from: 1, to: 0, unitConsumed: true },
     ];
     const script = build(units, events, { bases: { 4: 1 }, credits: 100 });
     expect(script.slots.map((s) => s.kind)).toEqual(['capture']);
     const frame = script.frames[1]!;
-    expect(frame.captures).toEqual([{ cell: 4, to: 0 }]);
+    // the claim fx carries the consumed unit so it can dissolve into the flag
+    expect(frame.captures.length).toBe(1);
+    expect(frame.captures[0]).toMatchObject({ cell: 4, to: 0 });
+    expect(frame.captures[0]!.consumed?.id).toBe('pr');
+    // the capturing unit is REMOVED — gone from the frame's render set …
+    expect(frame.units.some((u) => u.id === 'pr')).toBe(false);
+    // … and counts as a loss in the casualty rows (a claim, not a death)
+    expect(script.summary.kills).toEqual([{ id: 'pr', type: 'ranger', faction: 0 }]);
     expect(frame.bases![4]).toBe(0);
     expect(frame.focus).toEqual([4]);
     expect(logText(script)).toContain('Ranger raises the colors');
@@ -67,8 +74,8 @@ describe('conquest replay — capture', () => {
     // (visible) and cell 10 (mist).
     const units = [makeUnit('pi', 0, 2), makeUnit('e1', 1, 4), makeUnit('e2', 1, 10)];
     const events: ResolutionEvent[] = [
-      { type: 'capture', unitId: 'e1', cell: 4, from: null, to: 1 },
-      { type: 'capture', unitId: 'e2', cell: 10, from: null, to: 1 },
+      { type: 'capture', unitId: 'e1', cell: 4, from: null, to: 1, unitConsumed: true },
+      { type: 'capture', unitId: 'e2', cell: 10, from: null, to: 1, unitConsumed: true },
       { type: 'income', faction: 0, bases: 1, amount: 100, creditsAfter: 200 },
     ];
     const script = build(units, events, { bases: { 0: 0, 4: null, 10: null }, credits: 100 });
@@ -76,10 +83,14 @@ describe('conquest replay — capture', () => {
     expect(script.slots.map((s) => s.kind)).toEqual(['capture']);
     expect(logText(script)).toContain('enemy Infantry raises the colors');
     expect(logText(script)).not.toContain('e2');
-    // the hidden flip still reaches later frames' ownership record
+    // fog honesty: only the WITNESSED consumed enemy lands in the kills
+    expect(script.summary.kills.map((k) => k.id)).toEqual(['e1']);
+    // the hidden flip still reaches later frames' ownership record, and the
+    // hidden consumed unit is silently gone from the sim
     const last = script.frames[script.frames.length - 1]!;
     expect(last.bases![10]).toBe(1);
     expect(last.bases![4]).toBe(1);
+    expect(last.units.some((u) => u.id === 'e2')).toBe(false);
   });
 });
 

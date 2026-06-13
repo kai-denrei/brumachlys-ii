@@ -329,11 +329,8 @@ export function SummarySheet({
         {summary.kills.length === 0 && summary.damageDealt[0] + summary.damageDealt[1] === 0 && (
           <p className="sheet-empty">Quiet round. The mist gives nothing away.</p>
         )}
-        <div className="sheet-actions">
-          <button className="sheet-button summary-continue" onClick={onClose}>
-            continue
-          </button>
-        </div>
+        {/* v0.6 Ask 1: the primary CONTINUE action moved to the top-center
+            CTA pill (TopCta) — the sheet keeps the recap, scrim/✕ still close. */}
       </div>
     </div>
   );
@@ -461,8 +458,12 @@ export function GameOverBanner({
 }) {
   const [seed, setSeed] = useState(seedSuggestion);
   const { title, sub } = outcomeText(outcome, conquest);
+  // v0.6 Ask 7 (banner verbs): victory = a brief ripple/burst behind the
+  // modal; defeat = the scrim darkens; draw keeps the plain scrim. Pure CSS
+  // (≤500 ms, reduced-motion cuts to the end state).
+  const verdict = outcome.winner === 0 ? 'win' : outcome.winner === 1 ? 'loss' : 'draw';
   return (
-    <div className="banner-scrim">
+    <div className={`banner-scrim banner-scrim-${verdict}`}>
       <div className="banner" role="dialog" aria-label="battle over">
         <h2 className={`banner-title banner-${outcome.winner === 0 ? 'win' : outcome.winner === 1 ? 'loss' : 'draw'}`}>
           {title}

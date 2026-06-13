@@ -48,11 +48,21 @@ export type CellRendererProps = {
   silhouette?: boolean;
   /** Base cells tint toward their owning faction (§10.1). */
   baseTintFaction?: FactionId | null;
+  /** v0.6 Ask 3 (conquest): UNOWNED base — a "camp" for the taking. Renders
+   * a tent/palisade motif in neutral sand tones (no flag) over a slightly
+   * desaturated fill, so it can't be confused with a productive owned base.
+   * On capture the caller flips ownership and the cell re-renders as an
+   * owned base (flag pip + faction tint) — the claim animation rides ReplayFx. */
+  camp?: boolean;
   onTap?: (cellId: number) => void;
 };
 
 /** Cell stroke width, screen units (≈1.5 viewport px at base zoom). */
 export const CELL_STROKE_WIDTH = 1.6;
+
+/** v0.6 Ask 3: camp fill desaturation (applied AFTER the memory wash desat,
+ * same ordering rule as the ownership tint — pinned by tests). */
+export const CAMP_DESATURATION = 0.35;
 
 function woodsDots(rng: () => number, c: Pt, r: number): JSX.Element[] {
   // 2–3 clusters of 3 dots each (§10.1), jittered inside the cell.
@@ -127,6 +137,59 @@ function swampDashes(rng: () => number, c: Pt, r: number): JSX.Element[] {
   });
 }
 
+/** Tent + palisade motif for neutral camps (sand-tone ink, no flag). Drawn
+ * in the same anchor box the flag pip uses, so camps and bases read as the
+ * same "findable settlement" vocabulary at a glance. */
+function CampMotif({ c, r, ink }: { c: Pt; r: number; ink: string }) {
+  const w = r * 0.52; // tent half-width
+  const h = r * 0.5; // tent height
+  const baseY = r * 0.32; // tent baseline below cell center
+  return (
+    <g className="camp-pip" pointerEvents="none" transform={`translate(${c[0]} ${c[1]})`}>
+      {/* tent: triangle outline + center seam */}
+      <path
+        d={`M${-w} ${baseY} L0 ${baseY - h} L${w} ${baseY} Z`}
+        fill="none"
+        stroke={ink}
+        strokeWidth={r * 0.08}
+        strokeLinejoin="round"
+      />
+      <line
+        x1={0}
+        y1={baseY - h}
+        x2={0}
+        y2={baseY}
+        stroke={ink}
+        strokeWidth={r * 0.06}
+        strokeLinecap="round"
+      />
+      {/* palisade stubs flanking the tent */}
+      {[-1, 1].map((side) => (
+        <g key={side}>
+          <line
+            x1={side * w * 1.45}
+            y1={baseY}
+            x2={side * w * 1.45}
+            y2={baseY - r * 0.26}
+            stroke={ink}
+            strokeWidth={r * 0.07}
+            strokeLinecap="round"
+          />
+          <line
+            x1={side * w * 1.75}
+            y1={baseY}
+            x2={side * w * 1.75}
+            y2={baseY - r * 0.18}
+            stroke={ink}
+            strokeWidth={r * 0.07}
+            strokeLinecap="round"
+          />
+        </g>
+      ))}
+    </g>
+  );
+}
+
 export const CellRenderer = memo(function CellRenderer({
   cell,
   toScreen,
@@ -134,6 +197,7 @@ export const CellRenderer = memo(function CellRenderer({
   igniting = false,
   silhouette = false,
   baseTintFaction = null,
+  camp = false,
   onTap,
 }: CellRendererProps) {
   const pts = cell.polygon.map(toScreen);
@@ -185,6 +249,7 @@ export const CellRenderer = memo(function CellRenderer({
   }
 
   const memory = tier === 'memory';
+  const isCamp = camp && cell.terrain === 'base' && baseTintFaction === null;
   let fill = terrainFill(cell.terrain);
   // E3 (E1 handoff): ownership tint applies AFTER the memory desaturation so
   // it survives the wash — a remembered base still reads as owned ground.
@@ -192,6 +257,9 @@ export const CellRenderer = memo(function CellRenderer({
   if (cell.terrain === 'base' && baseTintFaction !== null) {
     fill = mix(fill, factionColor(baseTintFaction), 0.28);
   }
+  // v0.6 Ask 3: camps desaturate slightly (after the memory desat, same
+  // ordering rule as the tint) — unowned ground reads quieter than owned.
+  if (isCamp) fill = desaturate(fill, CAMP_DESATURATION);
   const stroke = darken(fill, 0.12);
   // E3: keep/flag pip so base cells are findable among cells (live + memory;
   // the dark branch above already hides bases entirely). Neutral = sand ink.
@@ -206,7 +274,7 @@ export const CellRenderer = memo(function CellRenderer({
 
   return (
     <g
-      className={`cell cell-${cell.terrain}${memory ? ' cell-memory' : ''}`}
+      className={`cell cell-${cell.terrain}${memory ? ' cell-memory' : ''}${isCamp ? ' cell-camp' : ''}`}
       data-cell-id={cell.id}
       onClick={onTap ? () => onTap(cell.id) : undefined}
     >
@@ -219,25 +287,32 @@ export const CellRenderer = memo(function CellRenderer({
       {memory && (
         <path className="memory-wash" d={d} fill={PALETTE.memoryWash} pointerEvents="none" />
       )}
-      {cell.terrain === 'base' && (
-        <g
-          className="base-pip"
-          pointerEvents="none"
-          transform={`translate(${c[0]} ${c[1] - r * 0.5})`}
-          opacity={memory ? 0.75 : 1}
-        >
-          <line
-            x1={0}
-            y1={0}
-            x2={0}
-            y2={r * 0.62}
-            stroke={pipColor}
-            strokeWidth={r * 0.08}
-            strokeLinecap="round"
-          />
-          <path d={`M0 0 L${r * 0.42} ${r * 0.14} L0 ${r * 0.28} Z`} fill={pipColor} />
-        </g>
-      )}
+      {cell.terrain === 'base' &&
+        (isCamp ? (
+          // v0.6 Ask 3: a camp flies NO flag — tent + palisade, sand ink,
+          // slightly faded so it reads "for the taking", not "productive".
+          <g opacity={memory ? 0.65 : 0.85}>
+            <CampMotif c={c} r={r} ink={darken(PALETTE.base, 0.4)} />
+          </g>
+        ) : (
+          <g
+            className="base-pip"
+            pointerEvents="none"
+            transform={`translate(${c[0]} ${c[1] - r * 0.5})`}
+            opacity={memory ? 0.75 : 1}
+          >
+            <line
+              x1={0}
+              y1={0}
+              x2={0}
+              y2={r * 0.62}
+              stroke={pipColor}
+              strokeWidth={r * 0.08}
+              strokeLinecap="round"
+            />
+            <path d={`M0 0 L${r * 0.42} ${r * 0.14} L0 ${r * 0.28} Z`} fill={pipColor} />
+          </g>
+        ))}
       {igniting && (
         <path
           className="dark-cover dark-cover-ignite"
