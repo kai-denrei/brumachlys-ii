@@ -175,7 +175,7 @@ export function resolveRound(
   const awardXp = (killer: UnitInstance, victim: UnitInstance): void => {
     const vt = unitTypes[victim.type];
     if (!vt) return;
-    killer.xp = (killer.xp ?? 0) + Math.round(0.1 * vt.cost);
+    killer.xp = (killer.xp ?? 0) + Math.round(0.1 * vt.cost); // Math.round: half-up, deterministic — matches the rest of combat math
   };
 
   // ── 0. Stance orders apply first (§2.3) ───────────────────────────────────
@@ -531,9 +531,11 @@ export function resolveRound(
       killUnit(target);
     }
     if (att.count <= 0) {
-      // att died — credit the counter-firer (the original defender) if its
-      // counter fired and it's still alive to claim the kill.
-      if (r.counterFired && target.count > 0) awardXp(target, att);
+      // The defender's counter killed the attacker. Credit it even if the
+      // defender also died this exchange — XP on a dead unit never matures
+      // (it's removed before the promotion step), but this keeps Phase B
+      // consistent with the brawl path's mutual-death crediting.
+      if (r.counterFired) awardXp(target, att);
       killUnit(att);
     }
   }
@@ -576,7 +578,7 @@ export function resolveRound(
   // ── Veterancy promotion (v0.8) — survivors only, repeatable. Runs after
   // capture (consumed claimants are already gone) and before attackedFrom is
   // cleared. rank = floor(2*xp / ownCost); each rank gained heals +2 (max 10).
-  for (const u of Object.values(next.units)) {
+  for (const u of Object.values(next.units).sort(cmpUnits)) {
     if (u.count <= 0) continue;
     const ut = unitTypes[u.type];
     if (!ut || ut.cost <= 0) continue;
@@ -584,7 +586,7 @@ export function resolveRound(
     const oldRank = u.rank ?? 0;
     if (newRank > oldRank) {
       const heal = 2 * (newRank - oldRank);
-      u.count = Math.min(10, u.count + heal);
+      u.count = Math.min(10, u.count + heal); // heal may be fully clamped at count 10; promotion event still fires — rank advance is meaningful even without count gain
       u.rank = newRank;
       events.push({
         type: 'promotion',
