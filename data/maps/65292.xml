@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map id="65292">
+  <name>smallest map</name>
+  <initialCredits>200</initialCredits>
+  <perBaseCredits>100</perBaseCredits>
+  <width>2</width>
+  <height>3</height>
+  <maxPlayers>4</maxPlayers>
+  <url>http://weewar.com/map/65292</url>
+  <thumbnail>http://weewar.com/images/maps/boardThumb_65292_ir1.png</thumbnail>
+  <preview>http://weewar.com/images/maps/preview_65292_ir1.png</preview>
+  <revision>1</revision>
+  <creator>th7924</creator>
+  <creatorProfile>http://weewar.com/user/th7924</creatorProfile>
+  <terrains>
+    <terrain startFaction="0" x="0" y="1" type="Base" />
+    <terrain startFaction="3" x="1" y="0" type="Base" />
+    <terrain startFaction="1" x="1" y="1" type="Base" />
+    <terrain startFaction="2" x="1" y="2" type="Base" />
+  </terrains>
+</map>

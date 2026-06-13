@@ -56,9 +56,22 @@ export type DonorMap = {
 /** E2 (addendum §B.3): credit fallback when the donor XML omits the values. */
 export const DEFAULT_CREDITS = 100;
 
-/** §4.1 step 4. */
+/** §4.1 step 4 — the PLAYABLE-board floor: every generated board, however tiny
+ * the donor, must reach at least this many cells (post-silhouette) so it is
+ * coherent and playable. The 6-tile "smallest map" donor still becomes a board
+ * of ≥ this size by subdividing the mesh more (see meshTargetFor). */
+export const PLAYABLE_FLOOR_CELLS = 60;
+
+/** §4.1 step 4 — the playable-board ceiling: large donors are capped here so
+ * the mesh never explodes (perf + on-screen legibility). */
+export const PLAYABLE_CEILING_CELLS = 250;
+
+/** §4.1 step 4: the desired PLAYABLE (post-silhouette) cell count for a donor —
+ * its tile count clamped into the playable band. Small donors floor at
+ * PLAYABLE_FLOOR_CELLS (and the mesh is subdivided harder to actually reach it,
+ * see meshTargetFor); large donors are capped at PLAYABLE_CEILING_CELLS. */
 export function targetCellsFor(donor: DonorMap): number {
-  return Math.max(60, Math.min(250, donor.tiles.length));
+  return Math.max(PLAYABLE_FLOOR_CELLS, Math.min(PLAYABLE_CEILING_CELLS, donor.tiles.length));
 }
 
 /** §4.1 step 5: deletion radius = 1.4 × donor tile pitch (normalized space). */
@@ -70,8 +83,31 @@ export const MIN_LAND_FRACTION = 0.8;
 /** §4.1 step 6: max retries with seed+1 before erroring visibly. */
 export const MAX_RETRIES = 8;
 
-/** §6.4 standard army size — the connectivity guard's placeability probe. */
+/** §6.4 standard army size — the connectivity guard's placeability probe on a
+ * normal-sized board. On boards too small to host two 8-unit forces with
+ * breathing room the probe (and the realised starting force) scale DOWN — see
+ * adaptiveForceSizeFor; never demand 8 units on a board that cannot hold them. */
 export const GUARD_FORCE_SIZE = 8;
+
+/** Adaptive starting-force sizing (§6.4 + small-board safety). A board must host
+ * TWO distinct starting forces with maneuvering room, so a single force may
+ * claim at most ≈ 1/FORCE_LAND_DIVISOR of the land cells. divisor 4 ⇒ two
+ * forces use ≤ half the land, leaving the rest as contested ground. On a
+ * PLAYABLE_FLOOR_CELLS board (~55 land) this yields ⌊55/4⌋ = 13 → clamps to the
+ * full GUARD_FORCE_SIZE; only genuinely tiny boards drop below 8. */
+export const FORCE_LAND_DIVISOR = 4;
+
+/** The starting-force / placeability-probe size for a generated board: the
+ * standard army (GUARD_FORCE_SIZE) on any board with room, scaling DOWN on tiny
+ * boards so two forces still fit with breathing room. Always ≥ 1 (a board with
+ * land can host at least a single-unit force) and ≤ GUARD_FORCE_SIZE. PURE: a
+ * function of the board's land-cell count only. */
+export function adaptiveForceSizeFor(board: Board): number {
+  let land = 0;
+  for (const cell of board.cells.values()) if (isLand(cell.terrain)) land++;
+  const room = Math.floor(land / FORCE_LAND_DIVISOR);
+  return Math.max(1, Math.min(GUARD_FORCE_SIZE, room));
+}
 
 const SQRT3 = Math.sqrt(3);
 
@@ -138,15 +174,43 @@ function donorFrame(donor: DonorMap): DonorFrame {
   };
 }
 
-/** The square mesh frame is larger than a non-square donor bbox; cells outside
- * the silhouette get deleted (§4.1 step 5). Compensate mesh density by the
- * estimated surviving fraction so the post-silhouette BOARD lands near
- * targetCells (that's what targetCells describes — §4.1 step 4 sizes the mesh
- * "to produce ≈ that many dual cells" on the playable board). Fraction clamped
- * at 1/4 to cap the transient mesh at 4× targetCells for pathologically thin
- * donors. */
+/** Worst-case fraction of MESH cells that survive to the final playable board
+ * for a compact (square-ish) donor: silhouette deletion (§4.1 step 5) trims the
+ * mesh corners that fall outside the donor's rounded hex silhouette, and the
+ * connectivity guard prunes off-component land + keeps only adjacent water.
+ * Measured over the bundled donors across seeds 1..16: compact donors realise
+ * ≥ 0.65 of their mesh target (large-square donors ~0.90; the worst single seed
+ * on a tiny donor bottomed at ~0.65). We size the mesh FLOOR off this worst
+ * case so even an unlucky seed clears PLAYABLE_FLOOR_CELLS without retrying.
+ * Aspect (thin-donor) loss is handled separately by keptFraction below. */
+export const SILHOUETTE_YIELD = 0.65;
+
+/** §4.1 steps 4–5: how many MESH cells to aim for so the post-silhouette BOARD
+ * lands in the playable band. Two independent density compensations, the larger
+ * wins:
+ *
+ *  1. ASPECT compensation (keptFraction): the square mesh frame is larger than a
+ *     non-square donor bbox, so thin donors lose big dead bands to silhouette
+ *     deletion. Dividing by keptFraction (clamped at 1/4 ⇒ ≤ 4× cap) restores
+ *     the board toward targetCells for thin donors.
+ *  2. PLAYABLE-FLOOR compensation (SILHOUETTE_YIELD): even a compact donor whose
+ *     keptFraction ≈ 1 loses ~1/3 of its mesh to silhouette + connectivity
+ *     pruning, so a 60-target mesh yields only ~40 board cells. To GUARANTEE the
+ *     playable floor on tiny donors we subdivide the mesh harder — enough that
+ *     even the worst-case yield clears PLAYABLE_FLOOR_CELLS. This is the
+ *     "subdivide small donors MORE" rule; it never shrinks a donor that already
+ *     comfortably exceeds the floor (the max() keeps the larger compensation).
+ *
+ * Result: a 6-tile donor targets ~92 mesh cells → ~60–100 board cells; a
+ * 300-tile square donor keeps its ~250 target untouched. */
 function meshTargetFor(targetCells: number, frame: DonorFrame): number {
-  return Math.round(targetCells / Math.max(frame.keptFraction, 0.25));
+  const aspectCompensated = Math.round(targetCells / Math.max(frame.keptFraction, 0.25));
+  // Floor: enough mesh that worst-case silhouette yield still clears the
+  // playable floor. Only bites when the donor's target is small.
+  const floorForPlayable = Math.ceil(
+    Math.min(targetCells, PLAYABLE_FLOOR_CELLS) / SILHOUETTE_YIELD,
+  );
+  return Math.max(aspectCompensated, floorForPlayable);
 }
 
 /** Introspection helper (donor curation stats, tests): the mesh-cell count
@@ -357,9 +421,15 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
   if (anchors[0] === anchors[1]) {
     return { ok: false, reason: 'faction anchors collide on one cell' };
   }
+  // Placeability probe (§4.1 step 7 / §6.4), size-adaptive: a normal board must
+  // host two GUARD_FORCE_SIZE forces, but a tiny board only needs to host its
+  // smaller adaptive force at each anchor. The mesh floor (meshTargetFor) keeps
+  // boards ≥ PLAYABLE_FLOOR_CELLS so this probe is ~always the full 8; the
+  // scaling is the safety net for any board that still comes out small.
+  const probe = adaptiveForceSizeFor(board);
   for (const a of anchors) {
     try {
-      placeForce(board, a, GUARD_FORCE_SIZE);
+      placeForce(board, a, probe);
     } catch (e) {
       return { ok: false, reason: `cannot host placement at anchor ${a}: ${(e as Error).message}` };
     }

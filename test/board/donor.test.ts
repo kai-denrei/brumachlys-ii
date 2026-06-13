@@ -1,5 +1,6 @@
 // donor.test.ts — §4.1 donor pipeline (P2): determinism, silhouette deletion,
-// connectivity guard, anchors, placeForce, and the 5 bundled donors.
+// connectivity guard, anchors, placeForce, size-adaptive force sizing, and the
+// bundled donors (count derived from data/maps/, small + large).
 //
 // Node-env tests read donor XMLs from data/maps/ with fs (fs stays OUT of
 // src/; the ui-facing src/io/donor-registry.ts uses Vite ?raw instead).
@@ -8,9 +9,18 @@ import { describe, expect, it, vi, beforeAll } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
-import { generateBoard, placeForce, targetCellsFor, GUARD_FORCE_SIZE, MIN_LAND_FRACTION } from '../../src/board/donor';
+import {
+  generateBoard,
+  placeForce,
+  targetCellsFor,
+  adaptiveForceSizeFor,
+  GUARD_FORCE_SIZE,
+  MIN_LAND_FRACTION,
+  PLAYABLE_FLOOR_CELLS,
+} from '../../src/board/donor';
 import type { DonorMap, DonorTile, FactionId } from '../../src/board/donor';
-import type { Board, TerrainKey } from '../../src/board/types';
+import { DONOR_ENTRIES } from '../../src/io/donor-registry';
+import type { Board, Cell, TerrainKey } from '../../src/board/types';
 import { parseWeewarMap, toDonorMap } from '../../src/io/weewar-xml';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -174,6 +184,42 @@ describe('donor pipeline — synthetic donor (silhouette + structure)', () => {
   });
 });
 
+describe('donor pipeline — adaptive force sizing (small-board safety net)', () => {
+  /** Minimal synthetic board with `landCount` land cells + `waterCount` water
+   * cells (terrain only — adaptiveForceSizeFor reads nothing else). */
+  function boardWith(landCount: number, waterCount = 0): Board {
+    const cells = new Map<number, Cell>();
+    let id = 0;
+    for (let i = 0; i < landCount; i++, id++) {
+      cells.set(id, { id, center: [0, 0], polygon: [], neighbors: [], terrain: 'plains' });
+    }
+    for (let i = 0; i < waterCount; i++, id++) {
+      cells.set(id, { id, center: [0, 0], polygon: [], neighbors: [], terrain: 'water' });
+    }
+    return { cells, seed: 0, donorMapId: 't' };
+  }
+
+  it('returns the full GUARD_FORCE_SIZE on a normal (floor-sized) board', () => {
+    // PLAYABLE_FLOOR_CELLS of land ⇒ ⌊60/4⌋ = 15 → clamps to 8.
+    expect(adaptiveForceSizeFor(boardWith(PLAYABLE_FLOOR_CELLS))).toBe(GUARD_FORCE_SIZE);
+    expect(adaptiveForceSizeFor(boardWith(200))).toBe(GUARD_FORCE_SIZE);
+  });
+
+  it('scales DOWN on a tiny board so two forces still fit with room', () => {
+    expect(adaptiveForceSizeFor(boardWith(12))).toBe(3); // ⌊12/4⌋
+    expect(adaptiveForceSizeFor(boardWith(20))).toBe(5); // ⌊20/4⌋
+  });
+
+  it('never demands fewer than 1 unit while any land exists', () => {
+    expect(adaptiveForceSizeFor(boardWith(1))).toBe(1);
+    expect(adaptiveForceSizeFor(boardWith(3))).toBe(1); // ⌊3/4⌋=0 → clamps to 1
+  });
+
+  it('counts only land — water cells do not inflate the force', () => {
+    expect(adaptiveForceSizeFor(boardWith(8, 100))).toBe(2); // ⌊8/4⌋, water ignored
+  });
+});
+
 /** BFS depths over passable cells (mirror of placeForce's metric). */
 function bfsDepths(board: Board, from: number): Map<number, number> {
   const dist = new Map([[from, 0]]);
@@ -223,29 +269,94 @@ describe('donor pipeline — connectivity guard failure modes', () => {
   });
 });
 
-describe('donor pipeline — 5 bundled donors (data/maps/)', () => {
+describe('donor pipeline — bundled donors (data/maps/), size-adaptive contract', () => {
   const files = readdirSync(MAPS_DIR).filter((f) => f.endsWith('.xml'));
 
-  it('exactly 5 donors are bundled', () => {
-    expect(files.length).toBe(5);
+  // Donor count is DERIVED, not hard-coded: every bundled XML must have a
+  // matching DONOR_ENTRIES row and vice versa, so adding/removing a map can
+  // never leave this assertion stale (the old `=== 5` failed the moment we
+  // bundled three more maps).
+  it('every data/maps/*.xml is registered in DONOR_ENTRIES and vice versa', () => {
+    const dirIds = new Set(files.map((f) => f.replace(/\.xml$/, '')));
+    const entryIds = new Set(DONOR_ENTRIES.map((e) => e.id));
+    expect([...dirIds].sort()).toEqual([...entryIds].sort());
   });
 
+  // SIZE-ADAPTIVE per-map contract. We no longer assert hard `cells.size >= 60`
+  // and `placeForce(...).length === 8` for every map — those fail by design on
+  // a 6-tile donor. Instead we assert the adaptive invariants that hold across
+  // ALL sizes:
+  //   - the board reaches the PLAYABLE_FLOOR (the mesh-density rule guarantees
+  //     this even for the tiniest donor),
+  //   - land is one connected component,
+  //   - two distinct anchors exist,
+  //   - the board's ADAPTIVE force size (1..GUARD_FORCE_SIZE) is placeable at
+  //     each anchor,
+  //   - every terrain is a valid §6.2 key,
+  //   - every base site renders as 'base'.
+  // Swept over seeds 1..16 so an unlucky seed cannot hide a regression.
+  const SWEEP_SEEDS = Array.from({ length: 16 }, (_, i) => i + 1);
+
   for (const file of files) {
-    for (const seed of [7, 8]) {
-      it(`${file} generates successfully at seed ${seed}`, () => {
-        const donor = loadDonorFile(file);
+    it(`${file} generates a valid playable board across seeds 1..16`, () => {
+      const donor = loadDonorFile(file);
+      for (const seed of SWEEP_SEEDS) {
         const board = generateBoard(donor, seed);
-        expect(board.cells.size).toBeGreaterThanOrEqual(60);
+        const ctx = `${file} seed ${seed}`;
+
+        // Playable-size floor reached regardless of donor size.
+        expect(board.cells.size, `${ctx}: below playable floor`).toBeGreaterThanOrEqual(
+          PLAYABLE_FLOOR_CELLS,
+        );
         expect(board.donorMapId).toBe(donor.id);
-        expect(landIsConnected(board)).toBe(true);
-        expect(board.placementAnchors).toBeDefined();
+
+        // Single connected land component.
+        expect(landIsConnected(board), `${ctx}: land not connected`).toBe(true);
+
+        // Two distinct anchors.
+        expect(board.placementAnchors, `${ctx}: no anchors`).toBeDefined();
         const [a0, a1] = board.placementAnchors!;
-        expect(a0).not.toBe(a1);
+        expect(a0, `${ctx}: anchors collide`).not.toBe(a1);
+
+        // Adaptive force is placeable at each anchor (1 ≤ force ≤ 8).
+        const force = adaptiveForceSizeFor(board);
+        expect(force).toBeGreaterThanOrEqual(1);
+        expect(force).toBeLessThanOrEqual(GUARD_FORCE_SIZE);
+        expect(placeForce(board, a0, force).length, `${ctx}: force unplaceable at a0`).toBe(force);
+        expect(placeForce(board, a1, force).length, `${ctx}: force unplaceable at a1`).toBe(force);
+
+        // Every terrain is a valid §6.2 key.
+        for (const cell of board.cells.values()) {
+          expect(TERRAIN_KEYS, `${ctx}: bad terrain`).toContain(cell.terrain);
+        }
+
+        // Every base site renders as 'base' (art / flag pip / conquest agree).
+        for (const site of board.bases ?? []) {
+          expect(
+            board.cells.get(site.cell)?.terrain,
+            `${ctx}: base site ${site.cell} not 'base'`,
+          ).toBe('base');
+        }
+      }
+    });
+  }
+
+  // The five ORIGINAL large donors must still host the FULL standard army at
+  // each anchor — the small-map adaptivity must not weaken the large-map
+  // guarantee. (These all have ≥150 tiles → boards well above the floor → the
+  // adaptive force is always the full GUARD_FORCE_SIZE.)
+  const LARGE_DONOR_FILES = ['55480.xml', '33564.xml', '53316.xml', '63319.xml', '34069.xml'];
+  for (const file of LARGE_DONOR_FILES) {
+    it(`${file} (large donor) still hosts a full ${GUARD_FORCE_SIZE}-unit force at each anchor`, () => {
+      const donor = loadDonorFile(file);
+      for (const seed of [7, 8]) {
+        const board = generateBoard(donor, seed);
+        expect(adaptiveForceSizeFor(board)).toBe(GUARD_FORCE_SIZE);
+        const [a0, a1] = board.placementAnchors!;
         expect(placeForce(board, a0, GUARD_FORCE_SIZE).length).toBe(GUARD_FORCE_SIZE);
         expect(placeForce(board, a1, GUARD_FORCE_SIZE).length).toBe(GUARD_FORCE_SIZE);
-        for (const cell of board.cells.values()) expect(TERRAIN_KEYS).toContain(cell.terrain);
-      });
-    }
+      }
+    });
   }
 
   it('bundled donors are deterministic: same donor + seed twice → deep-equal', () => {
@@ -253,26 +364,11 @@ describe('donor pipeline — 5 bundled donors (data/maps/)', () => {
     expect(snapshot(generateBoard(donor, 7))).toEqual(snapshot(generateBoard(donor, 7)));
   });
 
-  it('every board.bases site has terrain="base" (art, flag pip, and conquest ownership agree)', () => {
-    // Guards the donor.ts fix: base sites projected via nearestPassableCell must have their
-    // terrain forced to "base" so CellRenderer's flag pip and conquest BuildPip both render
-    // on a cell whose terrain art is base sand — not plains/mountains (the pre-fix bug).
-    for (const file of files) {
-      const donor = loadDonorFile(file);
-      const board = generateBoard(donor, 7);
-      for (const site of board.bases ?? []) {
-        const cell = board.cells.get(site.cell);
-        expect(
-          cell?.terrain,
-          `${file} seed 7: base site at cell ${site.cell} has terrain "${cell?.terrain}", expected "base"`,
-        ).toBe('base');
-      }
-    }
-  });
-
-  it('targetCellsFor clamps to [60, 250]', () => {
+  it('targetCellsFor clamps to [PLAYABLE_FLOOR, 250]', () => {
     const donor = loadDonorFile(files[0]!);
-    expect(targetCellsFor(donor)).toBe(Math.max(60, Math.min(250, donor.tiles.length)));
-    expect(targetCellsFor({ ...donor, tiles: donor.tiles.slice(0, 10) })).toBe(60);
+    expect(targetCellsFor(donor)).toBe(Math.max(PLAYABLE_FLOOR_CELLS, Math.min(250, donor.tiles.length)));
+    // A tiny donor floors at PLAYABLE_FLOOR_CELLS (and the mesh subdivides
+    // harder to actually reach it — see meshTargetFor).
+    expect(targetCellsFor({ ...donor, tiles: donor.tiles.slice(0, 10) })).toBe(PLAYABLE_FLOOR_CELLS);
   });
 });
