@@ -50,6 +50,7 @@ export function TopBar({
         <span className="top-bar-pipeline-glyph">⌬</span>
       </button>
       <span className="top-bar-status">
+        {round !== null && <span className="top-bar-round">R{round}</span>}
         {credits && (
           <span className="credits-hud" data-testid="credits-hud">
             ◈ {credits.value}
@@ -58,7 +59,6 @@ export function TopBar({
             ) : null}
           </span>
         )}
-        {round !== null && <span className="top-bar-round">R{round}</span>}
         <span className={`phase-chip phase-chip-${phase}`}>{phase}</span>
       </span>
       {/* portal: .top-bar's backdrop-filter would otherwise become the

@@ -128,13 +128,13 @@ describe('TopCta in the battle screen (App integration)', () => {
 });
 
 describe('TopCta (component)', () => {
-  it('summary phase renders the CONTINUE pill wired to onContinue', () => {
-    const onContinue = vi.fn();
-    const { container } = render(<TopCta phase="summary" onContinue={onContinue} />);
-    const btn = container.querySelector('[data-testid="cta-continue"]')!;
-    expect(btn.textContent).toBe('CONTINUE');
-    fireEvent.click(btn);
-    expect(onContinue).toHaveBeenCalled();
+  // #5: the summary phase no longer renders a CONTINUE pill in TopCta —
+  // rounds auto-advance with a "Your turn" announcement and the old
+  // CONTINUE-gate is gone. TopCta is planning-only now.
+  it('planning phase always shows the COMMIT pill (no cta-continue in TopCta)', () => {
+    const { container } = render(<TopCta phase="planning" done={0} total={2} />);
+    expect(container.querySelector('[data-testid="commit-button"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="cta-continue"]')).toBeNull();
   });
 
   it('a buys-only round (0 unit orders, ≥1 buy) commits without the confirm', () => {

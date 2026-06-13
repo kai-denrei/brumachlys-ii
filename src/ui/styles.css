@@ -71,9 +71,12 @@ body {
 }
 
 .top-bar-round {
-  font-weight: 700;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
-  opacity: 0.75;
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+  /* #1: full opacity — round number is a primary stat */
+  opacity: 1;
 }
 
 .phase-chip {
@@ -705,7 +708,9 @@ body {
 
 .unit-card-stats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* #3: was 1fr 1fr — give each column enough room for "2-4", "1–2", "10 (armored)".
+     auto-fill ensures values like fmtRange("2-4") never clip. */
+  grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 1fr);
   gap: 0.25rem 0.8rem;
   margin: 0;
 }
@@ -714,16 +719,27 @@ body {
   display: flex;
   justify-content: space-between;
   font-size: 0.74rem;
+  min-width: 0;
 }
 
 .unit-card-stats dt {
   opacity: 0.6;
+  flex: none;
+  margin-right: 0.3rem;
 }
 
 .unit-card-stats dd {
   margin: 0;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* #3: ensure the sheet itself is wide enough on narrow phones.
+   .bottom-sheet uses max-height but no min-width — a tight phone (360 px)
+   lets the two-column grid clip. Force a comfortable minimum. */
+.bottom-sheet {
+  min-width: min(340px, 100vw);
 }
 
 /* --- P7: dock chip filled/hollow ------------------------------------------ */
@@ -1497,6 +1513,71 @@ body {
   opacity: 0.85;
 }
 
+/* --- #5 "Your turn" announcement — auto-advance toast (non-blocking) ------- */
+/* A centered pill that fades in, holds, then fades out. It sits above the
+   board (z 27) but pointer-events: none on the wrap so the board is still
+   fully interactive; the inner button re-enables pointer-events for tap-to-
+   dismiss. Reduced-motion: appears and holds for the full window, no motion. */
+
+.your-turn-announcement-wrap {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 5.8rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 27;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.your-turn-announcement {
+  pointer-events: auto;
+  border: none;
+  border-radius: 14px;
+  background: rgba(28, 26, 22, 0.88);
+  color: #f2eee3;
+  padding: 0.55rem 1.1rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 6px 22px rgba(20, 18, 14, 0.35);
+  animation: your-turn-fade 1.9s ease forwards;
+  font: inherit;
+}
+
+.your-turn-label {
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  color: #f2eee3;
+}
+
+.your-turn-recap {
+  font-size: 0.68rem;
+  opacity: 0.72;
+  letter-spacing: 0.03em;
+  color: #f2eee3;
+  white-space: nowrap;
+}
+
+@keyframes your-turn-fade {
+  0%   { opacity: 0; transform: translateY(-6px); }
+  12%  { opacity: 1; transform: translateY(0); }
+  72%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .your-turn-announcement {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 /* --- v1.1 Feature B: dependent-order notice -------------------------------- */
 
 .order-notice {
@@ -1671,16 +1752,21 @@ body {
    baseless grace warning, capture/spawn replay FX. */
 
 .credits-hud {
-  font-weight: 700;
+  /* #1: credits as a bold pill — prominent, mobile-legible */
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
   color: var(--faction-a);
   white-space: nowrap;
+  background: rgba(232, 128, 107, 0.12);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
 }
 
 .credits-committed {
   font-weight: 600;
   font-size: 0.62rem;
-  opacity: 0.75;
+  opacity: 0.7;
 }
 
 .baseless-warning {

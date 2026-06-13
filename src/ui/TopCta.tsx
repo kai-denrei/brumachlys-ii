@@ -25,7 +25,7 @@ export const DIRECTIVE_LABEL: Record<DirectiveKind, string> = {
 const DIRECTIVES: readonly DirectiveKind[] = ['forward-deploy', 'tactical-retreat', 'fortify'];
 
 export type TopCtaProps = {
-  phase: 'planning' | 'summary';
+  phase: 'planning';
   /** Own units with ≥1 queued order / own unit total (planning). */
   done?: number;
   total?: number;
@@ -35,7 +35,6 @@ export type TopCtaProps = {
   /** False until the ai layer exports planDirective (core-agent seam). */
   directivesEnabled?: boolean;
   onCommit?: () => void;
-  onContinue?: () => void;
   onDirective?: (kind: DirectiveKind) => void;
   onClearAll?: () => void;
 };
@@ -48,7 +47,6 @@ export function TopCta({
   directive = null,
   directivesEnabled = false,
   onCommit,
-  onContinue,
   onDirective,
   onClearAll,
 }: TopCtaProps) {
@@ -63,16 +61,6 @@ export function TopCta({
   useEffect(() => {
     if (done + buys > 0) setConfirming(false);
   }, [done, buys]);
-
-  if (phase === 'summary') {
-    return (
-      <div className="top-cta" data-testid="top-cta">
-        <button className="cta-pill cta-continue" data-testid="cta-continue" onClick={onContinue}>
-          CONTINUE
-        </button>
-      </div>
-    );
-  }
 
   const zeroOrders = done === 0 && buys === 0;
   const commit = () => {

@@ -27,7 +27,7 @@
 // and auto-dismisses summaries, so a full game fast-forwards to the banner
 // organically. Useful for demos and for exercising long games by hand.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BASELESS_GRACE,
   assumedTerrainView,
@@ -114,6 +114,18 @@ function BattleScreen() {
   const [sheet, setSheet] = useState<SheetState>(null);
   const types = useMemo(() => loadUnits(), []);
   const autopilot = useMemo(() => urlFlag('autopilot') === 'greedy', []);
+
+  // #5 auto-advance: "Your turn — R{n}" announcement token (null = not shown).
+  // The announcement appears when replay finishes (summary phase), auto-fades
+  // after ~1.7 s via CSS animation. CSS drives timing; no JS timer needed.
+  type AnnouncementState = {
+    round: number;
+    token: number;
+    /** Snapshot of the round's kills/damage — shown briefly so the player can
+     * read the recap without blocking their planning input. */
+    summarySnap: { damageDealt: readonly [number, number]; killCount: number } | null;
+  };
+  const [announcement, setAnnouncement] = useState<AnnouncementState | null>(null);
 
   // v1.1 Feature A: mouse-hover unit card (Board detects; this renders).
   const [hover, setHover] = useState<{ unitId: string; clientX: number; clientY: number } | null>(
@@ -296,11 +308,84 @@ function BattleScreen() {
       const t = setTimeout(() => useAppStore.getState().commitAutopilot(), 200);
       return () => clearTimeout(t);
     }
+    // #5: autopilot still closes summary — but in normal play the auto-advance
+    // below handles it; autopilot just fires faster to keep the demo running.
     if (uiPhase === 'summary') {
       const t = setTimeout(() => useAppStore.getState().closeSummary(), 250);
       return () => clearTimeout(t);
     }
   }, [autopilot, uiPhase, game]);
+
+  // --- #5 auto-advance: summary → planning with "Your turn" announcement -------
+  // When replay finishes, uiPhase goes to 'summary'. If the game is NOT over,
+  // auto-call closeSummary (the same transition the old CONTINUE pill used),
+  // then show a brief "Your turn — R{n}" toast (with a mini recap snapshot) so
+  // the player knows they can act. The announcement is non-blocking (pointer-
+  // events: none on the overlay; tapping it dismisses early). The CSS animation
+  // fades it out at ~1.7 s. Game-over path: closeSummary transitions to 'over'
+  // — that banner is deliberate and is NOT auto-dismissed.
+  useEffect(() => {
+    if (uiPhase !== 'summary' || autopilot || !game || game.outcome) return;
+    // Next round number = game.round (closeSummary has NOT run yet; the core
+    // resolver already advanced game.round in commit() before returning).
+    const nextRound = game.round;
+
+    // Snapshot the replay summary NOW before closeSummary sets replay → null.
+    const replayState = useAppStore.getState().replay;
+    const summarySnap = replayState
+      ? {
+          damageDealt: replayState.script.summary.damageDealt as readonly [number, number],
+          killCount: replayState.script.summary.kills.length,
+        }
+      : null;
+
+    // Transition immediately — no perceptible delay. The announcement overlays
+    // the (now-planning) board and fades on its own schedule.
+    useAppStore.getState().closeSummary();
+    setAnnouncement((prev) => ({
+      round: nextRound,
+      token: (prev?.token ?? 0) + 1,
+      summarySnap,
+    }));
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uiPhase, autopilot, game?.outcome]);
+
+  // Dismiss the "Your turn" announcement early (tapping it or pressing Enter).
+  const dismissAnnouncement = useCallback(() => setAnnouncement(null), []);
+
+  // --- #6 [Enter] finalizes the current action -----------------------------------
+  // Global keydown listener: Enter commits during planning (mirrors the CTA pill's
+  // guard exactly — zeroOrders triggers the confirm flow in TopCta, so we also
+  // mirror the "at least one order OR buys" short-circuit here) or dismisses the
+  // "Your turn" announcement if one is visible. Ignores Enter when a text input or
+  // textarea is focused (e.g. the seed field on the game-over banner).
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Enter') return;
+      // Ignore if a text field is focused — don't interfere with form inputs.
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      // Dismiss the "Your turn" announcement first — Enter = "proceed".
+      if (announcement) {
+        dismissAnnouncement();
+        return;
+      }
+      if (uiPhase === 'planning' && game && !game.outcome) {
+        const state = useAppStore.getState();
+        const hasOrders =
+          Object.keys(state.orders).length > 0 || Object.keys(state.buys).length > 0;
+        if (hasOrders) {
+          e.preventDefault();
+          state.commit();
+        }
+        // Zero-orders case: let the user explicitly use the COMMIT pill confirm —
+        // Enter should not silently commit an empty round. (Same guard as TopCta.)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [uiPhase, game, announcement, dismissAnnouncement]);
 
   // --- E3 conquest selectors -----------------------------------------------------
   const conquest = game?.mode === 'conquest';
@@ -784,22 +869,51 @@ function BattleScreen() {
           no bases — {graceLeft} round{graceLeft === 1 ? '' : 's'} to retake one
         </div>
       )}
-      {/* v0.6 Ask 1: the primary CTA floats top-center, below the bar —
-          COMMIT during planning, CONTINUE over the round summary. Replay
-          keeps its speed controls in the bottom dock. */}
-      {(uiPhase === 'planning' || (uiPhase === 'summary' && breakdownSlot === null)) && (
+      {/* v0.6 Ask 1 / #5: the primary CTA floats top-center below the bar —
+          COMMIT during planning. Summary no longer blocks: auto-advance fires
+          instead. Replay keeps its speed controls in the bottom dock. */}
+      {uiPhase === 'planning' && (
         <TopCta
-          phase={uiPhase === 'planning' ? 'planning' : 'summary'}
+          phase="planning"
           done={own.filter((u) => orderedIds.has(u.id)).length}
           total={own.length}
           buys={dockBuys.length}
           directive={directive}
           directivesEnabled={resolvePlanDirective() !== null}
           onCommit={() => commit()}
-          onContinue={closeSummary}
           onDirective={applyDirective}
           onClearAll={clearOrders}
         />
+      )}
+      {/* #5 "Your turn" announcement — transient, non-blocking, self-fading.
+          The overlay is pointer-events: none so planning input is never blocked;
+          tapping the pill itself still dismisses it early (pointer-events: auto
+          on the inner element). */}
+      {announcement && (
+        <div
+          key={announcement.token}
+          className="your-turn-announcement-wrap"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <button
+            className="your-turn-announcement"
+            onClick={dismissAnnouncement}
+            aria-label="dismiss announcement"
+          >
+            <span className="your-turn-label">Your turn — R{announcement.round}</span>
+            {announcement.summarySnap && (announcement.summarySnap.damageDealt[0] > 0 || announcement.summarySnap.damageDealt[1] > 0 || announcement.summarySnap.killCount > 0) && (
+              <span className="your-turn-recap">
+                {announcement.summarySnap.damageDealt[0] > 0 && `dealt ${announcement.summarySnap.damageDealt[0]}`}
+                {announcement.summarySnap.damageDealt[0] > 0 && announcement.summarySnap.damageDealt[1] > 0 && ' · '}
+                {announcement.summarySnap.damageDealt[1] > 0 && `took ${announcement.summarySnap.damageDealt[1]}`}
+                {(announcement.summarySnap.damageDealt[0] > 0 || announcement.summarySnap.damageDealt[1] > 0) && announcement.summarySnap.killCount > 0 && ' · '}
+                {announcement.summarySnap.killCount > 0 && `${announcement.summarySnap.killCount} kill${announcement.summarySnap.killCount !== 1 ? 's' : ''}`}
+              </span>
+            )}
+          </button>
+        </div>
       )}
       <main
         className="board-area"
@@ -925,7 +1039,14 @@ function BattleScreen() {
           onClose={() => setBreakdownSlot(null)}
         />
       )}
-      {uiPhase === 'summary' && replay && breakdownSlot === null && (
+      {/* #5: summary no longer blocks — auto-advance fires in the effect above.
+          SummarySheet still shows for the game-over branch (game.outcome) where
+          closeSummary → 'over', and the effect is guarded by game.outcome check.
+          For the normal (non-game-over) path the effect fires synchronously on
+          the first render with uiPhase==='summary', so this guard also prevents
+          a flash of the blocking scrim. The 'Your turn' announcement carries the
+          round recap snapshot so no information is lost. */}
+      {uiPhase === 'summary' && replay && game.outcome && breakdownSlot === null && (
         <SummarySheet
           round={replay.round}
           summary={replay.script.summary}
