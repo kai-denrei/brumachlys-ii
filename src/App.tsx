@@ -117,15 +117,24 @@ function BattleScreen() {
 
   // #5 auto-advance: "Your turn — R{n}" announcement token (null = not shown).
   // The announcement appears when replay finishes (summary phase), auto-fades
-  // after ~1.7 s via CSS animation. CSS drives timing; no JS timer needed.
+  // after ~1.9 s via CSS animation. A JS backstop timer (2200 ms) clears it
+  // regardless of CSS — required for prefers-reduced-motion users where the
+  // CSS animation is disabled and opacity stays at 1 indefinitely.
   type AnnouncementState = {
     round: number;
     token: number;
-    /** Snapshot of the round's kills/damage — shown briefly so the player can
-     * read the recap without blocking their planning input. */
-    summarySnap: { damageDealt: readonly [number, number]; killCount: number } | null;
+    /** Snapshot of the round's kills/damage/fizzles — shown briefly so the
+     * player can read the recap without blocking their planning input. */
+    summarySnap: {
+      damageDealt: readonly [number, number];
+      killCount: number;
+      fizzles: number;
+    } | null;
   };
   const [announcement, setAnnouncement] = useState<AnnouncementState | null>(null);
+  // Ref holding the active backstop timer so it can be cleared on early dismiss
+  // or when a new announcement replaces an existing one.
+  const announcementTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // v1.1 Feature A: mouse-hover unit card (Board detects; this renders).
   const [hover, setHover] = useState<{ unitId: string; clientX: number; clientY: number } | null>(
@@ -322,8 +331,11 @@ function BattleScreen() {
   // then show a brief "Your turn — R{n}" toast (with a mini recap snapshot) so
   // the player knows they can act. The announcement is non-blocking (pointer-
   // events: none on the overlay; tapping it dismisses early). The CSS animation
-  // fades it out at ~1.7 s. Game-over path: closeSummary transitions to 'over'
-  // — that banner is deliberate and is NOT auto-dismissed.
+  // fades it out at ~1.9 s. A JS backstop timer (2200 ms) calls dismissAnnouncement
+  // unconditionally — under prefers-reduced-motion the CSS sets animation:none and
+  // opacity:1, so the CSS never removes the pill; the timer is the sole lifecycle
+  // owner. Game-over path: closeSummary transitions to 'over' — that banner is
+  // deliberate and is NOT auto-dismissed.
   useEffect(() => {
     if (uiPhase !== 'summary' || autopilot || !game || game.outcome) return;
     // Next round number = game.round (closeSummary has NOT run yet; the core
@@ -336,28 +348,47 @@ function BattleScreen() {
       ? {
           damageDealt: replayState.script.summary.damageDealt as readonly [number, number],
           killCount: replayState.script.summary.kills.length,
+          fizzles: replayState.script.summary.fizzles,
         }
       : null;
 
     // Transition immediately — no perceptible delay. The announcement overlays
     // the (now-planning) board and fades on its own schedule.
     useAppStore.getState().closeSummary();
+    // Clear any previous backstop timer before setting a new announcement.
+    if (announcementTimer.current !== null) clearTimeout(announcementTimer.current);
     setAnnouncement((prev) => ({
       round: nextRound,
       token: (prev?.token ?? 0) + 1,
       summarySnap,
     }));
+    // Backstop timer: clears the announcement after 2200 ms regardless of CSS.
+    // This is the primary dismissal path for prefers-reduced-motion users (where
+    // the CSS fade is disabled and opacity stays 1 forever). It also covers normal
+    // users in case the animationend event is never fired (detached nodes, etc.).
+    announcementTimer.current = setTimeout(() => {
+      announcementTimer.current = null;
+      setAnnouncement(null);
+    }, 2200);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uiPhase, autopilot, game?.outcome]);
 
   // Dismiss the "Your turn" announcement early (tapping it or pressing Enter).
-  const dismissAnnouncement = useCallback(() => setAnnouncement(null), []);
+  // Also cancels the pending backstop timer so it doesn't fire on a null state.
+  const dismissAnnouncement = useCallback(() => {
+    if (announcementTimer.current !== null) {
+      clearTimeout(announcementTimer.current);
+      announcementTimer.current = null;
+    }
+    setAnnouncement(null);
+  }, []);
 
   // --- #6 [Enter] finalizes the current action -----------------------------------
-  // Global keydown listener: Enter commits during planning (mirrors the CTA pill's
-  // guard exactly — zeroOrders triggers the confirm flow in TopCta, so we also
-  // mirror the "at least one order OR buys" short-circuit here) or dismisses the
+  // Global keydown listener: Enter commits during planning when ≥1 order or buy
+  // is queued (mirrors only the non-zero branch of the CTA pill — the zero-orders
+  // path triggers a confirm dialog in TopCta that Enter intentionally does not
+  // open; the player must tap COMMIT explicitly for that flow) or dismisses the
   // "Your turn" announcement if one is visible. Ignores Enter when a text input or
   // textarea is focused (e.g. the seed field on the game-over banner).
   useEffect(() => {
@@ -903,13 +934,15 @@ function BattleScreen() {
             aria-label="dismiss announcement"
           >
             <span className="your-turn-label">Your turn — R{announcement.round}</span>
-            {announcement.summarySnap && (announcement.summarySnap.damageDealt[0] > 0 || announcement.summarySnap.damageDealt[1] > 0 || announcement.summarySnap.killCount > 0) && (
+            {announcement.summarySnap && (announcement.summarySnap.damageDealt[0] > 0 || announcement.summarySnap.damageDealt[1] > 0 || announcement.summarySnap.killCount > 0 || announcement.summarySnap.fizzles > 0) && (
               <span className="your-turn-recap">
                 {announcement.summarySnap.damageDealt[0] > 0 && `dealt ${announcement.summarySnap.damageDealt[0]}`}
                 {announcement.summarySnap.damageDealt[0] > 0 && announcement.summarySnap.damageDealt[1] > 0 && ' · '}
                 {announcement.summarySnap.damageDealt[1] > 0 && `took ${announcement.summarySnap.damageDealt[1]}`}
                 {(announcement.summarySnap.damageDealt[0] > 0 || announcement.summarySnap.damageDealt[1] > 0) && announcement.summarySnap.killCount > 0 && ' · '}
                 {announcement.summarySnap.killCount > 0 && `${announcement.summarySnap.killCount} kill${announcement.summarySnap.killCount !== 1 ? 's' : ''}`}
+                {(announcement.summarySnap.damageDealt[0] > 0 || announcement.summarySnap.damageDealt[1] > 0 || announcement.summarySnap.killCount > 0) && announcement.summarySnap.fizzles > 0 && ' · '}
+                {announcement.summarySnap.fizzles > 0 && `${announcement.summarySnap.fizzles} fizzle${announcement.summarySnap.fizzles !== 1 ? 's' : ''}`}
               </span>
             )}
           </button>
