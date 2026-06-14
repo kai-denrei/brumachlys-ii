@@ -2061,7 +2061,22 @@ body {
   backdrop-filter: blur(6px);
   border: 1px solid rgba(74, 68, 58, 0.12);
   border-radius: 10px;
-  pointer-events: none;
+  /* v0.9: now a button — pointer-events enabled, cursor shows interactivity */
+  pointer-events: auto;
+  cursor: pointer;
+  /* reset button defaults */
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.casualty-panel:hover,
+.casualty-panel:focus-visible {
+  border-color: rgba(74, 68, 58, 0.28);
+  background: rgba(242, 238, 227, 0.98);
+  outline: none;
 }
 
 .casualty-row {
@@ -2074,6 +2089,100 @@ body {
   width: 15px;
   height: 15px;
   display: block;
+}
+
+/* --- v0.9: casualty detail modal -------------------------------------------- */
+
+/* Reuses .rules-modal + .rules-body for the shell; these classes are the
+   extra layout within the modal. */
+.casualty-modal {
+  /* cap height on tall phones so it doesn't push past the scrim edge */
+  max-height: calc(100dvh - env(safe-area-inset-top) - 0.6rem);
+}
+
+.casualty-modal-section {
+  margin-bottom: 1.2rem;
+}
+
+.casualty-modal-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.55rem;
+}
+
+.casualty-modal-section-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.casualty-modal-section-value {
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* Wrapping row of big unit buttons. */
+.casualty-modal-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+/* Each tappable unit button — bigger icon + optional count badge. */
+.casualty-modal-unit-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  background: rgba(74, 68, 58, 0.06);
+  border: 1.5px solid rgba(74, 68, 58, 0.12);
+  border-radius: 10px;
+  padding: 0.35rem 0.45rem 0.2rem;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+  /* min touch target */
+  min-width: 52px;
+  min-height: 52px;
+}
+
+.casualty-modal-unit-btn:hover,
+.casualty-modal-unit-btn:focus-visible {
+  border-color: rgba(74, 68, 58, 0.32);
+  background: rgba(74, 68, 58, 0.1);
+  outline: none;
+}
+
+.casualty-modal-unit-btn.is-selected {
+  border-color: rgba(74, 68, 58, 0.5);
+  background: rgba(74, 68, 58, 0.13);
+}
+
+.casualty-modal-icon {
+  width: 46px;
+  height: 46px;
+  display: block;
+}
+
+.casualty-modal-count {
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+/* Inline stat card that appears below the row when a unit is selected. */
+.casualty-modal-detail {
+  margin-top: 0.4rem;
+  border-top: 1px solid rgba(74, 68, 58, 0.1);
+  padding-top: 0.5rem;
+  animation: sheet-up 0.14s ease-out;
 }
 
 /* --- E3 conquest (addendum §B) ------------------------------------------------

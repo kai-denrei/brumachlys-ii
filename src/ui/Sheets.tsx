@@ -248,6 +248,10 @@ export function UnitCard({ unit, unitType }: { unit: UnitInstance; unitType: Uni
       </div>
       <dl className="unit-card-stats">
         <div>
+          <dt>cost</dt>
+          <dd>◈ {unitType.cost}</dd>
+        </div>
+        <div>
           <dt>initiative</dt>
           <dd>{unitType.initiative}</dd>
         </div>
