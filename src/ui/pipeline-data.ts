@@ -87,6 +87,21 @@ export const PIPELINE: PipelineEntry[] = [
     commit: 'c1f61ca',
   },
   {
+    version: '0.9.x',
+    date: 'Jun 14',
+    status: 'shipped',
+    title: 'capture fix · propose then confirm · area denial',
+    items: [
+      'base art now always matches a capturable base',
+      'propose then confirm moves · active unit halo',
+      'ranged area denial: fire on an empty tile',
+      'kill count · xp · rank in the unit card',
+      'credit value of losses · clearer phase rules',
+      'board holds steady when the speed control toggles',
+    ],
+    commit: 'a590cdd',
+  },
+  {
     version: 'next',
     date: null,
     status: 'next',
@@ -106,4 +121,4 @@ export const PIPELINE: PipelineEntry[] = [
  *  output would couple the bundle to the test runner. Update alongside the
  *  version bump; the pipeline test pins it to this constant, not to the
  *  live suite. */
-export const TEST_COUNT = 692;
+export const TEST_COUNT = 744;
