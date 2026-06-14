@@ -134,3 +134,29 @@ describe('win-condition precedence on the limit round (v0.6 pin)', () => {
     expect(s.outcome).toEqual({ winner: 0, reason: 'annihilation' });
   });
 });
+
+describe('v0.9 conquest checkmate — unitless enemy whose bases are all occupied', () => {
+  test('enemy with 0 units whose owned base is occupied by ANY of our units (even a non-capturer) loses immediately', () => {
+    const board = baseLine(6, [0]); // base at cell 0
+    // Faction 1 OWNS base 0 but has no units. Our TANK (armored — cannot
+    // capture) sits on base 0, so faction 1 can never spawn there. Checkmate.
+    const state = conquestState(board, [makeUnit('tank', 0, 0, 'tank')], {
+      bases: { 0: 1 },
+      round: 3,
+    });
+    const { state: s } = resolveRound(board, state, { 0: [], 1: [] }, types, weewar);
+    expect(s.outcome).toEqual({ winner: 0, reason: 'conquest' });
+  });
+
+  test('does NOT fire while the unitless enemy still owns a FREE base (it can still spawn)', () => {
+    const board = baseLine(8, [0, 5, 7]); // enemy bases 0 and 5, ours at 7
+    // Faction 1 has 0 units and owns base 0 (occupied by our tank) AND base 5
+    // (FREE). It can spawn from base 5 next round, so no immediate loss.
+    const state = conquestState(board, [makeUnit('tank', 0, 0, 'tank')], {
+      bases: { 0: 1, 5: 1, 7: 0 },
+      round: 3,
+    });
+    const { state: s } = resolveRound(board, state, { 0: [], 1: [] }, types, weewar);
+    expect(s.outcome ?? null).toBeNull(); // game continues — enemy can recover
+  });
+});

@@ -744,8 +744,22 @@ export function resolveRound(
     const b0 = ownedBases(0);
     const b1 = ownedBases(1);
 
-    const dead0 = u0 === 0 && b0 === 0;
-    const dead1 = u1 === 0 && b1 === 0;
+    // v0.9 checkmate: a unitless faction survives ONLY if it can still spawn —
+    // i.e. it owns a base with NO enemy unit standing on it. An owned base
+    // occupied by an enemy (even one that cannot capture) can't produce, so
+    // 0 units + every owned base blocked by an enemy (or 0 bases owned) is an
+    // immediate loss, not a drawn-out base-collapse grace.
+    const livingUnits = alive();
+    const canRecover = (f: FactionId): boolean => {
+      for (const [cellKey, owner] of Object.entries(bases)) {
+        if (owner !== f) continue;
+        const cell = Number(cellKey);
+        if (!livingUnits.some((u) => u.cell === cell && u.faction !== f)) return true;
+      }
+      return false;
+    };
+    const dead0 = u0 === 0 && !canRecover(0);
+    const dead1 = u1 === 0 && !canRecover(1);
     if (dead0 && dead1) outcome = { winner: null, reason: 'conquest' };
     else if (dead1) outcome = { winner: 0, reason: 'conquest' };
     else if (dead0) outcome = { winner: 1, reason: 'conquest' };
