@@ -938,6 +938,9 @@ function BattleScreen() {
     const armed = !!(orders[selected.id]?.capture);
     return {
       armed,
+      // v0.9: anchor the toggle on the TARGET base (planned end), not the
+      // unit's start cell — the player reads "capture THIS base".
+      targetCell: endCell,
       onToggle: armed
         ? () => removeCapture(selected.id)
         : () => queueCapture(selected.id),
@@ -1351,5 +1354,12 @@ function BattleScreen() {
 
 export function App() {
   const screen = useAppStore((s) => s.screen);
+  // v0.9: each page load starts from a fresh random seed. The store defaults to
+  // a fixed 7 (deterministic for tests); the live app randomizes once on mount
+  // so every load generates a different battlefield. A manual/rematch seed set
+  // afterwards still wins (this only runs once).
+  useEffect(() => {
+    useAppStore.getState().randomizeSeed();
+  }, []);
   return screen === 'start' ? <StartScreen /> : <BattleScreen />;
 }

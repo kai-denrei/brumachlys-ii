@@ -99,6 +99,9 @@ export type StancePopoverState = {
 export type CaptureToggleState = {
   /** Whether the capture order is currently armed. */
   armed: boolean;
+  /** v0.9: the base cell being captured (the unit's planned end). The toggle
+   *  anchors HERE — over the target base — not over the unit's start cell. */
+  targetCell: CellId;
   onToggle: () => void;
 };
 
@@ -1018,12 +1021,13 @@ export function Board({
             tapGuard={tapGuard}
           />
         )}
-        {/* v0.8 Task 2.4: capture toggle anchored to the selected token,
-            below the stance popover. Shown only when eligible (conquest +
-            personnel + planned end is an unowned base). */}
-        {captureToggle && selectedUnit && selectedCell && (
+        {/* v0.8 Task 2.4 · v0.9: capture toggle anchored over the TARGET base
+            (the unit's planned end), so it reads "capture this base" — not over
+            the unit's start cell. Shown only when eligible (conquest + personnel
+            + planned end is an unowned base). */}
+        {captureToggle && board.cells.get(captureToggle.targetCell) && (
           <CaptureToggle
-            anchor={toScreen(selectedCell.center)}
+            anchor={toScreen(board.cells.get(captureToggle.targetCell)!.center)}
             tokenSize={tokenSize}
             state={captureToggle}
             tapGuard={tapGuard}
