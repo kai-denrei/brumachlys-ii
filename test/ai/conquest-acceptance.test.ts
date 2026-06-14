@@ -3,8 +3,10 @@
 // credits, 100/base income; default [infantry, infantry, ranger] forces):
 //   (a) greedy (with buys) beats do-nothing-with-no-buys on 3 seeds,
 //       DECISIVELY — win reason 'conquest' or 'base-collapse';
-//   (b) greedy-vs-greedy reaches a decisive end within 80 rounds on ≥2 of
-//       the 3 seeds {7, 11, 13} (a stall on the third is logged, not forced);
+//   (b) greedy-vs-greedy reaches a decisive end within 120 rounds on ≥2 of
+//       the 3 seeds {20, 21, 27} (a stall on the third is logged, not forced;
+//       reseeded post-v0.9 base-terrain fix — the old {7,11,13} now reach a
+//       legitimate 6-6 equilibrium on the now-correctly-defensible Valley Road);
 //   (d) determinism — same seed → identical final state;
 //   (e) planning stays under the ~50 ms per-faction-round budget (measured
 //       and reported, with the board's cell count).

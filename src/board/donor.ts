@@ -512,16 +512,18 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
   // (b) ELIMINATE ORPHANS. Any cell that got 'base' from the terrain pass but is
   //     NOT a registered base site is a projection artifact: revert it to a
   //     sensible non-base terrain so phantom, uncapturable base art disappears.
-  //     Deterministically re-pick its nearest donor tile EXCLUDING base donor
-  //     tiles (falling back to 'plains' when the donor is all-base). Reverted
-  //     terrain is always land, so passability / connectivity / anchors are
+  //     Deterministically re-pick its nearest donor tile EXCLUDING base AND
+  //     water donor tiles (falling back to 'plains'). Reverted terrain is
+  //     therefore always land, so passability / connectivity / anchors are
   //     unaffected (and this runs after the placeability probes).
   for (const [id, cell] of cells) {
     if (cell.terrain !== 'base' || baseCellsSeen.has(id)) continue;
     const { index } = nearestTile(
       frame.centers,
       cell.center,
-      (i) => donor.tiles[i]!.terrain !== 'base',
+      // EXCLUDE base AND water: reverting to water would make a previously
+      // passable (base) cell impassable and could break connectivity/anchors.
+      (i) => donor.tiles[i]!.terrain !== 'base' && donor.tiles[i]!.terrain !== 'water',
     );
     cell.terrain = index === -1 ? 'plains' : donor.tiles[index]!.terrain;
   }
