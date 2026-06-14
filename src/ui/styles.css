@@ -276,6 +276,28 @@ body {
   }
 }
 
+/* v0.9 preemptive fire: dashed aim-ring on EMPTY cells a ranged unit can fire
+   at. A slow, calm rotation — discoverable but quieter than the solid
+   target-ring that marks an actual enemy. */
+.aim-ring {
+  animation: aim-spin 6s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes aim-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .target-ring,
+  .aim-ring {
+    animation: none;
+  }
+}
+
 /* --- start screen ------------------------------------------------------- */
 
 .start-screen {

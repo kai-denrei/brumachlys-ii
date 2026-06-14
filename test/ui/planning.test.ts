@@ -156,6 +156,31 @@ describe('planning slice', () => {
     expect(conv.get(2)).toEqual(['a', 'b']);
   });
 
+  it('v0.9 preemptive fire: a RANGED unit queues an attack on an empty in-range cell; a melee one cannot', () => {
+    const s = () => useAppStore.getState();
+    // artillery 'g' at cell 0 (range 2-4, vision only 1). A friendly sniper at
+    // cell 0 (vision 4) spots cell 3 so it is visible to the player faction —
+    // preemptive fire still requires SEEING the cell. 'a' is a melee infantry.
+    seedBattle([
+      unit('g', 0, 0, 'artillery'),
+      unit('spotter', 0, 0, 'sniper'),
+      unit('a', 0, 0),
+    ]);
+    // cell 3 is empty, visible (spotter), and in artillery range (dist 3 ∈ [2,4]).
+    expect(s().tryQueueOrder({ kind: 'attack', unitId: 'g', targetCell: 3 }).ok).toBe(true);
+    expect(s().orders['g']!.attack!.targetCell).toBe(3);
+    // a melee infantry cannot preempt an empty cell — rejects no-target.
+    expect(s().tryQueueOrder({ kind: 'attack', unitId: 'a', targetCell: 1 })).toEqual({
+      ok: false,
+      reason: 'no-target',
+    });
+    // an out-of-range empty cell still rejects for the ranged unit.
+    expect(s().tryQueueOrder({ kind: 'attack', unitId: 'g', targetCell: 1 })).toEqual({
+      ok: false,
+      reason: 'out-of-range',
+    });
+  });
+
   it('exitBattle clears the planning slice', () => {
     const s = () => useAppStore.getState();
     s().selectUnit('a');

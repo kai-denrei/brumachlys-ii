@@ -204,13 +204,30 @@ function validateAttack(
   const stance = queued?.stance?.stance ?? unit.stance;
   if (stance === 'hold-fire') return reject('hold-fire-blocks-attack');
 
+  // You must SEE the cell you fire at — true for both normal and preemptive shots.
   if (!visible.has(order.targetCell)) return reject('target-not-visible');
-  const target = occupant(units, order.targetCell, unit.id);
-  if (!target || target.faction === unit.faction) return reject('no-target');
 
-  const targetType = unitTypes[target.type];
-  if (targetType && (ut.attackStrengths[targetType.armorType] ?? 0) <= 0) {
-    return reject('cannot-damage');
+  const target = occupant(units, order.targetCell, unit.id);
+
+  // v0.9 PREEMPTIVE FIRE (area denial): a RANGED unit (maxRange > 1 — e.g.
+  // artillery, sniper) may target an EMPTY in-range cell, anticipating an enemy
+  // moving onto it. The resolver fires at whoever occupies the cell at Phase B:
+  // an enemy there takes the hit; empty-or-friendly fizzles ('lost-target', see
+  // resolver §2.7 explicit-target path). No friendly fire. Melee units
+  // (maxRange === 1) keep today's behaviour: an empty target rejects 'no-target'.
+  // A FRIENDLY on the cell always rejects (you can't shoot your own / a friendly
+  // sitting there is not a valid claim).
+  if (!target) {
+    if (ut.maxRange <= 1) return reject('no-target'); // melee: must have an enemy
+    // ranged + empty cell: fall through to the range check below.
+  } else if (target.faction === unit.faction) {
+    return reject('no-target'); // friendly-occupied — never a valid attack target
+  } else {
+    // enemy on the cell: keep the existing cannot-damage gate (normal attack).
+    const targetType = unitTypes[target.type];
+    if (targetType && (ut.attackStrengths[targetType.armorType] ?? 0) <= 0) {
+      return reject('cannot-damage');
+    }
   }
 
   const from = plannedEndCell(unit, queued);

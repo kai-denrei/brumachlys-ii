@@ -453,6 +453,79 @@ describe('Phase B combat', () => {
   });
 });
 
+// ── v0.9 preemptive fire (area denial) ────────────────────────────────────────
+// A ranged unit's explicit attack on an EMPTY cell fires at whoever occupies it
+// at Phase B (after movement): enemy → hit; empty or friendly → lost-target.
+// The resolver needs NO change for this — the explicit-target path already does
+// it (enemyAt is enemy-only; a missing/friendly occupant yields lost-target).
+// These tests lock that contract in.
+
+describe('preemptive fire: explicit attack on an empty cell', () => {
+  test('enemy MOVES onto the targeted empty cell → hit (no lost-target)', () => {
+    const board = plainsLine(7);
+    // artillery at 0 (range 2-4) preemptively targets empty cell 3; an enemy
+    // humvee at 6 moves 6→5→4→3, ending ON cell 3 in Phase A. Distance 0→3 == 3.
+    const state = makeState(board, [
+      makeUnit('art', 0, 0, 'artillery'),
+      makeUnit('h', 1, 6, 'humvee'),
+    ]);
+    const { state: s, events } = resolve(
+      board,
+      state,
+      [{ kind: 'attack', unitId: 'art', targetCell: 3 }],
+      [{ kind: 'move', unitId: 'h', path: [5, 4, 3] }],
+    );
+    expect(ofType(events, 'lost-target')).toHaveLength(0);
+    const attacks = ofType(events, 'attack').filter((a) => a.attackerId === 'art');
+    expect(attacks).toHaveLength(1);
+    expect(attacks[0]).toMatchObject({ defenderId: 'h' });
+    expect(s.units['h']!.count).toBeLessThan(10); // took the hit
+  });
+
+  test('cell STAYS empty → fizzle (lost-target), no damage', () => {
+    const board = plainsLine(7);
+    // No enemy ever reaches cell 3 — the humvee sits at 6.
+    const state = makeState(board, [
+      makeUnit('art', 0, 0, 'artillery'),
+      makeUnit('h', 1, 6, 'humvee'),
+    ]);
+    const { state: s, events } = resolve(
+      board,
+      state,
+      [{ kind: 'attack', unitId: 'art', targetCell: 3 }],
+      [{ kind: 'stance', unitId: 'h', stance: 'hold-fire' }],
+    );
+    expect(ofType(events, 'lost-target')).toEqual([
+      { type: 'lost-target', attackerId: 'art', targetCell: 3 },
+    ]);
+    expect(ofType(events, 'attack').filter((a) => a.attackerId === 'art')).toHaveLength(0);
+    expect(s.units['h']!.count).toBe(10);
+  });
+
+  test('FRIENDLY moves onto the targeted cell → fizzle, no friendly fire', () => {
+    const board = plainsLine(7);
+    // artillery (faction 0) targets empty cell 3; a FRIENDLY ranger (faction 0)
+    // moves onto cell 3. enemyAt(3, 0) finds no enemy → lost-target, no hit.
+    const state = makeState(board, [
+      makeUnit('art', 0, 0, 'artillery'),
+      makeUnit('r', 0, 6, 'ranger'),
+    ]);
+    const { state: s, events } = resolve(
+      board,
+      state,
+      [
+        { kind: 'attack', unitId: 'art', targetCell: 3 },
+        { kind: 'move', unitId: 'r', path: [5, 4, 3] },
+      ],
+    );
+    expect(ofType(events, 'lost-target')).toEqual([
+      { type: 'lost-target', attackerId: 'art', targetCell: 3 },
+    ]);
+    expect(ofType(events, 'attack').filter((a) => a.attackerId === 'art')).toHaveLength(0);
+    expect(s.units['r']!.count).toBe(10); // friendly untouched
+  });
+});
+
 // ── §2.8 win / draw ───────────────────────────────────────────────────────────
 
 describe('win and draw detection', () => {

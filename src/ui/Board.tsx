@@ -70,6 +70,10 @@ export type BoardHighlights = {
   reachable?: ReadonlySet<CellId> | ReadonlyMap<CellId, number>;
   /** Attackable targets: pulsing ring (§9.2). */
   targets?: ReadonlySet<CellId>;
+  /** v0.9 preemptive fire (area denial): EMPTY in-range cells a selected RANGED
+   * unit may fire at, anticipating an enemy moving there. Rendered as a faint
+   * DASHED aim-ring — distinct from the solid target-ring on actual enemies. */
+  aimCells?: ReadonlySet<CellId>;
   /** Selected unit's vision set — its edge renders as a faint contour (§9.2). */
   visionEdge?: ReadonlySet<CellId>;
 };
@@ -796,7 +800,7 @@ export function Board({
           })}
         </g>
         <GrainOverlay {...bbox} />
-        {(reachable || highlights?.targets || highlights?.visionEdge) && (
+        {(reachable || highlights?.targets || highlights?.aimCells || highlights?.visionEdge) && (
           <g className="board-highlights" pointerEvents="none">
             {cells.map((cell) => {
               const alpha = reachAlpha(cell.id);
@@ -818,6 +822,28 @@ export function Board({
             {highlights?.visionEdge && (
               <VisionEdge board={board} toScreen={toScreen} cellSet={highlights.visionEdge} />
             )}
+            {highlights?.aimCells &&
+              [...highlights.aimCells].map((id) => {
+                const cell = board.cells.get(id);
+                if (!cell) return null;
+                const [cx, cy] = toScreen(cell.center);
+                // Dashed aim-ring on an EMPTY cell a ranged unit can preempt —
+                // visibly weaker than the solid enemy target-ring.
+                return (
+                  <circle
+                    key={`aim${id}`}
+                    className="aim-ring"
+                    cx={cx}
+                    cy={cy}
+                    r={tokenSize * 0.66}
+                    fill="none"
+                    stroke={factionColor(1)}
+                    strokeWidth={tokenSize * 0.07}
+                    strokeDasharray={`${tokenSize * 0.18} ${tokenSize * 0.12}`}
+                    opacity={0.62}
+                  />
+                );
+              })}
             {highlights?.targets &&
               [...highlights.targets].map((id) => {
                 const cell = board.cells.get(id);

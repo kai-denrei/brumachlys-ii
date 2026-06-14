@@ -545,10 +545,25 @@ function BattleScreen() {
       const d = graphDistance(board, from, enemy.cell);
       if (d >= ut.minRange && d <= ut.maxRange) targets.add(enemy.cell);
     }
+    // v0.9 preemptive fire (area denial): a RANGED unit (maxRange > 1) may also
+    // aim at an EMPTY, visible, in-range cell — the resolver hits whoever moves
+    // there (enemy → hit; empty/friendly → fizzle). Surface those cells as a
+    // distinct dashed aim-ring. Occupied cells are excluded: enemy ones are
+    // already solid target-rings, friendly ones aren't legal targets.
+    const aimCells = new Set<CellId>();
+    if (ut.maxRange > 1) {
+      for (const cell of cellsWithin(board, from, ut.maxRange)) {
+        if (!visible.has(cell)) continue;
+        const d = graphDistance(board, from, cell);
+        if (d < ut.minRange || d > ut.maxRange) continue;
+        if (knownUnits.some((u) => u.cell === cell && u.count > 0)) continue; // any occupant
+        aimCells.add(cell);
+      }
+    }
     const visionEdge = new Set(cellsWithin(board, selected.cell, ut.vision));
-    return { reachable, targets, visionEdge };
+    return { reachable, targets, aimCells, visionEdge };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [board, selected, knownUnits, orders, types, assumedTerrain]);
+  }, [board, selected, knownUnits, orders, types, assumedTerrain, visible]);
 
   // --- Layer 2 (§9.3): ghost orders -------------------------------------------
   const ghosts = useMemo<GhostOrder[]>(() => {
@@ -562,15 +577,21 @@ function BattleScreen() {
       const uo = orders[unit.id];
       if (!uo || (!uo.move && !uo.attack)) continue;
       const dest = uo.move?.path[uo.move.path.length - 1];
+      const atkTarget = uo.attack?.targetCell;
       out.push({
         unit,
         movePath: uo.move?.path,
-        attackTarget: uo.attack?.targetCell,
+        attackTarget: atkTarget,
         attackFrom: plannedEndCell(unit, uo),
         converging: convergingUnits.has(unit.id),
         // charge ghosts offset beside the occupant (see GhostOrder docs)
         destOccupied:
           dest !== undefined && knownUnits.some((u) => u.cell === dest && u.id !== unit.id),
+        // v0.9 preemptive fire: an armed attack on a cell with no known unit is
+        // an area-denial shot — flag it so the ghost draws a crosshair there.
+        preemptive:
+          atkTarget !== undefined &&
+          !knownUnits.some((u) => u.cell === atkTarget && u.count > 0),
       });
     }
     return out;
@@ -701,6 +722,14 @@ function BattleScreen() {
     }
     if (layer1?.reachable.has(cellId)) {
       queueMoveTo(selected, cellId);
+      return;
+    }
+    // v0.9 preemptive fire: a RANGED unit may target an EMPTY in-range cell
+    // (area denial). aimCells are empty + visible + in [minRange, maxRange] and
+    // never reachable (reachable wins above), so this gesture is unambiguous.
+    // tryQueueOrder re-validates, so an illegal aim still rejects cleanly.
+    if (layer1?.aimCells?.has(cellId)) {
+      tryQueueOrder({ kind: 'attack', unitId: selected.id, targetCell: cellId });
       return;
     }
     // v1.1 (Feature C audit): a friendly-occupied cell used to fall through

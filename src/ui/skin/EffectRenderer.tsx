@@ -41,6 +41,10 @@ export type GhostOrder = {
    * charge ghost is fully covered by the enemy token and can never be
    * tapped). */
   destOccupied?: boolean;
+  /** v0.9 preemptive fire: the attack target cell holds no known unit — a
+   * ranged unit is firing at an EMPTY cell (area denial). Draws a crosshair on
+   * the cell so the planned shot reads as "this cell", not "that unit". */
+  preemptive?: boolean;
 };
 
 export type EffectRendererProps = {
@@ -364,6 +368,7 @@ function GhostAttack({
   const a = toScreen(fromWorld);
   const b = toScreen(toWorld);
   const color = factionColor(unit.faction);
+  const xR = tokenSize * 0.5; // preemptive crosshair radius on the empty cell
 
   // Thin arc: quadratic bezier bulging perpendicular to the chord (§9.3).
   const mx = (a[0] + b[0]) / 2;
@@ -381,6 +386,41 @@ function GhostAttack({
 
   return (
     <g className="ghost ghost-attack" data-ghost-attack-unit-id={unit.id}>
+      {ghost.preemptive && (
+        // Crosshair on the EMPTY target cell — the planned area-denial shot.
+        <g
+          className="preemptive-aim-mark"
+          data-preemptive-target={attackTarget}
+          pointerEvents="none"
+        >
+          <circle
+            cx={b[0]}
+            cy={b[1]}
+            r={xR}
+            fill="none"
+            stroke={color}
+            strokeWidth={tokenSize * 0.06}
+            strokeDasharray={`${tokenSize * 0.14} ${tokenSize * 0.1}`}
+            opacity={0.9}
+          />
+          <line
+            x1={b[0] - xR * 1.25}
+            y1={b[1]}
+            x2={b[0] + xR * 1.25}
+            y2={b[1]}
+            stroke={color}
+            strokeWidth={tokenSize * 0.05}
+          />
+          <line
+            x1={b[0]}
+            y1={b[1] - xR * 1.25}
+            x2={b[0]}
+            y2={b[1] + xR * 1.25}
+            stroke={color}
+            strokeWidth={tokenSize * 0.05}
+          />
+        </g>
+      )}
       <path
         className="attack-arc"
         d={`M${a[0]} ${a[1]} Q${cx} ${cy} ${b[0]} ${b[1]}`}
