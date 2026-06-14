@@ -158,7 +158,9 @@ export const UnitRenderer = memo(function UnitRenderer({
             dominantBaseline="central"
             fontSize={pipR * 1.35}
             fontWeight={700}
-            fill={darken(color, 0.3)}
+            // v0.9: count doubles as a health readout — high black, mid amber,
+            // low red (8–10 black · 5–7 orange · 1–4 red).
+            fill={unit.count >= 8 ? '#1a1a1a' : unit.count >= 5 ? '#d97706' : '#dc2626'}
           >
             {unit.count}
           </text>
