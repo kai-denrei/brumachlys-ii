@@ -720,12 +720,6 @@ export function Board({
   const planningOrders = useAppStore((s) =>
     s.screen === 'battle' && s.uiPhase === 'planning' ? s.orders : null,
   );
-  // v0.9 active-unit halo intensifies while THIS board's selected unit has a
-  // pending MOVE proposal. Read straight from the store (same narrow seam as
-  // the idle pulse); null outside battle-planning so previews/replay bail.
-  const pendingMove = useAppStore((s) =>
-    s.screen === 'battle' && s.uiPhase === 'planning' ? s.pendingMove : null,
-  );
   const pulseEligible =
     interactive && !silhouette && replayFx === null && planningOrders !== null;
   const orderedIds = useMemo(
@@ -764,6 +758,15 @@ export function Board({
 
   const selectedUnit = selectedUnitId !== null ? unitById.get(selectedUnitId) : undefined;
   const selectedCell = selectedUnit ? board.cells.get(selectedUnit.cell) : undefined;
+
+  // v0.9 propose-then-confirm: adapt the void→void confirm handler to the
+  // (arg)→void shape tapGuard expects (same pattern as CaptureToggle).
+  const guardedProposalConfirm = tapGuard<undefined>(
+    onProposalConfirm ? () => onProposalConfirm() : undefined,
+  );
+  const proposalConfirmHandler = guardedProposalConfirm
+    ? () => guardedProposalConfirm(undefined)
+    : undefined;
 
   return (
     <svg
@@ -894,22 +897,15 @@ export function Board({
         )}
         {/* v0.9 propose-then-confirm: the un-queued proposal ghost, above the
             committed ghosts so it reads as "the thing you're about to confirm". */}
-        {proposal && (() => {
-          // tapGuard wraps a (arg)→void handler; the proposal confirm is
-          // void→void — adapt via an unused arg (same pattern as CaptureToggle).
-          const guarded = tapGuard<undefined>(
-            onProposalConfirm ? () => onProposalConfirm() : undefined,
-          );
-          return (
-            <ProposalGhost
-              board={board}
-              toScreen={toScreen}
-              tokenSize={tokenSize}
-              mark={proposal}
-              onConfirm={guarded ? () => guarded(undefined) : undefined}
-            />
-          );
-        })()}
+        {proposal && (
+          <ProposalGhost
+            board={board}
+            toScreen={toScreen}
+            tokenSize={tokenSize}
+            mark={proposal}
+            onConfirm={proposalConfirmHandler}
+          />
+        )}
         {/* v0.8 Task 2.4: claim-intent markers in the ghost layer */}
         {captureIntentMarks && captureIntentMarks.length > 0 && (
           <CaptureIntentMarkers
@@ -951,7 +947,7 @@ export function Board({
                 selectedHalo={
                   unit.id === selectedUnitId && pulseEligible && replayFx === null
                 }
-                proposed={pendingMove?.unitId === unit.id}
+                proposed={proposal?.unit.id === unit.id}
                 pulse={idlePulse(unit)}
                 recoil={recoilByUnit.get(unit.id) ?? null}
                 recoilKey={replayFx?.key ?? 0}

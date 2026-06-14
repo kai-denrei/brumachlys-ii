@@ -564,6 +564,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       unitId: pending.unitId,
       path: pending.path,
     });
+    if (!verdict.ok) {
+      // The proposal was rejected (e.g. destination now friendly-occupied).
+      // Surface a notice so the player knows the move wasn't placed, mirroring
+      // the settled-dependent feedback that signalDropped() produces.
+      const { game } = get();
+      const types = loadUnits();
+      const u = game?.units[pending.unitId];
+      const name = (u && types[u.type]?.name) ?? pending.unitId;
+      set((s) => ({
+        notice: {
+          text: `${name} move cancelled — destination no longer reachable`,
+          token: (s.notice?.token ?? 0) + 1,
+        },
+      }));
+    }
     return verdict.ok;
   },
 

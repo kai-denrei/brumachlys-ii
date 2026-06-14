@@ -246,4 +246,20 @@ describe('planning slice', () => {
     expect(s().pendingMove).toBeNull(); // proposal still cleared
     expect(s().orders['a']).toBeUndefined(); // nothing queued
   });
+
+  it('a rejected commit surfaces a notice (FIX 2 — no silent drop)', () => {
+    const s = () => useAppStore.getState();
+    // Propose a move onto a friendly-occupied cell (no vacancy queued) — validation
+    // will reject it. commitPendingMove must signal a notice so the player learns
+    // the move wasn't placed, rather than silently discarding the proposal.
+    s().selectUnit('a');
+    // Ensure notice starts null so the signal is clearly new.
+    useAppStore.setState({ notice: null });
+    s().proposeMove({ unitId: 'a', dest: 4, path: [1, 2, 3, 4] }); // cell 4 holds friendly b
+    const result = s().commitPendingMove();
+    expect(result).toBe(false); // rejected
+    expect(s().pendingMove).toBeNull(); // cleared (no ghost left)
+    expect(s().notice).not.toBeNull(); // player gets feedback — move was rejected
+    expect(s().notice?.text).toMatch(/move/i); // notice is about the move
+  });
 });

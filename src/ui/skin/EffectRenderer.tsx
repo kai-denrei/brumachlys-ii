@@ -76,6 +76,30 @@ const center = (board: Board, id: CellId): Pt | null => {
   return cell ? cell.center : null;
 };
 
+/**
+ * Shared path-projection + destination-offset preamble used by both
+ * GhostMove (committed ghost) and ProposalGhost (un-committed proposal).
+ * Returns null when any cell center is missing (board edge / stale data).
+ */
+function resolveMovePath(
+  board: Board,
+  toScreen: (p: readonly [number, number]) => Pt,
+  tokenSize: number,
+  startCell: CellId,
+  movePath: readonly CellId[],
+  destOccupied: boolean | undefined,
+): { pts: Pt[]; rawDest: Pt; dest: Pt } | null {
+  if (!movePath || movePath.length === 0) return null;
+  const worldPts = [startCell, ...movePath].map((id) => center(board, id));
+  if (worldPts.some((p) => p === null)) return null;
+  const pts = (worldPts as Pt[]).map(toScreen);
+  const rawDest = pts[pts.length - 1]!;
+  const dest: Pt = destOccupied
+    ? [rawDest[0] - tokenSize * 0.5, rawDest[1] - tokenSize * 0.5]
+    : rawDest;
+  return { pts, rawDest, dest };
+}
+
 function GhostMove({
   board,
   toScreen,
@@ -90,14 +114,9 @@ function GhostMove({
   onGhostTap?: (unitId: string) => void;
 }) {
   const { unit, movePath } = ghost;
-  if (!movePath || movePath.length === 0) return null;
-  const worldPts = [unit.cell, ...movePath].map((id) => center(board, id));
-  if (worldPts.some((p) => p === null)) return null;
-  const pts = (worldPts as Pt[]).map(toScreen);
-  const rawDest = pts[pts.length - 1]!;
-  const dest: Pt = ghost.destOccupied
-    ? [rawDest[0] - tokenSize * 0.5, rawDest[1] - tokenSize * 0.5]
-    : rawDest;
+  const resolved = resolveMovePath(board, toScreen, tokenSize, unit.cell, movePath ?? [], ghost.destOccupied);
+  if (!resolved) return null;
+  const { pts, dest } = resolved;
   const color = factionColor(unit.faction);
   const cls = `ghost ghost-move${ghost.converging ? ' ghost-converging' : ''}`;
 
@@ -145,20 +164,17 @@ export function ProposalGhost({
   onConfirm?: () => void;
 }) {
   const { unit, movePath } = mark;
-  if (!movePath || movePath.length === 0) return null;
-  const worldPts = [unit.cell, ...movePath].map((id) => center(board, id));
-  if (worldPts.some((p) => p === null)) return null;
-  const pts = (worldPts as Pt[]).map(toScreen);
-  const rawDest = pts[pts.length - 1]!;
-  const dest: Pt = mark.destOccupied
-    ? [rawDest[0] - tokenSize * 0.5, rawDest[1] - tokenSize * 0.5]
-    : rawDest;
+  const resolved = resolveMovePath(board, toScreen, tokenSize, unit.cell, movePath, mark.destOccupied);
+  if (!resolved) return null;
+  const { pts, rawDest, dest } = resolved;
   const color = factionColor(unit.faction);
   const ringR = tokenSize * 0.74;
   // Hint pill above the destination — "tap again · Enter" affordance.
   const fs = tokenSize * 0.24;
   const hint = 'tap again · ⏎';
-  const pillW = hint.length * fs * 0.5 + fs * 1.4;
+  // Use 0.62× per character so the ⏎ glyph (wider than a typical char) stays
+  // inside the pill background on narrow viewports (was 0.5×, which clipped it).
+  const pillW = hint.length * fs * 0.62 + fs * 1.4;
   const pillH = fs * 1.6;
   const pillY = rawDest[1] - tokenSize * 1.15;
 

@@ -75,6 +75,17 @@ const tapCell = (c: HTMLElement, id: CellId) =>
   fireEvent.click(c.querySelector(`[data-cell-id="${id}"]`)!);
 const tapUnit = (c: HTMLElement, id: string) =>
   fireEvent.click(c.querySelector(`[data-unit-id="${id}"]`)!);
+// Clicks the DOCK CHIP button for a unit (distinct from the board token).
+const tapDockChip = (c: HTMLElement, unitId: string) => {
+  // Each dock chip button contains exactly one data-unit-id SVG element.
+  for (const btn of c.querySelectorAll('button.dock-chip')) {
+    if (btn.querySelector(`[data-unit-id="${unitId}"]`)) {
+      fireEvent.click(btn);
+      return;
+    }
+  }
+  throw new Error(`dock chip not found for unit ${unitId}`);
+};
 const pressEnter = () => fireEvent.keyDown(window, { key: 'Enter' });
 const pressEscape = () => fireEvent.keyDown(window, { key: 'Escape' });
 
@@ -148,6 +159,22 @@ describe('v0.9 propose-then-confirm — MOVE entry', () => {
     // tap b's token → a's proposal commits, b becomes selected, no a-proposal left
     tapUnit(container, 'b');
     expect(s().orders['a']?.move?.path).toEqual([1, 2]); // committed
+    expect(s().selectedUnitId).toBe('b');
+    expect(s().pendingMove).toBeNull();
+  });
+
+  it('tapping another unit DOCK CHIP commits the pending proposal (no silent drop)', () => {
+    // FIX 1: onChipTap was missing the commitPendingMove() call before selectUnit.
+    // Propose a move for unit 'a', then switch to 'b' via dock chip — 'a' move must land.
+    seedBattle([unit('a', 0, 0), unit('b', 0, 6), unit('e', 1, 11)]);
+    const { container } = render(<App />);
+    tapUnit(container, 'a');
+    tapCell(container, 2);
+    expect(s().pendingMove).toEqual({ unitId: 'a', dest: 2, path: [1, 2] });
+
+    // tap b's DOCK CHIP (not the board token) — must commit a's proposal first
+    tapDockChip(container, 'b');
+    expect(s().orders['a']?.move?.path).toEqual([1, 2]); // committed, not dropped
     expect(s().selectedUnitId).toBe('b');
     expect(s().pendingMove).toBeNull();
   });

@@ -8,9 +8,10 @@
 // styles.css, not here). The proposal ghost rendering is covered alongside.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { cleanup, render } from '@testing-library/react';
 import type { Board as BoardGraph, Cell, CellId } from '../../src/board/types';
 import type { UnitInstance } from '../../src/core/types';
+import type { ProposalGhostMark } from '../../src/ui/skin/EffectRenderer';
 import { useAppStore } from '../../src/state/store';
 import { Board } from '../../src/ui/Board';
 
@@ -72,12 +73,16 @@ describe('active-unit halo (v0.9 PART A)', () => {
   });
 
   it('a pending MOVE proposal INTENSIFIES the selected unit halo (.active-halo-proposed)', () => {
-    const { container } = render(<Board board={board} units={units} selectedUnitId="own1" />);
+    // Board derives `proposed` from the `proposal` prop (not from the store
+    // directly) — pass the prop, then re-render with it to check intensification.
+    const own1 = units.find((u) => u.id === 'own1')!;
+    const proposal: ProposalGhostMark = { unit: own1, movePath: [1, 2], dest: 2 };
+    const { container, rerender } = render(
+      <Board board={board} units={units} selectedUnitId="own1" />,
+    );
     const halo = () => container.querySelector('[data-unit-id="own1"] .active-halo')!;
     expect(halo().classList.contains('active-halo-proposed')).toBe(false);
-    act(() =>
-      useAppStore.setState({ pendingMove: { unitId: 'own1', dest: 2, path: [1, 2] } }),
-    );
+    rerender(<Board board={board} units={units} selectedUnitId="own1" proposal={proposal} />);
     expect(halo().classList.contains('active-halo-proposed')).toBe(true);
   });
 

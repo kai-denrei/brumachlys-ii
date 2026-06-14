@@ -1229,6 +1229,9 @@ function BattleScreen() {
           onChipTap={(unitId) => {
             const unit = own.find((u) => u.id === unitId);
             if (!unit) return;
+            // Mirror onUnitTap: commit any pending proposal BEFORE switching
+            // units so the player's set-up move is never silently dropped.
+            commitPendingMove();
             selectUnit(unitId);
             centerOn(unit.cell);
           }}
