@@ -511,10 +511,27 @@ body {
 
 /* --- bottom dock --------------------------------------------------------- */
 
+/* The planning dock (.bottom-dock) and the replay dock (.replay-dock) swap in
+   the same footer slot (App: BottomDock ↔ ReplayDock). They have different
+   natural heights — the replay dock's timeline slots (34px) + per-slot kind
+   badge run taller than the planning chips (30px). Both docks are in normal
+   flow, so a height change resizes the flex sibling .board-area, and the SVG
+   board (preserveAspectRatio="meet") rescales/recenters inside its new box —
+   the spurious recenter the operator sees on commit (dock appears) and on
+   replay end (dock disappears). Fix: reserve one constant footer height on
+   BOTH docks so the board's box is identical across the swap. The shared
+   --dock-min-height covers the taller (replay) dock's content; the safe-area
+   inset lives in padding and is identical on both, so the border-box matches
+   exactly. */
+:root {
+  --dock-min-height: 3.1rem; /* ≥ replay dock content (34px slot + padding) */
+}
+
 .bottom-dock {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-height: calc(env(safe-area-inset-bottom) + var(--dock-min-height));
   padding: 0.45rem 0.75rem calc(env(safe-area-inset-bottom) + 0.45rem);
   background: var(--bar-bg);
   backdrop-filter: blur(6px);
@@ -991,10 +1008,17 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  /* Same reserved height as .bottom-dock so swapping the two docks never
+     resizes .board-area (and never recenters the SVG board). See the note by
+     .bottom-dock. */
+  min-height: calc(env(safe-area-inset-bottom) + var(--dock-min-height));
   padding: 0.45rem 0.75rem calc(env(safe-area-inset-bottom) + 0.45rem);
   background: var(--bar-bg);
   backdrop-filter: blur(6px);
   border-top: 1px solid rgba(74, 68, 58, 0.12);
+  /* The slide-up animation only TRANSLATES (no height change), so it doesn't
+     itself resize the board — and with the reserved height the swap is a pure
+     content change inside a fixed box. */
   animation: dock-slide-up 0.22s ease-out; /* slides over the dock (§9.4) */
 }
 
