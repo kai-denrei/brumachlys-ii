@@ -92,6 +92,7 @@ export function newGame(
         attackedFrom: [],
         xp: 0,
         rank: 0,
+        kills: 0,
       };
     });
   }
@@ -279,6 +280,7 @@ function newConquestGame(
         attackedFrom: [],
         xp: 0,
         rank: 0,
+        kills: 0,
       };
     });
   }

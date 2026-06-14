@@ -178,6 +178,7 @@ export function resolveRound(
     const vt = unitTypes[victim.type];
     if (!vt) return;
     killer.xp = (killer.xp ?? 0) + Math.round(0.1 * vt.cost); // Math.round: half-up, deterministic — matches the rest of combat math
+    killer.kills = (killer.kills ?? 0) + 1;
   };
 
   // ── 0. Stance orders apply first (§2.3) ───────────────────────────────────
@@ -695,6 +696,7 @@ export function resolveRound(
           attackedFrom: [],
           xp: 0,
           rank: 0,
+          kills: 0,
         };
         events.push({
           type: 'spawn',

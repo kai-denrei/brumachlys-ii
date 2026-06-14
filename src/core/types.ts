@@ -43,6 +43,9 @@ export type UnitInstance = {
   /** Veterancy rank = floor(2*xp / ownCost). Grants +rank attack strength and
    *  is healed +2 count per rank gained. Optional — absent means 0. */
   rank?: number;
+  /** Lifetime enemy units this unit has destroyed in combat (xp is credit
+   *  value; kills is the count). Optional — absent means 0 (legacy fixtures). */
+  kills?: number;
 };
 
 export type TerrainEffect = {

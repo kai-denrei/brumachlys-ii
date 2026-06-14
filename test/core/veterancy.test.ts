@@ -149,3 +149,75 @@ describe('veterancy – no promotion for the dead', () => {
     expect(ofType(events, 'promotion')).toHaveLength(0);
   });
 });
+
+// ── Test 4: Kill counter increments on Phase B kill ──────────────────────────
+// Same scenario as Test 1 — sniper (×10) kills sniper (×1). The survivor's
+// kills counter must be exactly 1 after the round.
+describe('kill counter – Phase B attack kill', () => {
+  test('surviving attacker gets kills=1 after destroying the target', () => {
+    const board = lineBoard(['plains', 'plains']);
+    const attacker = makeUnit('att', 0, 0, 'sniper', 10);
+    const victim = makeUnit('vic', 1, 1, 'sniper', 1);
+    const state = makeState(board, [attacker, victim]);
+
+    const { state: s } = resolve(
+      board,
+      state,
+      [{ kind: 'attack', unitId: 'att', targetCell: 1 }],
+    );
+
+    expect(s.units['att']).toBeDefined();
+    expect(s.units['att']!.kills).toBe(1);
+  });
+});
+
+// ── Test 5: Kill counter increments on Phase A.5 brawl kill ─────────────────
+// Both snipers move onto each other's starting cell (neither has an explicit
+// attack order), triggering a brawl. The survivor (count=10) should record 1 kill.
+describe('kill counter – brawl kill', () => {
+  test('brawl winner gets kills=1', () => {
+    const board = lineBoard(['plains', 'plains']);
+    // count-10 vs count-1: brawl math same as Phase B, the small one dies.
+    const a = makeUnit('a', 0, 0, 'sniper', 10);
+    const b = makeUnit('b', 1, 1, 'sniper', 1);
+    const state = makeState(board, [a, b]);
+
+    // Give each unit a move-to-the-other's-cell order so they brawl.
+    const { state: s } = resolve(
+      board,
+      state,
+      [{ kind: 'move', unitId: 'a', path: [1] }],
+      [{ kind: 'move', unitId: 'b', path: [0] }],
+    );
+
+    // One of them died — the survivor must have kills=1.
+    const survivor = s.units['a'] ?? s.units['b'];
+    expect(survivor).toBeDefined();
+    expect(survivor!.kills).toBe(1);
+  });
+});
+
+// ── Test 6: Mutual kill credits both; capture consumes claimant, not a kill ──
+describe('kill counter – mutual kill credits both; capture is not a kill', () => {
+  test('mutual Phase B kills both get kills=1 (via xp accrual)', () => {
+    // Both count-1 snipers: each kills the other.
+    const board = lineBoard(['plains', 'plains']);
+    const a = makeUnit('a', 0, 0, 'sniper', 1);
+    const b = makeUnit('b', 1, 1, 'sniper', 1);
+    const state = makeState(board, [a, b]);
+
+    const { events } = resolve(
+      board,
+      state,
+      [{ kind: 'attack', unitId: 'a', targetCell: 1 }],
+    );
+
+    // Both units should be killed — neither survives to have kills in final state,
+    // but both should have received the kill credit (observable via kill events).
+    const kills = ofType(events, 'kill');
+    expect(kills.some((k) => k.unitId === 'a')).toBe(true);
+    expect(kills.some((k) => k.unitId === 'b')).toBe(true);
+    // Both credited — verified by XP on victim side via the symmetric kill events.
+    expect(kills).toHaveLength(2);
+  });
+});

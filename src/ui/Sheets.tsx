@@ -276,6 +276,12 @@ export function UnitCard({ unit, unitType }: { unit: UnitInstance; unitType: Uni
           </dd>
         </div>
       </dl>
+      <div className="unit-card-veterancy">
+        <span className="unit-card-vet-label">veterancy</span>
+        <span className="unit-card-vet-stats">
+          {'★'.repeat(Math.max(0, unit.rank ?? 0)) || '—'} &nbsp; xp {unit.xp ?? 0} &nbsp; kills {unit.kills ?? 0}
+        </span>
+      </div>
     </div>
   );
 }
@@ -328,6 +334,9 @@ export function UnitHoverCard({
         {fmtRange(unitType.minRange, unitType.maxRange)} v:{unitType.vision} p:
         {unitType.attackStrengths.personnel} h:{unitType.attackStrengths.armored} m:
         {unitType.movement}
+        {(unit.kills ?? 0) > 0 || (unit.rank ?? 0) > 0
+          ? ` · k:${unit.kills ?? 0} ★${unit.rank ?? 0}`
+          : null}
       </div>
     </div>
   );
