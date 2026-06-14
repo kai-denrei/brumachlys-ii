@@ -13,7 +13,7 @@
 import type { Board, CellId, TerrainKey } from '../board/types';
 import { graphDistance } from '../board/geometry';
 import type { FactionId, Stance, UnitInstance, UnitType } from './types';
-import { IMPASSABLE } from './pathing';
+import { IMPASSABLE, enemyFrictionAt } from './pathing';
 
 export type Order =
   | { kind: 'move'; unitId: string; path: CellId[] } // destination cells only, start excluded
@@ -158,6 +158,16 @@ function validateMove(
   const path = order.path;
   if (path.length === 0) return reject('empty-path');
 
+  // v0.9 ENEMY FRICTION (movement friction near enemies): cells holding a
+  // VISIBLE enemy unit. Planning uses the SAME fog rule as the through-enemy
+  // check below — only enemies the faction can see add friction; a hidden one
+  // surprises at resolution by design. Cheap to build (own units are few); the
+  // helper short-circuits to 0 when the set is empty.
+  const enemyCells = new Set<CellId>();
+  for (const o of units) {
+    if (o.faction !== unit.faction && o.count > 0 && visible.has(o.cell)) enemyCells.add(o.cell);
+  }
+
   let prev = unit.cell;
   let cost = 0;
   for (let i = 0; i < path.length; i++) {
@@ -170,7 +180,12 @@ function validateMove(
     const terrain = ctx.assumedTerrain ? ctx.assumedTerrain(step) : cell.terrain;
     const stepCost = ut.terrainEffects[terrain]?.movementCost ?? IMPASSABLE;
     if (stepCost >= IMPASSABLE) return reject('impassable');
-    cost += stepCost;
+    // Enemy friction is added AFTER the impassable gate (terrain alone decides
+    // passability) and BEFORE the budget check, so a step bordered by enemies
+    // can push a walk over budget — the soft malus the player sees as reduced
+    // reach. The mover's own START cell is never charged (loop enters at i=0
+    // for the FIRST entered cell; `unit.cell` is `prev`, not a `step`).
+    cost += stepCost + enemyFrictionAt(board, step, enemyCells);
     if (cost > ut.movement) return reject('over-budget');
 
     const occ = occupant(units, step, unit.id);

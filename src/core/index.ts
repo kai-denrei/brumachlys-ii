@@ -71,7 +71,14 @@ export {
 } from './combat/gangup';
 export type { GangUpBreakdown, GangUpClass, GangUpContribution } from './combat/gangup';
 
-export { IMPASSABLE, findPath, movementCostsFor, reachableCells } from './pathing';
+export {
+  FRICTION_PER_ENEMY,
+  IMPASSABLE,
+  enemyFrictionAt,
+  findPath,
+  movementCostsFor,
+  reachableCells,
+} from './pathing';
 export type { MovementCosts, PathOpts, PathResult } from './pathing';
 
 export {

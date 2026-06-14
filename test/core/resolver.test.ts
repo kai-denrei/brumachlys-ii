@@ -235,11 +235,17 @@ describe('Phase A.5 brawls', () => {
 
   test('charge-into-fog: enemy hidden at destination → brawl occurs (§13.5)', () => {
     const board = plainsLine(4);
-    // Infantry vision 2; the tank at distance 3 is fog-hidden at planning time.
-    const state = makeState(board, [makeUnit('i', 0, 0, 'infantry'), makeUnit('t', 1, 3, 'tank')]);
-    const { events } = resolve(board, state, [{ kind: 'move', unitId: 'i', path: [1, 2, 3] }]);
+    // Vision-2 charger; the defender at distance 3 is fog-hidden at planning
+    // time. v0.9: the charger must be a TANK (budget 12) rather than infantry
+    // (budget 9) — enemy friction (+2 entering cell 2, which borders the
+    // defender on cell 3) now costs the charge 11 of its 12 budget, where an
+    // infantry's 9 no longer reaches. The charge-into-fog INTENT is preserved
+    // (a fog-hidden enemy at the destination still triggers the §2.6 brawl);
+    // friction only means a slower mover can't always sprint right up to it.
+    const state = makeState(board, [makeUnit('t', 0, 0, 'tank'), makeUnit('d', 1, 3, 'infantry')]);
+    const { events } = resolve(board, state, [{ kind: 'move', unitId: 't', path: [1, 2, 3] }]);
     expect(ofType(events, 'move')).toEqual([
-      { type: 'move', unitId: 'i', from: 0, to: 3, pathTaken: [1, 2, 3] },
+      { type: 'move', unitId: 't', from: 0, to: 3, pathTaken: [1, 2, 3] },
     ]);
     expect(ofType(events, 'brawl-exchange').length).toBeGreaterThan(0);
     expect(ofType(events, 'kill')).toHaveLength(1);
@@ -609,6 +615,87 @@ describe('win and draw detection', () => {
     expect(s.outcome).toBeUndefined();
     expect(s.phase).toBe('planning');
     expect(s.round).toBe(ROUND_LIMIT);
+  });
+});
+
+// ── v0.9 ENEMY FRICTION (movement friction near enemies) ──────────────────────
+//
+// A move PLANNED against no/visible enemies truncates at resolution when the
+// ACTUAL (incl. hidden) enemies add friction over budget; an open-field move is
+// unchanged; the truncation emits the distinct 'enemy-friction' reason.
+describe('movement friction near enemies (resolver Phase A)', () => {
+  /** Lane 0—1—2—3—4 with a side cell 5 attached to lane cell `besideCell`. An
+   *  enemy parked on cell 5 borders that lane cell. */
+  function laneWithSide(besideCell: number): Board {
+    const specs: { center: Vec2; terrain: 'plains' }[] = [
+      { center: [0, 0], terrain: 'plains' }, // 0
+      { center: [1, 0], terrain: 'plains' }, // 1
+      { center: [2, 0], terrain: 'plains' }, // 2
+      { center: [3, 0], terrain: 'plains' }, // 3
+      { center: [4, 0], terrain: 'plains' }, // 4
+      { center: [besideCell, 1], terrain: 'plains' }, // 5 (beside `besideCell`)
+    ];
+    const edges: [number, number][] = [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [5, besideCell],
+    ];
+    return syntheticBoard(specs, edges);
+  }
+
+  test('open-field walk is unchanged: infantry completes 0→3 (cost 9)', () => {
+    const board = laneWithSide(3); // side cell exists but is EMPTY
+    const state = makeState(board, [makeUnit('a', 0, 0, 'infantry')]);
+    const { state: s, events } = resolve(board, state, [
+      { kind: 'move', unitId: 'a', path: [1, 2, 3] },
+    ]);
+    expect(s.units['a']!.cell).toBe(3);
+    expect(ofType(events, 'path-truncated')).toHaveLength(0);
+  });
+
+  test('a hidden enemy bordering the destination truncates with enemy-friction', () => {
+    // Enemy on cell 5, adjacent to lane cell 3. Infantry budget 9. Entering
+    // 1 (3) → 2 (3) → leaves budget 3; entering 3 = terrain 3 (fits) + friction
+    // 2 = 5 > 3 → truncate AT cell 2, reason 'enemy-friction'.
+    const board = laneWithSide(3);
+    const state = makeState(board, [
+      makeUnit('a', 0, 0, 'infantry'),
+      makeUnit('e', 1, 5, 'infantry'),
+    ]);
+    const { state: s, events } = resolve(board, state, [
+      { kind: 'move', unitId: 'a', path: [1, 2, 3] },
+    ]);
+    expect(s.units['a']!.cell).toBe(2); // stopped one short of the friction cell
+    const tr = ofType(events, 'path-truncated');
+    expect(tr).toHaveLength(1);
+    expect(tr[0]!.reason).toBe('enemy-friction');
+    expect(tr[0]!.planned).toBe(3);
+    expect(tr[0]!.actual).toBe(2);
+  });
+
+  test("a pure terrain-budget halt still reports 'budget', not 'enemy-friction'", () => {
+    // Long plains lane, no enemy: infantry runs out of budget on terrain alone.
+    const board = plainsLine(6);
+    const state = makeState(board, [makeUnit('a', 0, 0, 'infantry')]);
+    const { events } = resolve(board, state, [
+      { kind: 'move', unitId: 'a', path: [1, 2, 3, 4] }, // cost 12 > 9
+    ]);
+    const tr = ofType(events, 'path-truncated');
+    expect(tr).toHaveLength(1);
+    expect(tr[0]!.reason).toBe('budget');
+  });
+
+  test('friction is deterministic: identical inputs → identical logs', () => {
+    const board = laneWithSide(3);
+    const mk = () =>
+      resolve(
+        board,
+        makeState(board, [makeUnit('a', 0, 0, 'infantry'), makeUnit('e', 1, 5, 'infantry')]),
+        [{ kind: 'move', unitId: 'a', path: [1, 2, 3] }],
+      );
+    expect(JSON.stringify(mk().events)).toBe(JSON.stringify(mk().events));
   });
 });
 

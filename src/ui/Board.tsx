@@ -76,6 +76,11 @@ export type BoardHighlights = {
    * unit may fire at, anticipating an enemy moving there. Rendered as a faint
    * DASHED aim-ring — distinct from the solid target-ring on actual enemies. */
   aimCells?: ReadonlySet<CellId>;
+  /** v0.9 ENEMY FRICTION (movement friction near enemies): reachable cells
+   * whose ENTRY pays an enemy-adjacency movement malus (core/pathing). Marked
+   * with a small "slow" tick over the reach tint so the player SEES the soft
+   * malus at planning — the reach already shrank; this names WHY. */
+  frictionCells?: ReadonlySet<CellId>;
   /** Selected unit's vision set — its edge renders as a faint contour (§9.2). */
   visionEdge?: ReadonlySet<CellId>;
 };
@@ -819,7 +824,11 @@ export function Board({
           })}
         </g>
         <GrainOverlay {...bbox} />
-        {(reachable || highlights?.targets || highlights?.aimCells || highlights?.visionEdge) && (
+        {(reachable ||
+          highlights?.targets ||
+          highlights?.aimCells ||
+          highlights?.frictionCells ||
+          highlights?.visionEdge) && (
           <g className="board-highlights" pointerEvents="none">
             {cells.map((cell) => {
               const alpha = reachAlpha(cell.id);
@@ -838,6 +847,28 @@ export function Board({
                 />
               );
             })}
+            {/* v0.9 enemy-friction cue: a small amber "slow" tick on reachable
+               cells whose entry pays the enemy-adjacency malus. The reach tint
+               already shrank near enemies; this marks WHY, legibly at phone
+               size, without cluttering open cells. */}
+            {highlights?.frictionCells &&
+              [...highlights.frictionCells].map((id) => {
+                const cell = board.cells.get(id);
+                if (!cell) return null;
+                const [cx, cy] = toScreen(cell.center);
+                return (
+                  <circle
+                    key={`fr${id}`}
+                    className="friction-tick"
+                    data-friction-cell={id}
+                    cx={cx}
+                    cy={cy}
+                    r={tokenSize * 0.16}
+                    fill="#d98a1f"
+                    opacity={0.85}
+                  />
+                );
+              })}
             {highlights?.visionEdge && (
               <VisionEdge board={board} toScreen={toScreen} cellSet={highlights.visionEdge} />
             )}

@@ -126,6 +126,24 @@ describe('Board', () => {
     expect(container.querySelectorAll('.target-ring').length).toBe(1);
   });
 
+  it('v0.9: renders an enemy-friction "slow" tick on flagged reachable cells', () => {
+    const { container } = render(
+      <Board
+        board={makeBoard()}
+        highlights={{
+          reachable: new Map([
+            [1, 0.5],
+            [2, 0.3],
+          ]),
+          frictionCells: new Set([2]), // cell 2 borders a visible enemy
+        }}
+      />,
+    );
+    const ticks = container.querySelectorAll('.friction-tick');
+    expect(ticks.length).toBe(1);
+    expect(ticks[0]!.getAttribute('data-friction-cell')).toBe('2');
+  });
+
   it('marks the selected unit (token lift hook)', () => {
     const units = [makeUnit({ id: 'a' })];
     const { container } = render(

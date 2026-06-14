@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BASELESS_GRACE,
   assumedTerrainView,
+  enemyFrictionAt,
   findConvergences,
   movementCostsFor,
   orderedUnitIds,
@@ -566,15 +567,34 @@ function BattleScreen() {
     if (!ut) return undefined;
     const costs = movementCostsFor(ut);
     const budget = ut.movement;
+    // v0.9 ENEMY FRICTION (movement friction near enemies): cells holding a
+    // VISIBLE enemy add a soft per-step movement malus to ENTER an adjacent
+    // cell (core/pathing enemyFrictionAt). Feed the SAME helper into the reach
+    // search so the highlighted reach SHRINKS near enemies — the primary
+    // message: the player SEES reduced reach (hidden enemies stay a resolution
+    // surprise by design). Built from the rendered enemy units (visible,
+    // opposing faction, alive).
+    const visibleEnemyCells = new Set<CellId>();
+    for (const e of knownUnits) {
+      if (e.faction !== PLAYER_FACTION && e.count > 0) visibleEnemyCells.add(e.cell);
+    }
     // Tint shows moves available FROM THE CURRENT CELL (a new tap replaces
     // any queued move); rings show targets from the PLANNED end position —
     // "where could I go" vs "who can my current plan shoot".
     const reach = reachableCells(board, costs, selected.cell, budget, {
       ...pathOpts(selected),
       assumedTerrain,
+      extraCostAt: (c) => enemyFrictionAt(board, c, visibleEnemyCells),
     });
     const reachable = new Map<CellId, number>();
-    for (const [cell, cost] of reach) reachable.set(cell, (budget - cost) / budget);
+    // Friction cells: reachable cells whose ENTRY pays enemy friction (they
+    // border a visible enemy). The Board tints these distinctly — a "slowed
+    // here" cue so the malus is legible at planning, not a hidden surprise.
+    const frictionCells = new Set<CellId>();
+    for (const [cell, cost] of reach) {
+      reachable.set(cell, (budget - cost) / budget);
+      if (enemyFrictionAt(board, cell, visibleEnemyCells) > 0) frictionCells.add(cell);
+    }
 
     const from = plannedEndCell(selected, orders[selected.id]);
     const targets = new Set<CellId>();
@@ -604,7 +624,7 @@ function BattleScreen() {
       }
     }
     const visionEdge = new Set(cellsWithin(board, selected.cell, ut.vision));
-    return { reachable, targets, aimCells, visionEdge };
+    return { reachable, targets, aimCells, visionEdge, frictionCells };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board, selected, knownUnits, orders, types, assumedTerrain, visible]);
 

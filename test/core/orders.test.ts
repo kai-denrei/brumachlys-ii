@@ -99,6 +99,92 @@ describe('preemptive fire: ranged units may target an empty in-range cell', () =
   });
 });
 
+// ── v0.9 ENEMY FRICTION at planning validation ────────────────────────────────
+// A path that fits the budget on open terrain is REJECTED ('over-budget') when
+// a VISIBLE enemy borders a step; the same path with no adjacent enemy is OK; a
+// HIDDEN enemy adds no planning friction (it surprises only at resolution).
+describe('movement friction near enemies (validateMove)', () => {
+  // A 2-row board so an enemy can sit BESIDE the lane without being ON it:
+  //   lane:  0 — 1 — 2 — 3
+  //   side:        4 (adjacent to lane cell 1)
+  // Infantry budget is 9 (= three plains). Open 0→3 costs 9 and just fits.
+  const lane: Board = (() => {
+    // hand-built to attach a side cell 4 adjacent to lane cell 1.
+    const specs = [
+      { center: [0, 0] as [number, number], terrain: 'plains' as const }, // 0
+      { center: [1, 0] as [number, number], terrain: 'plains' as const }, // 1
+      { center: [2, 0] as [number, number], terrain: 'plains' as const }, // 2
+      { center: [3, 0] as [number, number], terrain: 'plains' as const }, // 3
+      { center: [1, 1] as [number, number], terrain: 'plains' as const }, // 4 (beside 1)
+    ];
+    const cells = new Map<number, import('../../src/board/types').Cell>();
+    specs.forEach((s, id) =>
+      cells.set(id, { id, center: s.center, polygon: [s.center, s.center, s.center], neighbors: [], terrain: s.terrain }),
+    );
+    const edges: [number, number][] = [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [1, 4],
+    ];
+    for (const [a, b] of edges) {
+      cells.get(a)!.neighbors.push(b);
+      cells.get(b)!.neighbors.push(a);
+    }
+    for (const c of cells.values()) c.neighbors.sort((x, y) => x - y);
+    return { cells, seed: 0, donorMapId: 'synthetic' };
+  })();
+
+  function laneCtx(units: OrderContext['units'], visible: Iterable<number>): OrderContext {
+    return { board: lane, units, unitTypes: types, visible: new Set(visible) };
+  }
+
+  const move = (unitId: string, path: number[]): Order => ({ kind: 'move', unitId, path });
+
+  test('open lane: the full 0→3 walk fits the budget', () => {
+    const inf = makeUnit('i', 0, 0, 'infantry');
+    expect(validateOrder(laneCtx([inf], [0, 1, 2, 3, 4]), move('i', [1, 2, 3]))).toEqual({
+      ok: true,
+    });
+  });
+
+  test('a VISIBLE enemy bordering a step rejects the same walk as over-budget', () => {
+    // enemy on side cell 4 (adjacent to lane cell 1). Entering cell 1 now costs
+    // 3 + 2 = 5, so 5 + 3 + 3 = 11 > 9.
+    const inf = makeUnit('i', 0, 0, 'infantry');
+    const enemy = makeUnit('e', 1, 4, 'infantry');
+    expect(
+      validateOrder(laneCtx([inf, enemy], [0, 1, 2, 3, 4]), move('i', [1, 2, 3])),
+    ).toEqual({ ok: false, reason: 'over-budget' });
+  });
+
+  test('the same enemy that is HIDDEN (not visible) adds no planning friction', () => {
+    // enemy on cell 4 but cell 4 is NOT in the visible set → planning ignores it.
+    const inf = makeUnit('i', 0, 0, 'infantry');
+    const enemy = makeUnit('e', 1, 4, 'infantry');
+    expect(
+      validateOrder(laneCtx([inf, enemy], [0, 1, 2, 3]), move('i', [1, 2, 3])),
+    ).toEqual({ ok: true });
+  });
+
+  test('a FRIENDLY beside the lane adds no friction (only enemies)', () => {
+    const inf = makeUnit('i', 0, 0, 'infantry');
+    const friend = makeUnit('f', 0, 4, 'infantry');
+    expect(
+      validateOrder(laneCtx([inf, friend], [0, 1, 2, 3, 4]), move('i', [1, 2, 3])),
+    ).toEqual({ ok: true });
+  });
+
+  test('a short walk still fits despite friction (soft malus, not a block)', () => {
+    // walk only 0→1 (cost 3 + 2 = 5 ≤ 9) past the visible enemy on 4.
+    const inf = makeUnit('i', 0, 0, 'infantry');
+    const enemy = makeUnit('e', 1, 4, 'infantry');
+    expect(validateOrder(laneCtx([inf, enemy], [0, 1, 2, 3, 4]), move('i', [1]))).toEqual({
+      ok: true,
+    });
+  });
+});
+
 describe('melee units still require an actual enemy on the target cell', () => {
   // infantry: minRange 1, maxRange 1 — melee.
   const inf = makeUnit('i', 0, 0, 'infantry');

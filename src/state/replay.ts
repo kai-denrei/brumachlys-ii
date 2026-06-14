@@ -415,6 +415,7 @@ export function buildReplay(
             if (tu && tu.faction === player) {
               const why: Record<string, string> = {
                 'enemy-contact': ' runs into the enemy',
+                'enemy-friction': ' slowed by the enemy',
                 'friendly-occupied': ' stops short — tile occupied',
                 'vacancy-failed': ' falls back — tile never cleared',
                 budget: ' halts — out of reach',
@@ -544,6 +545,7 @@ export function buildReplay(
       if (u && u.faction === player) {
         const why: Record<string, string> = {
           'enemy-contact': ' runs into the enemy',
+          'enemy-friction': ' slowed by the enemy',
           'friendly-occupied': ' stops short — tile occupied',
           'vacancy-failed': ' falls back — tile never cleared',
           budget: ' halts — out of reach',

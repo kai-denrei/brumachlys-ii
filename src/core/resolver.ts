@@ -68,7 +68,7 @@
 import type { Board, CellId, TerrainKey } from '../board/types';
 import { graphDistance } from '../board/geometry';
 import { initTieKey } from './rng';
-import { IMPASSABLE } from './pathing';
+import { IMPASSABLE, enemyFrictionAt } from './pathing';
 import { gangUpBreakdown, makeAttackedFromEntry } from './combat/gangup';
 import type { GangUpBreakdown } from './combat/gangup';
 import type { AttackContext, Combatant, ResolutionModel } from './combat/model';
@@ -211,6 +211,16 @@ export function resolveRound(
     const pathTaken: CellId[] = [];
     let reason: TruncationReason | null = null;
 
+    // v0.9 ENEMY FRICTION: the ACTUAL living enemies at this mover's turn —
+    // friction is consistent with the blind-game fog design, so a hidden enemy
+    // the planner never saw can truncate a move here. Recomputed per mover
+    // against CURRENT positions (earlier movers this Phase A have already shifted
+    // — deterministic: the loop runs in the fixed §2.2 initiative order).
+    const enemyCells = new Set<CellId>();
+    for (const o of alive()) {
+      if (o.faction !== u.faction) enemyCells.add(o.cell);
+    }
+
     for (let i = 0; i < order.path.length; i++) {
       const step = order.path[i]!;
       const isLast = i === order.path.length - 1;
@@ -221,13 +231,19 @@ export function resolveRound(
         reason = 'invalid-step';
         break;
       }
-      const stepCost = ut.terrainEffects[stepCell.terrain]?.movementCost ?? IMPASSABLE;
-      if (stepCost >= IMPASSABLE) {
+      const terrainCost = ut.terrainEffects[stepCell.terrain]?.movementCost ?? IMPASSABLE;
+      if (terrainCost >= IMPASSABLE) {
         reason = 'invalid-step';
         break;
       }
+      // Friction (tenths) from enemies adjacent to the cell being entered, on
+      // top of terrain. If the combined step cost exceeds the remaining budget
+      // the move truncates — distinguished from a pure terrain-budget halt so
+      // the replay can say "slowed by the enemy" (TruncationReason).
+      const friction = enemyFrictionAt(board, step, enemyCells);
+      const stepCost = terrainCost + friction;
       if (stepCost > budget) {
-        reason = 'budget';
+        reason = friction > 0 && terrainCost <= budget ? 'enemy-friction' : 'budget';
         break;
       }
       const enemy = enemyAt(step, u.faction);

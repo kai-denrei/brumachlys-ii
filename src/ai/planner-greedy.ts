@@ -74,7 +74,7 @@ import aiJson from '../../data/ai.json';
 import type { CellId, TerrainKey } from '../board/types';
 import { attackDamage, battleExchange } from '../core/combat/weewar';
 import type { Order } from '../core/orders';
-import { findPath, movementCostsFor, reachableCells } from '../core/pathing';
+import { enemyFrictionAt, findPath, movementCostsFor, reachableCells } from '../core/pathing';
 import { ROUND_LIMIT } from '../core/resolver';
 import { fnv1a32, initTieKey } from '../core/rng';
 import type { Rng } from '../core/rng';
@@ -809,10 +809,17 @@ export function createGreedyPlanner(
         // traversable mid-path.
         const canStopAt = (c: CellId): boolean => !friendlyOccupied.has(c);
         const canPassThrough = (c: CellId): boolean => !enemyCells.has(c);
+        // v0.9 ENEMY FRICTION (movement friction near enemies): the planner
+        // prices reach/paths with the SAME malus the resolver will charge — but
+        // from its KNOWN enemy set (view.enemies / `enemyCells`, the visible/
+        // believed positions), so plans are realistic and don't constantly
+        // truncate. A genuinely fog-hidden enemy still surprises at resolution.
+        const extraCostAt = (c: CellId): number => enemyFrictionAt(board, c, enemyCells);
 
         const reach = reachableCells(board, costs, u.cell, ut.movement, {
           canStopAt,
           canPassThrough,
+          extraCostAt,
         });
         // Stay-put is ALWAYS a candidate — even from a cell the unit could
         // never re-enter (vehicle placed on a mountain).
@@ -1197,6 +1204,7 @@ export function createGreedyPlanner(
             budget: ut.movement,
             canStopAt,
             canPassThrough,
+            extraCostAt, // v0.9: same friction the reach used — the path must fit it
           });
           if (pr && pr.path.length > 0) {
             orders.push({ kind: 'move', unitId: u.id, path: pr.path });

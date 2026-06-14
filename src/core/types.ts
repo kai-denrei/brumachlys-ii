@@ -89,6 +89,9 @@ export type AttackBreakdown = AttackTerms & { gangUp: GangUpBreakdown };
 /** Why a move ended short of its planned destination (§2.5). */
 export type TruncationReason =
   | 'budget' // terrain cost exhausted the movement budget
+  | 'enemy-friction' // v0.9: movement friction from enemies adjacent to the path
+  //                  exhausted the budget (an enemy surprise can be HIDDEN at
+  //                  planning, so a plan that fit can truncate at resolution)
   | 'enemy-contact' // mid-path enemy: surprise contact, stopped one cell short
   | 'friendly-occupied' // may not END on a friendly cell: backed up
   | 'invalid-step' // stale/illegal path step (re-validated at execution time)
