@@ -98,8 +98,10 @@ export const PIPELINE: PipelineEntry[] = [
       'kill count · xp · rank in the unit card',
       'credit value of losses · clearer phase rules',
       'board holds steady when the speed control toggles',
+      'health colored counts · enemy movement friction',
+      'expandable casualties · tile adjacency guide',
     ],
-    commit: 'a590cdd',
+    commit: 'd9fabf0',
   },
   {
     version: 'next',
@@ -121,4 +123,4 @@ export const PIPELINE: PipelineEntry[] = [
  *  output would couple the bundle to the test runner. Update alongside the
  *  version bump; the pipeline test pins it to this constant, not to the
  *  live suite. */
-export const TEST_COUNT = 744;
+export const TEST_COUNT = 772;
