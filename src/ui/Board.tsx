@@ -828,7 +828,10 @@ export function Board({
                 if (!cell) return null;
                 const [cx, cy] = toScreen(cell.center);
                 // Dashed aim-ring on an EMPTY cell a ranged unit can preempt —
-                // visibly weaker than the solid enemy target-ring.
+                // visibly weaker than the solid enemy target-ring. Player-colored:
+                // this is a PLAYER-INTENT affordance ("I'm holding range here"),
+                // not an enemy presence, so it must read distinct from the
+                // enemy-colored target-ring drawn on actual enemies below.
                 return (
                   <circle
                     key={`aim${id}`}
@@ -837,7 +840,7 @@ export function Board({
                     cy={cy}
                     r={tokenSize * 0.66}
                     fill="none"
-                    stroke={factionColor(1)}
+                    stroke={factionColor(PLAYER_FACTION)}
                     strokeWidth={tokenSize * 0.07}
                     strokeDasharray={`${tokenSize * 0.18} ${tokenSize * 0.12}`}
                     opacity={0.62}

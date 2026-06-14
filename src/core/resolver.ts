@@ -463,6 +463,15 @@ export function resolveRound(
         events.push({ type: 'lost-target', attackerId: att.id, targetCell: action.explicitTarget });
         continue;
       }
+      // Cannot-damage gate (mirrors pickAutoTarget): if the occupant's armor
+      // type takes 0 from this attacker, the shot can't hurt it — fizzle rather
+      // than fire for 0 damage and eat a counter. Planning-time validation no
+      // longer covers this for preemptive empty-cell shots, so gate at fire time.
+      const occType = unitTypes[occ.type];
+      if (!occType || (attType.attackStrengths[occType.armorType] ?? 0) <= 0) {
+        events.push({ type: 'lost-target', attackerId: att.id, targetCell: action.explicitTarget });
+        continue;
+      }
       target = occ;
     } else {
       // E2: in conquest, owned bases extend the attacker faction's vision

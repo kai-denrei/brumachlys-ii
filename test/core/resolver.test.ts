@@ -524,6 +524,49 @@ describe('preemptive fire: explicit attack on an empty cell', () => {
     expect(ofType(events, 'attack').filter((a) => a.attackerId === 'art')).toHaveLength(0);
     expect(s.units['r']!.count).toBe(10); // friendly untouched
   });
+
+  test('UNDAMAGEABLE enemy moves onto the targeted cell → fizzle, NO attack, NO counter', () => {
+    // Fix (v0.9): the explicit-target path must gate on attackStrengths at fire
+    // time, exactly like pickAutoTarget. Artillery deals 0 to 'air' armor; if an
+    // aircraft moves onto the preemptively-targeted cell, the shot can't hurt it,
+    // so it must fizzle (lost-target) rather than fire for 0 and eat a counter.
+    const board = plainsLine(7);
+    // Synthetic 'aircraft' target: armorType 'air' (artillery's attackStrengths
+    // ['air'] === 0). Clone artillery's terrainEffects so it's a valid type; it
+    // can counter (nonzero attackStrengths) — proving NO counter is eaten.
+    const artType = types['artillery']!;
+    const aircraft: typeof artType = {
+      ...artType,
+      key: 'aircraft',
+      name: 'Aircraft',
+      armorType: 'air',
+      minRange: 1,
+      maxRange: 1,
+      attackStrengths: { personnel: 6, armored: 6, naval: 0, air: 0 },
+    };
+    const testTypes = { ...types, aircraft };
+    const state = makeState(board, [
+      makeUnit('art', 0, 0, 'artillery'),
+      { ...makeUnit('plane', 1, 6, 'aircraft'), count: 10 },
+    ]);
+    // art targets empty cell 3; the aircraft moves 6→5→4→3, ending ON cell 3.
+    const { state: s, events } = resolveRound(
+      board,
+      state,
+      { 0: [{ kind: 'attack', unitId: 'art', targetCell: 3 }], 1: [{ kind: 'move', unitId: 'plane', path: [5, 4, 3] }] },
+      testTypes,
+      weewar,
+    );
+    // Fizzle: a lost-target on cell 3, NO attack from art, and (critically) NO
+    // counter — neither side took damage.
+    expect(ofType(events, 'lost-target')).toEqual([
+      { type: 'lost-target', attackerId: 'art', targetCell: 3 },
+    ]);
+    expect(ofType(events, 'attack').filter((a) => a.attackerId === 'art')).toHaveLength(0);
+    expect(ofType(events, 'counter')).toHaveLength(0);
+    expect(s.units['art']!.count).toBe(10); // attacker ate no counter
+    expect(s.units['plane']!.count).toBe(10); // undamageable target untouched
+  });
 });
 
 // ── §2.8 win / draw ───────────────────────────────────────────────────────────

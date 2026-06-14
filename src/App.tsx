@@ -41,7 +41,7 @@ import {
 import { findPath } from './core/pathing';
 import { occupantVacates, type OrderKind } from './core/orders';
 import type { FactionId, Stance, UnitInstance } from './core/types';
-import { cellsWithin, graphDistance } from './board/geometry';
+import { cellsWithin, cellsWithinD, graphDistance } from './board/geometry';
 import type { CellId } from './board/types';
 import { loadUnits } from './io/data-loader';
 import type { ReplayFrame } from './state/replay';
@@ -548,14 +548,19 @@ function BattleScreen() {
     // v0.9 preemptive fire (area denial): a RANGED unit (maxRange > 1) may also
     // aim at an EMPTY, visible, in-range cell — the resolver hits whoever moves
     // there (enemy → hit; empty/friendly → fizzle). Surface those cells as a
-    // distinct dashed aim-ring. Occupied cells are excluded: enemy ones are
-    // already solid target-rings, friendly ones aren't legal targets.
+    // distinct dashed aim-ring. Excluded cells: any occupant (enemy ones are
+    // already solid target-rings, friendly ones aren't legal targets) AND any
+    // movement-reachable cell — onCellTap treats reachable cells as a MOVE, so
+    // an aim-ring there would be deceptive. Preemptive fire is for cells you're
+    // holding range on, not ones you'd step onto. cellsWithinD yields each
+    // cell's BFS distance, so no per-cell graphDistance is needed; it already
+    // bounds at maxRange, so only the minRange floor must be checked.
     const aimCells = new Set<CellId>();
     if (ut.maxRange > 1) {
-      for (const cell of cellsWithin(board, from, ut.maxRange)) {
+      for (const [cell, d] of cellsWithinD(board, from, ut.maxRange)) {
+        if (d < ut.minRange) continue;
         if (!visible.has(cell)) continue;
-        const d = graphDistance(board, from, cell);
-        if (d < ut.minRange || d > ut.maxRange) continue;
+        if (reachable.has(cell)) continue; // a move, not an aim
         if (knownUnits.some((u) => u.cell === cell && u.count > 0)) continue; // any occupant
         aimCells.add(cell);
       }
