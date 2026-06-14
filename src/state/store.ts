@@ -89,6 +89,16 @@ export type LoggedRound = { round: number; entries: ReplayLogEntry[] };
 /** v1.1: transient toast-level signal (dependent orders auto-removed). */
 export type OrderNotice = { text: string; token: number };
 
+/** v0.9 propose-then-confirm: a transient MOVE proposal that has NOT been
+ * queued yet. The player's first tap on a reachable cell sets this; a second
+ * tap on the same dest (or Enter, or selecting another unit) commits it to a
+ * real queued order. `path` excludes the start cell (order shape, §2.3) and is
+ * the exact path that commit will hand to tryQueueOrder. At most one pending
+ * proposal exists at a time, and it is always for the currently-selected unit.
+ * It is cleared whenever it is committed, cancelled, or invalidated (selection
+ * change without commit, clear-all, commit-round, new battle). */
+export type PendingMove = { unitId: string; dest: CellId; path: CellId[] };
+
 // --- v0.6 group directives (Ask 2) -------------------------------------------
 // A directive is a BULK QUEUE FILL: the ai layer's planDirective generates a
 // full order set for the player's units and it replaces the current queues.
@@ -345,6 +355,9 @@ export type AppState = {
   // --- planning slice (P7) ---------------------------------------------------
   /** Currently selected OWN unit (Layer 1, §9.2). */
   selectedUnitId: string | null;
+  /** v0.9 propose-then-confirm: the un-queued MOVE proposal (see PendingMove).
+   * null = no pending proposal. Always for `selectedUnitId` when set. */
+  pendingMove: PendingMove | null;
   /** Player faction's queued orders, by unit id (core OrderQueues). */
   orders: OrderQueues;
   /** E3 conquest: the player's queued buys, by base cell (core BuyQueues).
@@ -380,6 +393,18 @@ export type AppState = {
   exitBattle: () => void;
 
   selectUnit: (unitId: string | null) => void;
+  /** v0.9 propose-then-confirm: set/replace the un-queued MOVE proposal for a
+   * unit (first tap on a reachable cell, or re-tap on a different cell). The
+   * caller computes the path (via findPath / the same logic queueMoveTo uses);
+   * this just records it. Replaces any existing proposal (one per session). */
+  proposeMove: (pending: PendingMove) => void;
+  /** v0.9: commit the pending MOVE proposal — queue it as a real order via
+   * tryQueueOrder and clear the proposal. No-op (returns false) when there is
+   * no pending proposal. Returns whether a proposal was committed AND queued
+   * (a proposal that fails re-validation is still cleared, but returns false). */
+  commitPendingMove: () => boolean;
+  /** v0.9: drop the pending MOVE proposal without queuing it (cancel). */
+  clearPendingMove: () => void;
   centerOn: (cell: CellId) => void;
   /** Validate against the player's fog-filtered view, then queue (replacing
    * any same-kind order — edit semantics). Returns the validation verdict so
@@ -440,6 +465,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   replaySpeed: 1,
 
   selectedUnitId: null,
+  pendingMove: null,
   orders: {},
   buys: {},
   directive: null,
@@ -482,6 +508,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       uiPhase: 'planning',
       replay: null,
       selectedUnitId: null,
+      pendingMove: null,
       orders: {},
       buys: {},
       directive: null,
@@ -501,6 +528,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       uiPhase: 'planning',
       replay: null,
       selectedUnitId: null,
+      pendingMove: null,
       orders: {},
       buys: {},
       directive: null,
@@ -513,7 +541,33 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // --- planning actions --------------------------------------------------------
 
-  selectUnit: (unitId) => set({ selectedUnitId: unitId }),
+  // v0.9 propose-then-confirm: selecting a (different) unit, or deselecting,
+  // ALWAYS drops any lingering MOVE proposal. The App commits a pending move
+  // BEFORE calling selectUnit when switching units (so the proposal isn't lost
+  // — see the switch-unit transition in App.onUnitTap/onCellTap); by the time
+  // selectUnit runs the proposal has already been queued, so clearing here is a
+  // safety net that keeps the invariant "pendingMove is always for the current
+  // selection" true even on a raw selectUnit call (e.g. dock-chip select).
+  selectUnit: (unitId) =>
+    set((s) => (s.pendingMove ? { selectedUnitId: unitId, pendingMove: null } : { selectedUnitId: unitId })),
+
+  proposeMove: (pending) => set({ pendingMove: pending }),
+
+  commitPendingMove: () => {
+    const pending = get().pendingMove;
+    if (!pending) return false;
+    // Clear the proposal FIRST so a re-entrant render never sees both the
+    // proposal ghost and the queued ghost for the same unit.
+    set({ pendingMove: null });
+    const verdict = get().tryQueueOrder({
+      kind: 'move',
+      unitId: pending.unitId,
+      path: pending.path,
+    });
+    return verdict.ok;
+  },
+
+  clearPendingMove: () => set((s) => (s.pendingMove ? { pendingMove: null } : s)),
 
   centerOn: (cell) => set((s) => ({ focus: { cell, token: (s.focus?.token ?? 0) + 1 } })),
 
@@ -573,7 +627,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().signalDropped(settled.dropped);
   },
 
-  clearOrders: () => set({ orders: {}, directive: null, notice: null }),
+  clearOrders: () => set({ orders: {}, directive: null, notice: null, pendingMove: null }),
 
   // v0.6 Ask 2: bulk queue fill. planDirective is the ai layer's contract
   // (fog-fair: it plans over the player's own FactionView); the returned
@@ -599,6 +653,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       orders: settled.queues,
       directive: { kind, modified: false },
       selectedUnitId: null,
+      pendingMove: null,
       notice: null,
     });
   },
@@ -743,6 +798,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       buys: {},
       directive: null,
       selectedUnitId: null,
+      pendingMove: null,
       focus: null,
       notice: null,
     });

@@ -49,6 +49,7 @@ import {
   EffectRenderer,
   GrainFilterDef,
   GrainOverlay,
+  ProposalGhost,
   ReplayFx,
   ReplayTrails,
   StanceIcon,
@@ -59,6 +60,7 @@ import {
   type BuyGhostMark,
   type CaptureIntentMark,
   type GhostOrder,
+  type ProposalGhostMark,
   type Pt,
   type ReplayFxData,
   type TrailMark,
@@ -128,6 +130,12 @@ export type BoardProps = {
   selectedUnitId?: string | null;
   /** Layer-2 queued-order ghosts (§9.3), drawn by skin/EffectRenderer. */
   ghosts?: readonly GhostOrder[];
+  /** v0.9 propose-then-confirm: the un-queued MOVE proposal awaiting confirm,
+   * drawn distinct from a committed ghost (brighter, dashed dest ring, hint).
+   * Null = no pending proposal. */
+  proposal?: ProposalGhostMark | null;
+  /** Tap the proposal ghost → commit it (same as a second tap on the dest). */
+  onProposalConfirm?: () => void;
   /** Layer-3 replay effects (§9.4), drawn by skin/ReplayFx. `key` remounts
    * the fx group per replay frame so CSS animations restart. */
   replayFx?: { key: number; fx: ReplayFxData } | null;
@@ -291,6 +299,8 @@ export function Board({
   highlights,
   selectedUnitId = null,
   ghosts,
+  proposal = null,
+  onProposalConfirm,
   replayFx = null,
   trails,
   focus = null,
@@ -710,6 +720,12 @@ export function Board({
   const planningOrders = useAppStore((s) =>
     s.screen === 'battle' && s.uiPhase === 'planning' ? s.orders : null,
   );
+  // v0.9 active-unit halo intensifies while THIS board's selected unit has a
+  // pending MOVE proposal. Read straight from the store (same narrow seam as
+  // the idle pulse); null outside battle-planning so previews/replay bail.
+  const pendingMove = useAppStore((s) =>
+    s.screen === 'battle' && s.uiPhase === 'planning' ? s.pendingMove : null,
+  );
   const pulseEligible =
     interactive && !silhouette && replayFx === null && planningOrders !== null;
   const orderedIds = useMemo(
@@ -876,6 +892,24 @@ export function Board({
             onGhostTap={tapGuard(onGhostTap)}
           />
         )}
+        {/* v0.9 propose-then-confirm: the un-queued proposal ghost, above the
+            committed ghosts so it reads as "the thing you're about to confirm". */}
+        {proposal && (() => {
+          // tapGuard wraps a (arg)→void handler; the proposal confirm is
+          // void→void — adapt via an unused arg (same pattern as CaptureToggle).
+          const guarded = tapGuard<undefined>(
+            onProposalConfirm ? () => onProposalConfirm() : undefined,
+          );
+          return (
+            <ProposalGhost
+              board={board}
+              toScreen={toScreen}
+              tokenSize={tokenSize}
+              mark={proposal}
+              onConfirm={guarded ? () => guarded(undefined) : undefined}
+            />
+          );
+        })()}
         {/* v0.8 Task 2.4: claim-intent markers in the ghost layer */}
         {captureIntentMarks && captureIntentMarks.length > 0 && (
           <CaptureIntentMarkers
@@ -912,6 +946,12 @@ export function Board({
                 size={tokenSize}
                 scale={slot?.scale}
                 selected={unit.id === selectedUnitId}
+                // v0.9 active-unit halo: only on the selected own unit, only in
+                // interactive planning (never replay/silhouette/preview).
+                selectedHalo={
+                  unit.id === selectedUnitId && pulseEligible && replayFx === null
+                }
+                proposed={pendingMove?.unitId === unit.id}
                 pulse={idlePulse(unit)}
                 recoil={recoilByUnit.get(unit.id) ?? null}
                 recoilKey={replayFx?.key ?? 0}

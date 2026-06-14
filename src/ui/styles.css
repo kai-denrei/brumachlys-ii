@@ -258,6 +258,101 @@ body {
   }
 }
 
+/* v0.9 active-unit halo: a pulsing faction-color ring around the unit the
+   player is commanding (selected). Louder than the idle "awaiting orders"
+   breath: a crisp, confident pulse so it's obvious WHICH unit is being moved.
+   When a move proposal is pending (.active-halo-proposed) it pulses faster and
+   brighter — the player is mid-confirm. Behind the token body; never taps. */
+.active-halo {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: active-halo-pulse 1.4s ease-in-out infinite;
+}
+
+.active-halo-ring {
+  opacity: 0.85;
+}
+
+.active-halo-proposed {
+  animation-duration: 0.85s;
+}
+
+.active-halo-proposed .active-halo-ring {
+  opacity: 1;
+}
+
+@keyframes active-halo-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.07);
+  }
+}
+
+/* Reduced motion: a static SOLID ring carries the "this unit is selected" cue
+   with no pulse (the proposed state just shows the thicker ring from the SVG). */
+@media (prefers-reduced-motion: reduce) {
+  .active-halo {
+    animation: none;
+    transform: none;
+  }
+
+  .active-halo-ring {
+    opacity: 0.9;
+  }
+}
+
+/* v0.9 propose-then-confirm: the un-queued PROPOSAL ghost. The destination ring
+   pulses (dashed, faction color) to read as "tap again / Enter to confirm". The
+   solid bright trail + hint pill are static SVG (set in EffectRenderer). */
+.proposal-dest-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: proposal-dest-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes proposal-dest-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(0.97);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+.proposal-hint {
+  animation: proposal-hint-bob 1.2s ease-in-out infinite;
+}
+
+@keyframes proposal-hint-bob {
+  0%,
+  100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proposal-dest-ring {
+    animation: none;
+    opacity: 0.9;
+    transform: none;
+  }
+
+  .proposal-hint {
+    animation: none;
+  }
+}
+
 .target-ring {
   animation: ring-pulse 1.1s ease-in-out infinite;
   transform-box: fill-box;

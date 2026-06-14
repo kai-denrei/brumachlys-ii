@@ -57,6 +57,20 @@ export type EffectRendererProps = {
   onGhostTap?: (unitId: string) => void;
 };
 
+/** v0.9 propose-then-confirm: a transient, un-queued MOVE proposal awaiting a
+ * second tap / Enter to commit. Rendered DISTINCTLY from a committed queued
+ * ghost — brighter, a solid (not dotted) bright path, a dashed pulsing
+ * destination ring, and a "tap again or Enter" hint pill. */
+export type ProposalGhostMark = {
+  unit: UnitInstance;
+  /** Move path (start excluded) — same shape as GhostOrder.movePath. */
+  movePath: readonly CellId[];
+  /** Destination cell (== movePath last) — carried for the dest ring. */
+  dest: CellId;
+  /** Destination holds another unit (charge/vacancy) — offset the ghost token. */
+  destOccupied?: boolean;
+};
+
 const center = (board: Board, id: CellId): Pt | null => {
   const cell = board.cells.get(id);
   return cell ? cell.center : null;
@@ -106,6 +120,102 @@ function GhostMove({
         onClick={onGhostTap ? () => onGhostTap(unit.id) : undefined}
       >
         <UnitRenderer unit={unit} x={dest[0]} y={dest[1]} size={tokenSize} />
+      </g>
+    </g>
+  );
+}
+
+/** v0.9 propose-then-confirm: draw the PROPOSAL ghost — a brighter, more
+ * assertive cousin of GhostMove for the un-committed move awaiting confirm.
+ * Differences from a queued ghost: a SOLID bright path (queued ghosts are
+ * dotted), a dashed pulsing destination ring, a higher-opacity ghost token,
+ * and a "tap again · Enter" hint pill above the destination. Tapping the ghost
+ * token commits (second tap on the same dest). */
+export function ProposalGhost({
+  board,
+  toScreen,
+  tokenSize,
+  mark,
+  onConfirm,
+}: {
+  board: Board;
+  toScreen: (p: readonly [number, number]) => Pt;
+  tokenSize: number;
+  mark: ProposalGhostMark;
+  onConfirm?: () => void;
+}) {
+  const { unit, movePath } = mark;
+  if (!movePath || movePath.length === 0) return null;
+  const worldPts = [unit.cell, ...movePath].map((id) => center(board, id));
+  if (worldPts.some((p) => p === null)) return null;
+  const pts = (worldPts as Pt[]).map(toScreen);
+  const rawDest = pts[pts.length - 1]!;
+  const dest: Pt = mark.destOccupied
+    ? [rawDest[0] - tokenSize * 0.5, rawDest[1] - tokenSize * 0.5]
+    : rawDest;
+  const color = factionColor(unit.faction);
+  const ringR = tokenSize * 0.74;
+  // Hint pill above the destination — "tap again · Enter" affordance.
+  const fs = tokenSize * 0.24;
+  const hint = 'tap again · ⏎';
+  const pillW = hint.length * fs * 0.5 + fs * 1.4;
+  const pillH = fs * 1.6;
+  const pillY = rawDest[1] - tokenSize * 1.15;
+
+  return (
+    <g className="proposal-ghost" data-proposal-unit-id={unit.id}>
+      {/* Bright SOLID path — distinct from the dotted committed trail. */}
+      <polyline
+        className="proposal-trail"
+        points={pts.map((p) => `${p[0]},${p[1]}`).join(' ')}
+        fill="none"
+        stroke={color}
+        strokeWidth={tokenSize * 0.1}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={0.85}
+        pointerEvents="none"
+      />
+      {/* Dashed pulsing destination ring (CSS animates .proposal-dest-ring). */}
+      <circle
+        className="proposal-dest-ring"
+        cx={rawDest[0]}
+        cy={rawDest[1]}
+        r={ringR}
+        fill="none"
+        stroke={color}
+        strokeWidth={tokenSize * 0.08}
+        strokeDasharray={`${tokenSize * 0.2} ${tokenSize * 0.14}`}
+        pointerEvents="none"
+      />
+      <g
+        className="proposal-token"
+        opacity={0.7}
+        onClick={onConfirm ? () => onConfirm() : undefined}
+        style={onConfirm ? { cursor: 'pointer' } : undefined}
+      >
+        <UnitRenderer unit={unit} x={dest[0]} y={dest[1]} size={tokenSize} />
+      </g>
+      {/* Confirm-hint pill. */}
+      <g className="proposal-hint" transform={`translate(${rawDest[0]} ${pillY})`} pointerEvents="none">
+        <rect
+          x={-pillW / 2}
+          y={-pillH / 2}
+          width={pillW}
+          height={pillH}
+          rx={pillH / 2}
+          fill={color}
+          opacity={0.92}
+        />
+        <text
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={fs}
+          fontWeight={600}
+          fill="#fff"
+        >
+          {hint}
+        </text>
       </g>
     </g>
   );

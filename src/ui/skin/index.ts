@@ -26,6 +26,7 @@ export {
   CaptureIntentMarkers,
   EffectRenderer,
   HoldFireIcon,
+  ProposalGhost,
   ShieldIcon,
   StanceIcon,
   SwordIcon,
@@ -38,6 +39,7 @@ export type {
   CaptureIntentMark,
   EffectRendererProps,
   GhostOrder,
+  ProposalGhostMark,
 } from './EffectRenderer';
 export { ReplayFx, ReplayTrails } from './ReplayFx';
 export type { ImpactMark, ReplayFxData, ReplayFxProps, TrailMark } from './ReplayFx';

@@ -23,6 +23,15 @@ export type UnitRendererProps = {
   size: number;
   /** Layer-1 selection: the token lifts slightly (§9.2). */
   selected?: boolean;
+  /** v0.9 active-unit halo: a PULSING faction-color ring around the currently
+   * commanded (selected) unit — a clear "this is the unit I'm moving" cue, far
+   * louder than the faint selection ellipse. Gated by the Board on `selected`.
+   * When `proposed` is also set (a pending MOVE proposal exists for this unit)
+   * the halo intensifies (thicker, brighter) — the player is mid-confirm. Under
+   * prefers-reduced-motion the CSS swaps the pulse for a static solid ring. */
+  selectedHalo?: boolean;
+  /** v0.9: the selected unit has a PENDING move proposal — intensify the halo. */
+  proposed?: boolean;
   /** v1.3 Tweak A (co-located stagger): shrink the whole token. Rides the
    * positioning transform so the 0.25s CSS transition animates it. */
   scale?: number;
@@ -54,6 +63,8 @@ export const UnitRenderer = memo(function UnitRenderer({
   y,
   size,
   selected = false,
+  selectedHalo = false,
+  proposed = false,
   scale = 1,
   minimal = false,
   pulse = false,
@@ -77,6 +88,25 @@ export const UnitRenderer = memo(function UnitRenderer({
   const body = (
     <>
       {selected && <ellipse cx={0} cy={size * 0.5} rx={h * 0.9} ry={h * 0.3} fill="rgba(74,68,58,0.18)" />}
+      {/* v0.9 active-unit halo: a pulsing faction-color ring around the unit the
+          player is commanding. `proposed` intensifies it (thicker/brighter)
+          while a move proposal is pending. Behind the token body, never taps. */}
+      {selectedHalo && (
+        <g
+          className={`active-halo${proposed ? ' active-halo-proposed' : ''}`}
+          pointerEvents="none"
+          aria-hidden="true"
+        >
+          <circle
+            className="active-halo-ring"
+            r={size * 0.82}
+            pathLength={100}
+            fill="none"
+            stroke={color}
+            strokeWidth={size * (proposed ? 0.12 : 0.09)}
+          />
+        </g>
+      )}
       {pulse && (
         <g className="idle-pulse" pointerEvents="none" aria-hidden="true">
           {/* pathLength normalizes the circumference so the reduced-motion

@@ -52,6 +52,7 @@ function seedBattle(units: UnitInstance[]) {
     uiPhase: 'planning',
     replay: null,
     selectedUnitId: null,
+    pendingMove: null,
     orders: {},
     focus: null,
   });
@@ -189,5 +190,60 @@ describe('planning slice', () => {
     expect(s().selectedUnitId).toBeNull();
     expect(s().orders).toEqual({});
     expect(s().focus).toBeNull();
+  });
+
+  // --- v0.9 propose-then-confirm store actions (driven directly) ---------------
+
+  it('proposeMove sets pending without queuing; commitPendingMove queues it', () => {
+    const s = () => useAppStore.getState();
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    expect(s().pendingMove).toEqual({ unitId: 'a', dest: 1, path: [1] });
+    expect(s().orders['a']).toBeUndefined(); // proposed, not queued
+
+    expect(s().commitPendingMove()).toBe(true);
+    expect(s().pendingMove).toBeNull();
+    expect(s().orders['a']!.move!.path).toEqual([1]);
+  });
+
+  it('commitPendingMove is a no-op (false) with no pending proposal', () => {
+    const s = () => useAppStore.getState();
+    expect(s().commitPendingMove()).toBe(false);
+    expect(s().orders).toEqual({});
+  });
+
+  it('proposeMove REPLACES an existing proposal (one per unit/session)', () => {
+    const s = () => useAppStore.getState();
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    s().proposeMove({ unitId: 'a', dest: 3, path: [1, 2, 3] });
+    expect(s().pendingMove).toEqual({ unitId: 'a', dest: 3, path: [1, 2, 3] });
+  });
+
+  it('selectUnit / clearPendingMove / clearOrders all drop a pending proposal', () => {
+    const s = () => useAppStore.getState();
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    s().selectUnit('b'); // switching selection drops the (un-committed) proposal
+    expect(s().pendingMove).toBeNull();
+
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    s().clearPendingMove();
+    expect(s().pendingMove).toBeNull();
+
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    s().clearOrders();
+    expect(s().pendingMove).toBeNull();
+  });
+
+  it('a proposal that no longer validates is still cleared (commit returns false)', () => {
+    const s = () => useAppStore.getState();
+    // ending on a friendly with no queued vacancy is rejected by tryQueueOrder.
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 4, path: [1, 2, 3, 4] }); // cell 4 holds friendly b
+    expect(s().commitPendingMove()).toBe(false); // rejected
+    expect(s().pendingMove).toBeNull(); // proposal still cleared
+    expect(s().orders['a']).toBeUndefined(); // nothing queued
   });
 });

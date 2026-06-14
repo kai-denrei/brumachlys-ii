@@ -56,7 +56,7 @@ import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
 import { TopBar, type CreditsHud } from './ui/TopBar';
 import { TopCta } from './ui/TopCta';
-import type { BuildPipMark, BuyGhostMark, CaptureIntentMark, GhostOrder, ImpactMark, TrailMark } from './ui/skin';
+import type { BuildPipMark, BuyGhostMark, CaptureIntentMark, GhostOrder, ImpactMark, ProposalGhostMark, TrailMark } from './ui/skin';
 import { resolvePlanDirective } from './state/store';
 
 /** v1.3 Tweak B: a finished trail lingers (fading) this long before removal —
@@ -92,12 +92,16 @@ function BattleScreen() {
   const applyDirective = useAppStore((s) => s.applyDirective);
   const clearOrders = useAppStore((s) => s.clearOrders);
   const selectedUnitId = useAppStore((s) => s.selectedUnitId);
+  const pendingMove = useAppStore((s) => s.pendingMove);
   const focus = useAppStore((s) => s.focus);
   const notice = useAppStore((s) => s.notice);
   const battleLog = useAppStore((s) => s.battleLog);
   const casualties = useAppStore((s) => s.casualties);
   const exitBattle = useAppStore((s) => s.exitBattle);
   const selectUnit = useAppStore((s) => s.selectUnit);
+  const proposeMove = useAppStore((s) => s.proposeMove);
+  const commitPendingMove = useAppStore((s) => s.commitPendingMove);
+  const clearPendingMove = useAppStore((s) => s.clearPendingMove);
   const centerOn = useAppStore((s) => s.centerOn);
   const tryQueueOrder = useAppStore((s) => s.tryQueueOrder);
   const removeUnitOrder = useAppStore((s) => s.removeUnitOrder);
@@ -400,25 +404,40 @@ function BattleScreen() {
   }, [uiPhase, dismissAnnouncement]);
 
   // --- #6 [Enter] finalizes the current action -----------------------------------
-  // Global keydown listener: Enter commits during planning when ≥1 order or buy
-  // is queued (mirrors only the non-zero branch of the CTA pill — the zero-orders
-  // path triggers a confirm dialog in TopCta that Enter intentionally does not
-  // open; the player must tap COMMIT explicitly for that flow) or dismisses the
-  // "Your turn" announcement if one is visible. Ignores Enter when a text input or
-  // textarea is focused (e.g. the seed field on the game-over banner).
+  // Global keydown listener. ENTER PRIORITY ORDER (deliberate, documented):
+  //   1. text field focused → ignore (don't interfere with form inputs).
+  //   2. "Your turn" announcement visible → dismiss it ("proceed").
+  //   3. v0.9 a PENDING MOVE proposal exists → COMMIT that proposal (same as a
+  //      second tap / switching units). Enter VALIDATES the pending proposal
+  //      FIRST and stops there — it does NOT also commit the round. This makes
+  //      Enter a single, predictable "confirm what I'm pointing at" key: the
+  //      player presses Enter to lock in the move they just proposed, then
+  //      presses Enter AGAIN (now with no pending proposal) to commit the round.
+  //   4. no pending proposal, planning, ≥1 order/buy queued → COMMIT the round
+  //      (mirrors only the non-zero branch of the CTA pill — the zero-orders
+  //      path triggers a confirm dialog in TopCta that Enter intentionally does
+  //      not open; the player must tap COMMIT explicitly for that flow).
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== 'Enter') return;
-      // Ignore if a text field is focused — don't interfere with form inputs.
+      // (1) Ignore if a text field is focused.
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-      // Dismiss the "Your turn" announcement first — Enter = "proceed".
+      // (2) Dismiss the "Your turn" announcement first — Enter = "proceed".
       if (announcement) {
         dismissAnnouncement();
         return;
       }
       if (uiPhase === 'planning' && game && !game.outcome) {
         const state = useAppStore.getState();
+        // (3) Pending MOVE proposal → commit it and STOP (don't fall through to
+        // round-commit). One Enter confirms the proposal; a second commits.
+        if (state.pendingMove) {
+          e.preventDefault();
+          state.commitPendingMove();
+          return;
+        }
+        // (4) No pending proposal → commit the round if anything is queued.
         const hasOrders =
           Object.keys(state.orders).length > 0 || Object.keys(state.buys).length > 0;
         if (hasOrders) {
@@ -432,6 +451,25 @@ function BattleScreen() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [uiPhase, game, announcement, dismissAnnouncement]);
+
+  // v0.9: Escape clears a pending MOVE proposal (and, with no proposal, keeps
+  // the existing deselect behavior). A dedicated listener — Escape had no
+  // global handler before; it just cancels the transient proposal layer here.
+  useEffect(() => {
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return;
+      const state = useAppStore.getState();
+      if (state.pendingMove) {
+        state.clearPendingMove();
+        return;
+      }
+      // No pending proposal: deselect (preserve the prior "Escape deselects"
+      // expectation — selecting nothing is the calm reset).
+      if (state.selectedUnitId) state.selectUnit(null);
+    }
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, []);
 
   // --- E3 conquest selectors -----------------------------------------------------
   const conquest = game?.mode === 'conquest';
@@ -602,6 +640,22 @@ function BattleScreen() {
     return out;
   }, [board, boardUnits, knownUnits, orders]);
 
+  // --- v0.9 propose-then-confirm: the PROPOSAL ghost --------------------------
+  // The un-queued move proposal renders as its OWN ghost, visually distinct
+  // from a committed queued-order ghost (Board draws it brighter + a dashed
+  // destination ring + a "tap again / Enter" affordance). It only shows for the
+  // currently-selected unit (the proposal invariant); a proposal whose unit is
+  // somehow no longer selected (defensive) is dropped from the render.
+  const proposalGhost = useMemo<ProposalGhostMark | null>(() => {
+    if (!board || !pendingMove || !selected || pendingMove.unitId !== selected.id) return null;
+    return {
+      unit: selected,
+      movePath: pendingMove.path,
+      dest: pendingMove.dest,
+      destOccupied: knownUnits.some((u) => u.cell === pendingMove.dest && u.id !== selected.id),
+    };
+  }, [board, pendingMove, selected, knownUnits]);
+
   // --- E3 conquest: queued-buy ghosts + dock chips (§B.4 messaging) -------------
   const buyGhosts = useMemo<BuyGhostMark[]>(() => {
     if (!conquest) return [];
@@ -649,22 +703,56 @@ function BattleScreen() {
   }
 
   // --- interactions -------------------------------------------------------------
-  function queueMoveTo(unit: UnitInstance, cell: CellId): boolean {
-    if (!board) return false;
+
+  /** Compute the planning-side path (start excluded) for a move to `cell` —
+   * the same findPath call queueMoveTo used. Returns null if unreachable. */
+  function pathTo(unit: UnitInstance, cell: CellId): CellId[] | null {
+    if (!board) return null;
     const ut = types[unit.type];
-    if (!ut) return false;
+    if (!ut) return null;
     const res = findPath(board, movementCostsFor(ut), unit.cell, cell, {
       budget: ut.movement,
       ...pathOpts(unit),
       assumedTerrain,
     });
-    if (!res || res.path.length === 0) return false;
-    return tryQueueOrder({ kind: 'move', unitId: unit.id, path: res.path }).ok;
+    if (!res || res.path.length === 0) return null;
+    return res.path;
   }
 
-  /** Enemy interaction: attack if the plan can shoot it, else charge-move. */
+  /** Immediately QUEUE a move (used by enemy-charge fallback — charges keep
+   * their one-step behavior; only empty-destination moves go through the
+   * propose-then-confirm flow below). */
+  function queueMoveTo(unit: UnitInstance, cell: CellId): boolean {
+    const path = pathTo(unit, cell);
+    if (!path) return false;
+    return tryQueueOrder({ kind: 'move', unitId: unit.id, path }).ok;
+  }
+
+  // v0.9 propose-then-confirm (MOVE destinations only). Tapping a reachable
+  // empty cell does NOT queue immediately; it sets a transient proposal. The
+  // SECOND tap on the same dest (or Enter, or selecting another unit) commits.
+  // State machine for a reachable-cell tap on the SELECTED unit's `cell`:
+  //   - no pending, or pending.dest !== cell  → propose (compute path, set pending)
+  //   - pending.dest === cell (second tap)    → commit (queue the order, clear)
+  // This is the move-only branch; attacks/aim/stance keep one-step behavior.
+  function proposeOrCommitMove(unit: UnitInstance, cell: CellId): void {
+    const cur = useAppStore.getState().pendingMove;
+    if (cur && cur.unitId === unit.id && cur.dest === cell) {
+      commitPendingMove(); // second tap on the same dest → commit
+      return;
+    }
+    const path = pathTo(unit, cell);
+    if (!path) return; // unreachable (shouldn't happen — caller gates on reachable)
+    proposeMove({ unitId: unit.id, dest: cell, path }); // first tap / retarget
+  }
+
+  /** Enemy interaction: attack if the plan can shoot it, else charge-move.
+   * Charges/attacks are one-step (not part of the move proposal flow), but a
+   * standing MOVE proposal must not be silently lost — commit it first so the
+   * player's set-up move still lands when they pivot to an attack. */
   function engageEnemy(enemy: UnitInstance) {
     if (!selected) return;
+    commitPendingMove(); // don't discard a pending proposal on an attack pivot
     const attacked = tryQueueOrder({
       kind: 'attack',
       unitId: selected.id,
@@ -677,7 +765,17 @@ function BattleScreen() {
     const unit = boardUnits.find((u) => u.id === unitId);
     if (!unit) return;
     if (unit.faction === PLAYER_FACTION) {
-      selectUnit(unit.id === selectedUnitId ? null : unit.id);
+      if (unit.id === selectedUnitId) {
+        // Re-tapping the SELECTED unit's own token: cancel any pending proposal
+        // first (the "own cell cancels" affordance), else toggle selection off.
+        if (useAppStore.getState().pendingMove) clearPendingMove();
+        else selectUnit(null);
+        return;
+      }
+      // Switching to ANOTHER friendly unit COMMITS the previous unit's pending
+      // proposal (don't drop a move the player set up), then selects the new one.
+      commitPendingMove();
+      selectUnit(unit.id);
     } else {
       engageEnemy(unit);
     }
@@ -719,14 +817,22 @@ function BattleScreen() {
       openInfo(cellId); // Item 2: empty/any tile tap → info
       return;
     }
-    if (cellId === selected.cell) return; // token tap toggles selection
+    if (cellId === selected.cell) {
+      // v0.9: tapping the selected unit's OWN cell cancels a pending proposal
+      // (an explicit "never mind"); with no pending it stays a no-op (the
+      // token tap toggles selection via onUnitTap).
+      if (useAppStore.getState().pendingMove) clearPendingMove();
+      return;
+    }
     const enemy = visibleEnemyAt(cellId);
     if (enemy) {
       engageEnemy(enemy);
       return;
     }
     if (layer1?.reachable.has(cellId)) {
-      queueMoveTo(selected, cellId);
+      // v0.9 propose-then-confirm: first tap proposes, second tap on the same
+      // dest commits, a tap on a different reachable cell retargets the proposal.
+      proposeOrCommitMove(selected, cellId);
       return;
     }
     // v0.9 preemptive fire: a RANGED unit may target an EMPTY in-range cell
@@ -734,22 +840,33 @@ function BattleScreen() {
     // never reachable (reachable wins above), so this gesture is unambiguous.
     // tryQueueOrder re-validates, so an illegal aim still rejects cleanly.
     if (layer1?.aimCells?.has(cellId)) {
+      // v0.9: pivoting to a ranged aim shot must not silently drop a pending
+      // MOVE proposal — commit it first, then queue the aim.
+      commitPendingMove();
       tryQueueOrder({ kind: 'attack', unitId: selected.id, targetCell: cellId });
       return;
     }
     // v1.1 (Feature C audit): a friendly-occupied cell used to fall through
     // to deselect — a tap that landed on a friend's cell silently killed the
     // plan, reading as "friendlies block movement". Behave like tapping the
-    // friend's token instead: switch selection.
+    // friend's token instead: switch selection. v0.9: switching units COMMITS
+    // the previous unit's pending proposal first (don't drop a set-up move).
     const friend = friendlyAt(cellId);
     if (friend) {
+      commitPendingMove();
       selectUnit(friend.id);
       return;
     }
     if (ownedBase(cellId)) {
+      // v0.9: opening a build sheet keeps any pending proposal alive? No — an
+      // explicit tap elsewhere should not silently discard it; commit it first.
+      commitPendingMove();
       setSheet({ kind: 'build', baseCell: cellId });
       return;
     }
+    // v0.9: tap on an empty/unreachable cell — COMMIT any pending proposal
+    // (don't silently discard a move the player set up), THEN deselect.
+    commitPendingMove();
     selectUnit(null); // tap elsewhere = deselect
   }
 
@@ -1054,6 +1171,8 @@ function BattleScreen() {
             highlights={layer1}
             selectedUnitId={selected?.id ?? null}
             ghosts={ghosts}
+            proposal={proposalGhost}
+            onProposalConfirm={commitPendingMove}
             focus={focus}
             stancePopover={stancePopover}
             captureToggle={captureToggle}
