@@ -355,13 +355,31 @@ describe('donor pipeline — bundled donors (data/maps/), size-adaptive contract
           expect(TERRAIN_KEYS, `${ctx}: bad terrain`).toContain(cell.terrain);
         }
 
-        // Every base site renders as 'base' (art / flag pip / conquest agree).
-        for (const site of board.bases ?? []) {
+        // INVARIANT (v0.9): cell.terrain === 'base'  ⟺  cell ∈ board.bases.
+        // Both directions, so no orphan base-terrain cell (renders/reports as a
+        // base but is NOT capturable) and no registered base on non-base terrain.
+        const registered = new Set((board.bases ?? []).map((s) => s.cell));
+        for (const [id, cell] of board.cells) {
+          const isBaseTerrain = cell.terrain === 'base';
+          const isRegistered = registered.has(id);
+          // (→) every registered base site renders as 'base'.
+          // (←) every base-terrain cell is a registered, capturable base.
           expect(
-            board.cells.get(site.cell)?.terrain,
-            `${ctx}: base site ${site.cell} not 'base'`,
-          ).toBe('base');
+            isBaseTerrain,
+            `${ctx}: cell ${id} terrain==='base' is ${isBaseTerrain} but registered is ${isRegistered} (orphan/uncapturable base or non-base registered site)`,
+          ).toBe(isRegistered);
         }
+
+        // Declared sites are PRESERVED where placement is possible: collisions
+        // fall through to the next free passable cell rather than silently
+        // shrinking the base count. These bundled donors are all comfortably
+        // larger than their base count, so every declared site is placeable and
+        // the registered count must equal the donor's declared-site count.
+        const donorBaseSites = donor.bases.length;
+        expect(
+          registered.size,
+          `${ctx}: registered base count ${registered.size} < declared ${donorBaseSites} (a placeable declared site was dropped)`,
+        ).toBeGreaterThanOrEqual(donorBaseSites);
       }
     });
   }

@@ -233,11 +233,18 @@ function isLand(terrain: TerrainKey): boolean {
 }
 
 /** Nearest donor tile index for a point. Strict-less comparison + document
- * order ⇒ deterministic ties. Linear scan: ≤250 cells × ≤~500 tiles. */
-function nearestTile(centers: Vec2[], p: Vec2): { index: number; dist: number } {
-  let best = 0;
+ * order ⇒ deterministic ties. Linear scan: ≤250 cells × ≤~500 tiles.
+ * Optional `accept` filters candidate tiles (orphan reversion excludes base
+ * tiles); returns index -1 (dist Infinity) when no candidate is accepted. */
+function nearestTile(
+  centers: Vec2[],
+  p: Vec2,
+  accept?: (index: number) => boolean,
+): { index: number; dist: number } {
+  let best = -1;
   let bestD = Infinity;
   for (let i = 0; i < centers.length; i++) {
+    if (accept && !accept(i)) continue;
     const dx = centers[i]![0] - p[0];
     const dy = centers[i]![1] - p[1];
     const d = dx * dx + dy * dy;
@@ -246,7 +253,7 @@ function nearestTile(centers: Vec2[], p: Vec2): { index: number; dist: number } 
       best = i;
     }
   }
-  return { index: best, dist: Math.sqrt(bestD) };
+  return { index: best, dist: best === -1 ? Infinity : Math.sqrt(bestD) };
 }
 
 /** Prune every cell's neighbor list to ids still present in `cells`. */
@@ -300,12 +307,19 @@ function anchorSource(donor: DonorMap, faction: FactionId): { x: number; y: numb
 }
 
 /** Nearest passable (non-water) cell to a normalized point. Iteration in
- * ascending-id order + strict-less ⇒ deterministic ties. */
-function nearestPassableCell(cells: Map<CellId, Cell>, p: Vec2): CellId | null {
+ * ascending-id order + strict-less ⇒ deterministic ties. `exclude` skips
+ * already-claimed cells so a colliding base site can fall through to the
+ * NEXT-nearest free passable cell (declared sites aren't silently dropped). */
+function nearestPassableCell(
+  cells: Map<CellId, Cell>,
+  p: Vec2,
+  exclude?: ReadonlySet<CellId>,
+): CellId | null {
   let best: CellId | null = null;
   let bestD = Infinity;
   for (const [id, cell] of cells) {
     if (!isLand(cell.terrain)) continue;
+    if (exclude?.has(id)) continue;
     const dx = cell.center[0] - p[0];
     const dy = cell.center[1] - p[1];
     const d = dx * dx + dy * dy;
@@ -456,32 +470,61 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
   }
   board.placementAnchors = [anchors[0]!, anchors[1]!];
 
-  // E2 (addendum §B): carry base sites, economy values, and mapped start-unit
-  // types onto the Board so conquest setup (core/setup.ts) never sees the
-  // donor. Base sites project like anchors (nearest passable cell); when two
-  // donor bases land on one cell, the FIRST in document order wins.
+  // E2 (addendum §B) + §B base-rendering invariant: carry base sites, economy
+  // values, and mapped start-unit types onto the Board so conquest setup
+  // (core/setup.ts) never sees the donor. Base sites project like anchors
+  // (nearest passable cell), in donor document order.
   //
-  // Bug fix (§B base-rendering): the terrain-assignment pass (nearestTile) and
-  // the base-site projection (nearestPassableCell) are independent and can
-  // disagree — a donor 'base' tile at position P may project to mesh cell C
-  // while C's nearest donor tile in normalised space is an adjacent plains tile
-  // that is fractionally closer. The result: board.bases contains C but
-  // C.terrain is 'plains' or 'mountains', so the conquest BuildPip "+" renders
-  // on a plains/mountain cell while the flag pip (gated on terrain === 'base')
-  // does not. Fix: after projecting each base site, force the target cell's
-  // terrain to 'base'. This is the single source of truth — art, flag pip,
-  // and conquest ownership all agree with the donor intent.
+  // THE INVARIANT (v0.9): cell.terrain === 'base'  ⟺  cell ∈ board.bases.
+  // Two independent donor→mesh projections must be reconciled or they diverge:
+  //   (1) terrain assignment (nearestTile, above): a mesh cell whose nearest
+  //       donor tile is a Base tile gets terrain 'base';
+  //   (2) base-site projection (nearestPassableCell, here): each donor base
+  //       SITE projects to a (possibly different) cell that is registered in
+  //       board.bases and FORCED to 'base'.
+  // A cell can get 'base' from (1) without being a registered site in (2) — an
+  // ORPHAN: it renders/reports as a base (info sheet keys on terrain === 'base')
+  // but is NOT capturable (capture toggle + resolver gate key on board.bases).
+  // We enforce the invariant in BOTH directions below.
+  //
+  // (a) PRESERVE DECLARED SITES on collision. When a site's nearest passable
+  //     cell is already claimed by an earlier site, fall through to the
+  //     NEXT-nearest FREE passable cell (exclude the claimed set) so a designer
+  //     base isn't silently dropped on a projection collision. Only a donor
+  //     base with NO free passable cell anywhere is dropped (documented).
   const baseSites: Board['bases'] = [];
   const baseCellsSeen = new Set<CellId>();
   for (const b of donor.bases) {
-    const cell = nearestPassableCell(cells, frame.project(b.x, b.y));
-    if (cell === null || baseCellsSeen.has(cell)) continue;
+    const target = frame.project(b.x, b.y);
+    let cell = nearestPassableCell(cells, target);
+    if (cell !== null && baseCellsSeen.has(cell)) {
+      // Collision: search the next-nearest free passable cell.
+      cell = nearestPassableCell(cells, target, baseCellsSeen);
+    }
+    if (cell === null) continue; // no free passable cell at all → drop (rare)
     baseCellsSeen.add(cell);
     baseSites.push({ cell, faction: b.faction });
-    // Guarantee consistency: the base-site cell must render as base terrain.
+    // Guarantee consistency: the registered base cell renders as base terrain.
     cells.get(cell)!.terrain = 'base';
   }
   board.bases = baseSites;
+
+  // (b) ELIMINATE ORPHANS. Any cell that got 'base' from the terrain pass but is
+  //     NOT a registered base site is a projection artifact: revert it to a
+  //     sensible non-base terrain so phantom, uncapturable base art disappears.
+  //     Deterministically re-pick its nearest donor tile EXCLUDING base donor
+  //     tiles (falling back to 'plains' when the donor is all-base). Reverted
+  //     terrain is always land, so passability / connectivity / anchors are
+  //     unaffected (and this runs after the placeability probes).
+  for (const [id, cell] of cells) {
+    if (cell.terrain !== 'base' || baseCellsSeen.has(id)) continue;
+    const { index } = nearestTile(
+      frame.centers,
+      cell.center,
+      (i) => donor.tiles[i]!.terrain !== 'base',
+    );
+    cell.terrain = index === -1 ? 'plains' : donor.tiles[index]!.terrain;
+  }
   board.economy = {
     initialCredits:
       donor.initialCredits !== undefined && donor.initialCredits > 0
