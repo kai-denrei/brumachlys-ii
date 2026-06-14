@@ -1537,6 +1537,14 @@ body {
   white-space: nowrap;
 }
 
+/* v0.9: Tiles section adjacency diagram */
+.rules-tiles-svg {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  margin: 0.5rem auto 0.6rem;
+}
+
 @media (min-width: 700px) {
   .rules-modal {
     max-width: 560px;
