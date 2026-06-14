@@ -298,68 +298,56 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
               its direct neighbors. Adjacent means distance&nbsp;1.
             </p>
             <p>
-              Distance counts in <b>hops</b> along neighbor links, not straight line. Range
-              2–4 means 2 to 4 hops away. A tile that looks geometrically close might still be
-              distance&nbsp;2 if no shared border exists between them.
+              A tile can have <b>4 to 8 neighbors</b>, and every tile that shares a border with
+              you is distance&nbsp;1. Distance counts in <b>hops</b> along neighbor links, not
+              straight line: range 2–4 means 2 to 4 hops away, reached by crossing a neighbor.
             </p>
-            {/* Schematic: center tile + 5 neighbors (dist 1) + 3 second-ring tiles (dist 2).
-                One of the dist-2 tiles is drawn touching the center visually to illustrate
-                the "looks near but is not adjacent" point. All numbers are hop distances. */}
+            {/* Schematic: a center YOU tile ringed by its direct neighbors. Each
+                neighbor shares one full EDGE with YOU, so all six are distance 1 (a
+                real tile has 4 to 8 such neighbors). The outer tiles share a border
+                only with a neighbor, never with YOU, so they are distance 2. Built
+                so every drawn shared edge matches its label. Numbers are hop counts. */}
             <svg
-              viewBox="0 0 220 160"
-              aria-label="Adjacency diagram: YOU tile at center, neighbors labeled 1, outer ring labeled 2"
+              viewBox="0 0 240 200"
+              aria-label="Adjacency diagram: a YOU tile ringed by six neighbors at distance 1, with an outer ring at distance 2"
               className="rules-tiles-svg"
             >
-              {/* --- dist-2 tiles (outer ring, behind so dist-1 tiles sit on top) --- */}
-              {/* top-left dist-2 */}
-              <polygon points="18,14 62,14 70,44 28,52" fill="#e8e3d6" stroke="#c8c0ae" strokeWidth="1.2" />
-              <text x="44" y="36" textAnchor="middle" fontSize="13" fontWeight="700" fill="#9a8f7a">2</text>
-              {/* top-right dist-2 */}
-              <polygon points="138,8 184,8 190,40 144,46" fill="#e8e3d6" stroke="#c8c0ae" strokeWidth="1.2" />
-              <text x="163" y="31" textAnchor="middle" fontSize="13" fontWeight="700" fill="#9a8f7a">2</text>
-              {/* right dist-2 */}
-              <polygon points="186,64 218,58 218,104 186,100" fill="#e8e3d6" stroke="#c8c0ae" strokeWidth="1.2" />
-              <text x="202" y="85" textAnchor="middle" fontSize="13" fontWeight="700" fill="#9a8f7a">2</text>
-              {/* bottom dist-2 */}
-              <polygon points="82,136 138,136 132,156 88,156" fill="#e8e3d6" stroke="#c8c0ae" strokeWidth="1.2" />
-              <text x="110" y="151" textAnchor="middle" fontSize="13" fontWeight="700" fill="#9a8f7a">2</text>
-              {/* bottom-left dist-2 */}
-              <polygon points="14,104 50,96 54,130 16,136" fill="#e8e3d6" stroke="#c8c0ae" strokeWidth="1.2" />
-              <text x="34" y="120" textAnchor="middle" fontSize="13" fontWeight="700" fill="#9a8f7a">2</text>
+              {/* --- distance 2 (outer ring): each shares a border with a neighbor, not with YOU --- */}
+              <polygon points="82,33 159,33 150,8 95,8" fill="#e8e3d6" stroke="#c8c0ae" strokeWidth="1.2" />
+              <text x="121" y="25" textAnchor="middle" fontSize="13" fontWeight="700" fill="#9a8f7a">2</text>
+              <polygon points="159,33 197,100 226,84 188,18" fill="#e8e3d6" stroke="#c8c0ae" strokeWidth="1.2" />
+              <text x="192" y="64" textAnchor="middle" fontSize="13" fontWeight="700" fill="#9a8f7a">2</text>
+              <polygon points="197,100 159,167 184,186 222,122" fill="#e8e3d6" stroke="#c8c0ae" strokeWidth="1.2" />
+              <text x="190" y="148" textAnchor="middle" fontSize="13" fontWeight="700" fill="#9a8f7a">2</text>
+              <polygon points="82,167 159,167 151,190 90,190" fill="#e8e3d6" stroke="#c8c0ae" strokeWidth="1.2" />
+              <text x="120" y="183" textAnchor="middle" fontSize="13" fontWeight="700" fill="#9a8f7a">2</text>
+              <polygon points="43,100 82,167 52,184 16,116" fill="#e8e3d6" stroke="#c8c0ae" strokeWidth="1.2" />
+              <text x="48" y="148" textAnchor="middle" fontSize="13" fontWeight="700" fill="#9a8f7a">2</text>
+              <polygon points="43,100 82,33 54,18 16,84" fill="#e8e3d6" stroke="#c8c0ae" strokeWidth="1.2" />
+              <text x="49" y="64" textAnchor="middle" fontSize="13" fontWeight="700" fill="#9a8f7a">2</text>
 
-              {/* --- "looks close but dist 2" tile: placed near top-center, touching center
-                   tile visually, but its only shared border is with the top neighbor (dist 1),
-                   not the center. Annotated with a dashed stroke and a note. --- */}
-              <polygon points="90,4 132,4 136,28 86,28" fill="#f0e8d0" stroke="#b8a880" strokeWidth="1.2" strokeDasharray="4 2" />
-              <text x="111" y="22" textAnchor="middle" fontSize="12" fontWeight="700" fill="#9a7a40">2</text>
-              <text x="111" y="4" textAnchor="middle" fontSize="8" fill="#9a7a40" dy="-2">no shared border</text>
+              {/* --- distance 1 (the six direct neighbors): each shares one full edge with YOU --- */}
+              <polygon points="98,62 142,62 159,33 82,33" fill="#d4cfc3" stroke="#a89e8a" strokeWidth="1.4" />
+              <text x="120" y="53" textAnchor="middle" fontSize="14" fontWeight="800" fill="#5a5040">1</text>
+              <polygon points="142,62 164,100 197,100 159,33" fill="#d4cfc3" stroke="#a89e8a" strokeWidth="1.4" />
+              <text x="166" y="79" textAnchor="middle" fontSize="14" fontWeight="800" fill="#5a5040">1</text>
+              <polygon points="164,100 142,138 159,167 197,100" fill="#d4cfc3" stroke="#a89e8a" strokeWidth="1.4" />
+              <text x="166" y="131" textAnchor="middle" fontSize="14" fontWeight="800" fill="#5a5040">1</text>
+              <polygon points="142,138 98,138 82,167 159,167" fill="#d4cfc3" stroke="#a89e8a" strokeWidth="1.4" />
+              <text x="120" y="157" textAnchor="middle" fontSize="14" fontWeight="800" fill="#5a5040">1</text>
+              <polygon points="98,138 76,100 43,100 82,167" fill="#d4cfc3" stroke="#a89e8a" strokeWidth="1.4" />
+              <text x="74" y="131" textAnchor="middle" fontSize="14" fontWeight="800" fill="#5a5040">1</text>
+              <polygon points="76,100 98,62 82,33 43,100" fill="#d4cfc3" stroke="#a89e8a" strokeWidth="1.4" />
+              <text x="74" y="79" textAnchor="middle" fontSize="14" fontWeight="800" fill="#5a5040">1</text>
 
-              {/* --- dist-1 neighbors (the five direct neighbors of center) --- */}
-              {/* top neighbor */}
-              <polygon points="74,30 148,30 144,68 78,68" fill="#d4cfc3" stroke="#a89e8a" strokeWidth="1.4" />
-              <text x="111" y="55" textAnchor="middle" fontSize="14" fontWeight="800" fill="#5a5040">1</text>
-              {/* right neighbor */}
-              <polygon points="152,62 186,58 186,100 150,102" fill="#d4cfc3" stroke="#a89e8a" strokeWidth="1.4" />
-              <text x="168" y="84" textAnchor="middle" fontSize="14" fontWeight="800" fill="#5a5040">1</text>
-              {/* bottom-right neighbor */}
-              <polygon points="118,112 158,108 154,136 114,138" fill="#d4cfc3" stroke="#a89e8a" strokeWidth="1.4" />
-              <text x="136" y="128" textAnchor="middle" fontSize="14" fontWeight="800" fill="#5a5040">1</text>
-              {/* bottom-left neighbor */}
-              <polygon points="62,110 106,112 102,138 58,134" fill="#d4cfc3" stroke="#a89e8a" strokeWidth="1.4" />
-              <text x="82" y="129" textAnchor="middle" fontSize="14" fontWeight="800" fill="#5a5040">1</text>
-              {/* left neighbor */}
-              <polygon points="32,60 76,64 74,100 30,98" fill="#d4cfc3" stroke="#a89e8a" strokeWidth="1.4" />
-              <text x="53" y="85" textAnchor="middle" fontSize="14" fontWeight="800" fill="#5a5040">1</text>
-
-              {/* --- center "YOU" tile --- */}
-              <polygon points="78,68 144,68 150,102 110,112 70,108 30,98 32,60 74,30" fill="#4a7c59" stroke="#2d5c3e" strokeWidth="1.8" />
-              <text x="90" y="86" textAnchor="middle" fontSize="10" fontWeight="800" fill="#e8f4ec" letterSpacing="0.05em">YOU</text>
-              <text x="90" y="100" textAnchor="middle" fontSize="10" fill="#c8e4d0">dist 0</text>
+              {/* --- center YOU tile: a hexagon whose six edges are each shared with a neighbor --- */}
+              <polygon points="164,100 142,138 98,138 76,100 98,62 142,62" fill="#4a7c59" stroke="#2d5c3e" strokeWidth="1.8" />
+              <text x="120" y="98" textAnchor="middle" fontSize="11" fontWeight="800" fill="#e8f4ec" letterSpacing="0.05em">YOU</text>
+              <text x="120" y="112" textAnchor="middle" fontSize="9" fill="#c8e4d0">dist 0</text>
             </svg>
             <p className="rules-legend">
-              Numbers = hop distance · tiles labeled 1 share a border with YOU (adjacent) ·
-              tiles labeled 2 are two hops away · the dashed tile looks near but has no shared
-              border with YOU — distance 2 via the tile labeled 1 above it.
+              Numbers = hop distance · every tile that shares a border with YOU is distance 1 ·
+              the outer tiles share a border only with a neighbor, so they are distance 2.
             </p>
             <p>
               Movement and attack range both measure in hops. Moving into a tile that borders
