@@ -89,10 +89,37 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
           <Section title="The round">
             <p>
               Plan, commit, watch. Both sides plan at once. On commit every order resolves
-              together: stances apply, then movement, then brawls, then fire. Within each phase
-              units act in initiative order, highest first. Per unit per round: one move, one
-              attack, one stance.
+              together in initiative order (highest first) within each phase:
             </p>
+            <ol className="rules-phases">
+              <li><b>Stances</b> — take effect first.</li>
+              <li><b>Movement</b> — all units move at once; blocked or bounced moves stop short.</li>
+              <li>
+                <b>Brawls</b> — any cell where both factions end movement together: they trade
+                full blows, exchange after exchange, until one side is gone. Stances are
+                ignored. Distinct from fire phase combat.
+              </li>
+              <li>
+                <b>Fire</b> — ranged and direct combat. A unit with an attack order fires at its
+                target. A unit on <b>aggressive</b> stance with no order automatically fires at
+                the nearest visible enemy in range — this is when an idle ranged unit fires automatically.
+                The defender returns fire (counter) in the same beat unless holding fire or
+                out of counter range.
+              </li>
+              <li>
+                <b>Capture</b> — a personnel unit ordered to capture, standing on a foreign or
+                neutral base, claims it and is spent. Vehicles never capture.
+              </li>
+              <li>
+                <b>Veterancy</b> — units that killed and survived gain rank: a heal of +2 and a
+                damage bonus per rank.
+              </li>
+              <li>
+                <b>Income · Spawns</b> (Conquest only) — each owned base pays credits, then
+                queued recruits appear.
+              </li>
+            </ol>
+            <p>Per unit per round: one move, one attack, one stance.</p>
           </Section>
 
           <Section title="Stances">
