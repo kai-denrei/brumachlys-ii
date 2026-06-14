@@ -212,6 +212,19 @@ describe('planning slice', () => {
     expect(s().orders).toEqual({});
   });
 
+  it('commit() flushes a dangling pending proposal — the COMMIT button no longer drops a set-up move', () => {
+    const s = () => useAppStore.getState();
+    seedBattle([unit('a', 0, 0)]); // lone unit, no enemies → unambiguous resolution
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    expect(s().orders['a']).toBeUndefined(); // proposed, not yet queued
+    s().commit(); // the COMMIT button path (no explicit second tap / Enter)
+    expect(s().pendingMove).toBeNull();
+    // The proposal was flushed into the round and resolved: 'a' moved to cell 1.
+    // (The bug discarded the pending move and 'a' stayed at cell 0.)
+    expect(s().game!.units['a']!.cell).toBe(1);
+  });
+
   it('proposeMove REPLACES an existing proposal (one per unit/session)', () => {
     const s = () => useAppStore.getState();
     s().selectUnit('a');

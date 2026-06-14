@@ -736,6 +736,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   // --- game actions (P8) ---------------------------------------------------------
 
   commit: (playerOrdersOverride) => {
+    // v0.9 fix: flush a dangling pending-move PROPOSAL into orders before
+    // resolving. Every other path (Enter, tap elsewhere, switch unit) commits
+    // it, but the COMMIT button calls commit() directly — so a move the player
+    // set up (first tap) but did not second tap / Enter was silently dropped,
+    // which reads as "I cannot move my units". Skipped when autopilot supplies
+    // its own orders override.
+    if (!playerOrdersOverride && get().uiPhase === 'planning' && get().pendingMove) {
+      get().commitPendingMove();
+    }
     const { game, orders, buys, uiPhase, archetypeKey } = get();
     if (!game || game.outcome || uiPhase !== 'planning') return;
     const types = loadUnits();
