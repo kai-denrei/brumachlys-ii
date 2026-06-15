@@ -37,6 +37,10 @@ export type DonorEntry = {
   /** Display name for the map picker. */
   name: string;
   xml: string;
+  /** Curated seed adopted the FIRST time this donor is picked (a known "good
+   *  layout"). Omitted → the picker keeps whatever seed is in the box. The
+   *  store fills it once per session, so a player's later seed edits stand. */
+  defaultSeed?: number;
 };
 
 /** Bundled donors, picker order. */
@@ -48,7 +52,7 @@ export const DONOR_ENTRIES: readonly DonorEntry[] = [
   { id: '34069', name: 'spooner hell', xml: spoonerHell },
   { id: '65292', name: 'smallest map', xml: smallestMap },
   { id: '52560', name: 'Aruba Alternative', xml: arubaAlt },
-  { id: '5', name: 'Aruba', xml: aruba },
+  { id: '5', name: 'Aruba', xml: aruba, defaultSeed: 25837 },
 ];
 
 /** Parse a bundled donor by id. Throws on unknown id. */

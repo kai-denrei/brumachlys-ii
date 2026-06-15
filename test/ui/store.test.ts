@@ -13,6 +13,7 @@ describe('app store', () => {
       screen: 'start',
       donorId: '53316',
       seed: 7,
+      donorDefaultsApplied: new Set(),
       // E3: the store defaults to conquest; these suites pin the v1 skirmish
       // game (mirror armies, no bases) — conquest plumbing has its own suite.
       mode: 'skirmish',
@@ -80,5 +81,24 @@ describe('app store', () => {
     expect(useAppStore.getState().seed).toBe(42);
     useAppStore.getState().randomizeSeed();
     expect(Number.isInteger(useAppStore.getState().seed)).toBe(true);
+  });
+
+  it('selecting Aruba the FIRST time adopts its curated seed (25837); re-picking keeps the player seed', () => {
+    // first pick → curated "good layout" seed fills in
+    useAppStore.getState().selectDonor('5');
+    expect(useAppStore.getState().donorId).toBe('5');
+    expect(useAppStore.getState().seed).toBe(25837);
+
+    // player overrides the seed, wanders to another map, then comes back
+    useAppStore.getState().setSeed(99);
+    useAppStore.getState().selectDonor('53316');
+    useAppStore.getState().selectDonor('5');
+    // second pick must NOT clobber the player's own seed
+    expect(useAppStore.getState().donorId).toBe('5');
+    expect(useAppStore.getState().seed).toBe(99);
+
+    // a donor with no curated seed never touches the seed box
+    useAppStore.getState().selectDonor('53316');
+    expect(useAppStore.getState().seed).toBe(99);
   });
 });
