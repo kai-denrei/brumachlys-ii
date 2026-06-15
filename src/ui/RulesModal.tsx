@@ -5,11 +5,184 @@
 // and deliberately hyphen free (en dashes for ranges only) — tested.
 
 import { useMemo } from 'react';
+import type { CellId, Vec2 } from '../board/types';
 import type { TerrainKey } from '../board/types';
+import { generateUniformBoard, graphDistance as bfsDistance } from '../board';
 import type { UnitInstance, UnitType } from '../core/types';
 import { IMPASSABLE } from '../core/pathing';
 import { loadUnits } from '../io/data-loader';
 import { UnitRenderer } from './skin';
+
+// ---------------------------------------------------------------------------
+// Real-board hop-distance example (generated once at module load, never again).
+// Seed 42, ~40 cells: small enough to be legible in the modal, real enough
+// to show the irregular Voronoi-ish mesh. Fixed seed => deterministic figure.
+// ---------------------------------------------------------------------------
+const EXAMPLE_SEED = 42;
+const EXAMPLE_CELLS = 40;
+
+const exampleBoard = generateUniformBoard(EXAMPLE_SEED, EXAMPLE_CELLS);
+
+/** Pick the cell whose center is nearest the board centroid. */
+function boardCentroidCell(): CellId {
+  const cells = [...exampleBoard.cells.values()];
+  let sumX = 0, sumY = 0;
+  for (const c of cells) { sumX += c.center[0]; sumY += c.center[1]; }
+  const cx = sumX / cells.length, cy = sumY / cells.length;
+  let best = cells[0]!;
+  let bestD = Infinity;
+  for (const c of cells) {
+    const d = (c.center[0] - cx) ** 2 + (c.center[1] - cy) ** 2;
+    if (d < bestD) { bestD = d; best = c; }
+  }
+  return best.id;
+}
+
+const EXAMPLE_ORIGIN: CellId = boardCentroidCell();
+
+/** BFS distances from EXAMPLE_ORIGIN, capped at 4 hops. */
+const EXAMPLE_DISTANCES: ReadonlyMap<CellId, number> = (() => {
+  const out = new Map<CellId, number>();
+  for (const cell of exampleBoard.cells.values()) {
+    const d = bfsDistance(exampleBoard, EXAMPLE_ORIGIN, cell.id);
+    if (d <= 4) out.set(cell.id, d);
+  }
+  return out;
+})();
+
+/** Project board cells into a 240×200 viewBox (same as the hex schematic). */
+function projectCells(): {
+  pts: Map<CellId, [number, number][]>;
+  toSvg: (p: Vec2) => [number, number];
+} {
+  const cells = [...exampleBoard.cells.values()];
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const c of cells) {
+    for (const [x, y] of c.polygon) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  const PAD_SVG = 6;
+  const W = 240 - PAD_SVG * 2, H = 200 - PAD_SVG * 2;
+  const spanX = maxX - minX || 1, spanY = maxY - minY || 1;
+  const s = Math.min(W / spanX, H / spanY);
+  const offX = PAD_SVG + (W - spanX * s) / 2;
+  const offY = PAD_SVG + (H - spanY * s) / 2;
+  // Board is y-up; SVG is y-down — flip y.
+  const toSvg = (p: Vec2): [number, number] => [
+    offX + (p[0] - minX) * s,
+    offY + (maxY - p[1]) * s,
+  ];
+  const pts = new Map<CellId, [number, number][]>();
+  for (const c of cells) pts.set(c.id, c.polygon.map(toSvg));
+  return { pts, toSvg };
+}
+
+const { pts: EXAMPLE_POLYS, toSvg: exampleToSvg } = projectCells();
+
+/** Screen-space center of a cell (average of its projected polygon vertices). */
+function cellCenter(id: CellId): [number, number] {
+  const cell = exampleBoard.cells.get(id)!;
+  return exampleToSvg(cell.center);
+}
+
+// Distance-to-fill color (clean light palette — no heavy dim so the figure reads
+// clearly). 0 = origin (dark green), 1 = close (soft green), 2 = mid (amber),
+// 3 = further (coral), 4 = far (rose/dim).
+const DIST_FILL: Record<number, string> = {
+  0: '#4a7c59',
+  1: '#8ec99a',
+  2: '#f5d174',
+  3: '#f0a070',
+  4: '#e8c0b8',
+};
+const DIST_STROKE: Record<number, string> = {
+  0: '#2d5c3e',
+  1: '#5a9968',
+  2: '#c8a040',
+  3: '#c07040',
+  4: '#b88880',
+};
+const DIST_TEXT: Record<number, string> = {
+  0: '#ffffff',
+  1: '#1a4a26',
+  2: '#5a3800',
+  3: '#5a2800',
+  4: '#5a3030',
+};
+
+/** Static SVG figure: real board mesh with hop-distance labels. */
+function RealBoardExample() {
+  const cells = [...exampleBoard.cells.values()];
+  // Render out-of-range cells first (grey), then in-range cells on top.
+  const outOfRange = cells.filter((c) => !EXAMPLE_DISTANCES.has(c.id));
+  const inRange = cells.filter((c) => EXAMPLE_DISTANCES.has(c.id));
+
+  return (
+    <svg
+      viewBox="0 0 240 200"
+      aria-label="Real board example: numbered hops from the origin unit"
+      className="rules-tiles-svg"
+      style={{ marginTop: '1.2rem' }}
+    >
+      {/* Out-of-range cells: neutral grey mesh */}
+      {outOfRange.map((c) => {
+        const poly = EXAMPLE_POLYS.get(c.id);
+        if (!poly) return null;
+        return (
+          <polygon
+            key={`bg${c.id}`}
+            points={poly.map(([x, y]) => `${x},${y}`).join(' ')}
+            fill="#e4e0d8"
+            stroke="#ccc8be"
+            strokeWidth="0.8"
+          />
+        );
+      })}
+      {/* In-range cells: color-graded by hop distance */}
+      {inRange.map((c) => {
+        const d = EXAMPLE_DISTANCES.get(c.id)!;
+        const poly = EXAMPLE_POLYS.get(c.id);
+        if (!poly) return null;
+        return (
+          <polygon
+            key={`cell${c.id}`}
+            points={poly.map(([x, y]) => `${x},${y}`).join(' ')}
+            fill={DIST_FILL[d] ?? '#ddd'}
+            stroke={DIST_STROKE[d] ?? '#aaa'}
+            strokeWidth="1.1"
+          />
+        );
+      })}
+      {/* Hop-distance number labels on in-range cells */}
+      {inRange.map((c) => {
+        const d = EXAMPLE_DISTANCES.get(c.id)!;
+        const [cx, cy] = cellCenter(c.id);
+        const label = d === 0 ? '★' : String(d);
+        return (
+          <text
+            key={`lbl${c.id}`}
+            x={cx}
+            y={cy}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize={d === 0 ? 9 : 8}
+            fontWeight={700}
+            fill={DIST_TEXT[d] ?? '#333'}
+            stroke="rgba(255,255,255,0.5)"
+            strokeWidth="1.5"
+            paintOrder="stroke"
+          >
+            {label}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
 
 const TERRAIN_ORDER: TerrainKey[] = ['plains', 'woods', 'mountains', 'swamp', 'water', 'base'];
 const TERRAIN_NAME: Record<TerrainKey, string> = {
@@ -348,6 +521,12 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
             <p className="rules-legend">
               Numbers = hop distance · every tile that shares a border with YOU is distance 1 ·
               the outer tiles share a border only with a neighbor, so they are distance 2.
+            </p>
+            <RealBoardExample />
+            <p className="rules-legend">
+              On a real board the tiles are irregular. Numbers are hops from your unit ·
+              every tile sharing a border, including corners, is 1.
+              Green = 1 hop · amber = 2 · coral = 3 · rose = 4 · grey = beyond range.
             </p>
             <p>
               Movement and attack range both measure in hops. Moving into a tile that borders
