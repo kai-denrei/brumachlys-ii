@@ -18,8 +18,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # All actions pinned to @v5 — the major that moved the action runtime from
+      # Node 20 (deprecated on GitHub runners 2026-06-16) to Node 24. The two
+      # Pages actions below must move together: upload-pages-artifact@v5 bundles
+      # upload-artifact@v7 and is consumed by deploy-pages@v5.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -27,7 +31,7 @@ jobs:
       - run: npm test
       - run: node scripts/bust.mjs   # fresh build-identity token per deploy
       - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
@@ -39,4 +43,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
