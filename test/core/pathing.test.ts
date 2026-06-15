@@ -272,8 +272,8 @@ describe('enemyFrictionAt — counts adjacent enemies', () => {
     expect(enemyFrictionAt(plus, 0, new Set([0]))).toBe(0);
   });
 
-  test('the default FRICTION_PER_ENEMY is the calibrated value (2 tenths)', () => {
-    expect(FRICTION_PER_ENEMY).toBe(2);
+  test('the default FRICTION_PER_ENEMY is the calibrated value (1 tenth)', () => {
+    expect(FRICTION_PER_ENEMY).toBe(1);
   });
 });
 
@@ -304,12 +304,12 @@ describe('findPath / reachableCells with extraCostAt (enemy friction)', () => {
   });
 
   test('reachableCells SHRINKS near an enemy (one cell drops out of reach)', () => {
-    // Budget 9. Plains-only reach is {1:3, 2:6, 3:9}. Put friction (+2) on cell
-    // 1: now 1 costs 5, 2 costs 8, 3 costs 11 > 9 → cell 3 falls out of reach.
+    // Budget 9. Plains-only reach is {1:3, 2:6, 3:9}. Put friction (+1) on cell
+    // 1: now 1 costs 4, 2 costs 7, 3 costs 10 > 9 → cell 3 falls out of reach.
     const withFriction = reachableCells(STRIP, INF, 0, 9, { extraCostAt: friction(1) });
     expect([...withFriction.entries()]).toEqual([
-      [1, 5],
-      [2, 8],
+      [1, 4],
+      [2, 7],
     ]);
     // identical to baseline when extraCostAt is omitted.
     const baseline = reachableCells(STRIP, INF, 0, 9);
@@ -318,7 +318,7 @@ describe('findPath / reachableCells with extraCostAt (enemy friction)', () => {
 
   test('friction can truncate a path that fits on open terrain', () => {
     // Open: 0→3 costs 9 (fits infantry). Friction on every entered cell adds
-    // 2×3 = 6 → 15 > 9, so the full path is no longer reachable.
+    // 1×3 = 3 → 12 > 9, so the full path is no longer reachable.
     const open = findPath(STRIP, INF, 0, 3, { budget: 9 });
     expect(open).toEqual({ path: [1, 2, 3], totalCost: 9 });
     const blocked = findPath(STRIP, INF, 0, 3, {

@@ -57,11 +57,14 @@ export type PathOpts = {
 };
 
 /** Tenths of extra movement cost per ENEMY unit on a cell adjacent to the one
- * being ENTERED (v0.9). One adjacent enemy turns a plains step (3) into 5 — a
- * noticeable but passable malus; three (3 + 6 = 9) costs ≈ a full infantry move,
- * so being surrounded or forced through a line is near-prohibitive but never
- * hard-blocked — friction is a SOFT field, you push through with enough budget. */
-export const FRICTION_PER_ENEMY = 2;
+ * being ENTERED (v0.9). One adjacent enemy turns a plains step (3) into 4 — a
+ * noticeable but passable malus; three adjacent enemies (3 + 3 = 6) costs most
+ * of a standard infantry move, so being forced through a defensive line is
+ * expensive but never hard-blocked — friction is a SOFT field.
+ * Halved from 2→1 to compensate for the ~doubled neighbor degree introduced by
+ * the diagonal-adjacency topology change (corner-sharing cells are now distance
+ * 1), which otherwise doubled per-position friction near a defensive line. */
+export const FRICTION_PER_ENEMY = 1;
 
 /** Extra movement cost (tenths) to ENTER `cell`, from enemy units occupying
  * cells ADJACENT to it. `enemyCells` is the set of cells the caller treats as

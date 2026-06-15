@@ -150,7 +150,7 @@ describe('movement friction near enemies (validateMove)', () => {
 
   test('a VISIBLE enemy bordering a step rejects the same walk as over-budget', () => {
     // enemy on side cell 4 (adjacent to lane cell 1). Entering cell 1 now costs
-    // 3 + 2 = 5, so 5 + 3 + 3 = 11 > 9.
+    // 3 + 1 = 4, so 4 + 3 + 3 = 10 > 9.
     const inf = makeUnit('i', 0, 0, 'infantry');
     const enemy = makeUnit('e', 1, 4, 'infantry');
     expect(

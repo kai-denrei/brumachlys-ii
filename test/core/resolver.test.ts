@@ -237,11 +237,11 @@ describe('Phase A.5 brawls', () => {
     const board = plainsLine(4);
     // Vision-2 charger; the defender at distance 3 is fog-hidden at planning
     // time. v0.9: the charger must be a TANK (budget 12) rather than infantry
-    // (budget 9) — enemy friction (+2 entering cell 2, which borders the
-    // defender on cell 3) now costs the charge 11 of its 12 budget, where an
-    // infantry's 9 no longer reaches. The charge-into-fog INTENT is preserved
-    // (a fog-hidden enemy at the destination still triggers the §2.6 brawl);
-    // friction only means a slower mover can't always sprint right up to it.
+    // (budget 9) — enemy friction (+1 entering cell 2, which borders the
+    // defender on cell 3) now costs the charge 10 of its 12 budget, where an
+    // infantry's 9 no longer reaches (3+4+3=10 > 9). The charge-into-fog
+    // INTENT is preserved (a fog-hidden enemy at the destination still triggers
+    // the §2.6 brawl); friction only means a slower mover can't sprint right up.
     const state = makeState(board, [makeUnit('t', 0, 0, 'tank'), makeUnit('d', 1, 3, 'infantry')]);
     const { events } = resolve(board, state, [{ kind: 'move', unitId: 't', path: [1, 2, 3] }]);
     expect(ofType(events, 'move')).toEqual([
@@ -658,7 +658,7 @@ describe('movement friction near enemies (resolver Phase A)', () => {
   test('a hidden enemy bordering the destination truncates with enemy-friction', () => {
     // Enemy on cell 5, adjacent to lane cell 3. Infantry budget 9. Entering
     // 1 (3) → 2 (3) → leaves budget 3; entering 3 = terrain 3 (fits) + friction
-    // 2 = 5 > 3 → truncate AT cell 2, reason 'enemy-friction'.
+    // 1 = 4 > 3 → truncate AT cell 2, reason 'enemy-friction'.
     const board = laneWithSide(3);
     const state = makeState(board, [
       makeUnit('a', 0, 0, 'infantry'),
