@@ -1,18 +1,19 @@
 // @vitest-environment jsdom
-// v0.9 HUD — the two canvas counters in the top bar: a split-flap (Solari) board
-// for the round number and a mechanical odometer for credits. Ported from the
-// attached dexipurei standalone widgets and adapted to show a REAL value and
-// animate on CHANGE (flip / roll once, then hold) rather than auto-cycle forever.
+// v0.9 HUD — the two canvas counters now live in HudCluster (a fixed top-left
+// overlay), not in the top bar. The split-flap (Solari) board shows the round
+// number; the mechanical odometer shows credits. Ported from the attached
+// dexipurei standalone widgets and adapted to show a REAL value and animate on
+// CHANGE (flip / roll once, then hold) rather than auto-cycle forever.
 //
-// jsdom returns null from canvas.getContext('2d'), so the canvas pixels can't be
-// asserted here — the components carry a visually-hidden accessible label as the
-// machine-readable value, and these tests assert THAT plus the pure driver math
-// (flip-on-change, roll-on-change, reduced-motion snap, RAF-settle). Visual
-// fidelity is human-verified later.
+// jsdom returns null from canvas.getContext('2d'), so the canvas pixels can't
+// be asserted here — the components carry a visually-hidden accessible label
+// as the machine-readable value, and these tests assert THAT plus the pure
+// driver math (flip-on-change, roll-on-change, reduced-motion snap, RAF-settle).
+// Visual fidelity is human-verified later.
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
-import { TopBar } from '../../src/ui/TopBar';
+import { HudCluster } from '../../src/ui/HudCluster';
 import { RoundFlap } from '../../src/ui/skin/displays/RoundFlap';
 import { CreditsOdometer } from '../../src/ui/skin/displays/CreditsOdometer';
 import {
@@ -44,26 +45,39 @@ describe('RoundFlap / CreditsOdometer components (a11y value)', () => {
   });
 });
 
-describe('TopBar wiring (round flap + credits odometer + income)', () => {
+// Round + credits now live in HudCluster (top-left fixed overlay), NOT in the
+// top bar. These tests assert the cluster renders the same accessible values
+// and income/committed lines that the old TopBar wiring tests checked.
+describe('HudCluster wiring (round flap + credits odometer + income)', () => {
   it('renders both counters with accessible values and the per-turn income', () => {
     const { getByLabelText, getByText, getByTestId } = render(
-      <TopBar round={5} phase="planning" credits={{ value: 250, committed: 100, income: 200 }} />,
+      <HudCluster round={5} credits={{ value: 250, committed: 100, income: 200 }} />,
     );
-    getByLabelText('round 5'); // split-flap
-    getByLabelText('credits 250'); // odometer
+    // split-flap carries "round N" a11y label (same widget, now bigger canvas).
+    getByLabelText('round 5');
+    // odometer carries "credits N" a11y label.
+    getByLabelText('credits 250');
     // income wins over the "committed" line and reads as a per-turn gain.
     getByText('+200/turn');
     getByLabelText('plus 200 per turn');
-    // the existing testid stays reachable for downstream tests.
+    // the credits-hud testid stays reachable for downstream tests (it moved
+    // from TopBar into HudCluster — same data-testid, new location).
     expect(getByTestId('credits-hud')).toBeTruthy();
   });
 
   it('with no income (replay frame), shows neither income nor a crash', () => {
     const { getByLabelText, queryByText } = render(
-      <TopBar round={6} phase="replay" credits={{ value: 410 }} />,
+      <HudCluster round={6} credits={{ value: 410 }} />,
     );
     getByLabelText('credits 410');
     expect(queryByText(/\/turn/)).toBeNull();
+  });
+
+  it('skirmish (no credits prop) renders only the round counter', () => {
+    const { getByLabelText, queryByTestId } = render(<HudCluster round={3} />);
+    getByLabelText('round 3');
+    // credits-hud absent in skirmish — no credits prop.
+    expect(queryByTestId('credits-hud')).toBeNull();
   });
 });
 

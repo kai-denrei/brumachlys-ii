@@ -18,7 +18,8 @@ afterEach(cleanup);
 
 describe('TopBar "⌬" affordance', () => {
   it('opens the pipeline modal and closes it again', () => {
-    const { baseElement, getByLabelText } = render(<TopBar round={3} phase="planning" />);
+    // round + credits moved to HudCluster — TopBar takes only phase + onBack now.
+    const { baseElement, getByLabelText } = render(<TopBar phase="planning" />);
     expect(baseElement.querySelector('[data-testid="pipeline-modal"]')).toBeNull();
     fireEvent.click(getByLabelText('dev pipeline'));
     expect(baseElement.querySelector('[data-testid="pipeline-modal"]')).not.toBeNull();

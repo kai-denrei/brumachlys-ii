@@ -18,7 +18,7 @@ import {
 
 /** Stable wear seed for the drum wear (pinned so it does not crawl). */
 const ODO_SEED = 0x0d0e7e;
-/** Per-digit width / box height for the compact HUD (CSS px). */
+/** Per-digit width / box height for the compact HUD (CSS px) — defaults. */
 const DIGIT_W = 18;
 const BOX_H = 32;
 /** Minimum drum count — credits never read narrower than this. */
@@ -37,7 +37,17 @@ function digitsFor(value: number): number {
   return Math.max(MIN_DIGITS, String(Math.max(0, Math.floor(value))).length);
 }
 
-export function CreditsOdometer({ value }: { value: number }) {
+export function CreditsOdometer({
+  value,
+  digitW = DIGIT_W,
+  boxH = BOX_H,
+}: {
+  value: number;
+  /** Override per-digit CSS width (px). Defaults to ${DIGIT_W}. */
+  digitW?: number;
+  /** Override box height (px). Defaults to ${BOX_H}. */
+  boxH?: number;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const driverRef = useRef(createOdometerDriver(value));
   const rafRef = useRef<number | null>(null);
@@ -55,7 +65,7 @@ export function CreditsOdometer({ value }: { value: number }) {
     const rng = makeRng(ODO_SEED);
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     canvas._dpr = dpr;
-    sizeCanvas(canvas, paramsRef.current.digits);
+    sizeCanvas(canvas, paramsRef.current.digits, digitW, boxH);
 
     const draw = (t: number) => {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -85,7 +95,7 @@ export function CreditsOdometer({ value }: { value: number }) {
     if (want !== paramsRef.current.digits) {
       paramsRef.current = { ...paramsRef.current, digits: want };
       const canvas = canvasRef.current as DprCanvas | null;
-      if (canvas) sizeCanvas(canvas, want);
+      if (canvas) sizeCanvas(canvas, want, digitW, boxH);
     }
     setValue(
       driverRef.current,
@@ -107,17 +117,22 @@ export function CreditsOdometer({ value }: { value: number }) {
 }
 
 /** Size the dpr-aware canvas for `digits` drums (only touches dims on change). */
-function sizeCanvas(canvas: DprCanvas, digits: number): void {
+function sizeCanvas(
+  canvas: DprCanvas,
+  digits: number,
+  digitW: number = DIGIT_W,
+  boxH: number = BOX_H,
+): void {
   const dpr = canvas._dpr || 1;
-  const cssW = DIGIT_W * digits;
+  const cssW = digitW * digits;
   const wantW = Math.round(cssW * dpr);
   if (canvas.width !== wantW) {
     canvas.width = wantW;
     canvas.style.width = `${cssW}px`;
   }
-  const wantH = Math.round(BOX_H * dpr);
+  const wantH = Math.round(boxH * dpr);
   if (canvas.height !== wantH) {
     canvas.height = wantH;
-    canvas.style.height = `${BOX_H}px`;
+    canvas.style.height = `${boxH}px`;
   }
 }

@@ -2148,18 +2148,101 @@ body {
   }
 }
 
-/* --- v1.3 Tweak C: casualty recap (chess-style captured pieces) ------------- */
-/* Top-LEFT below the top bar — the skirmish chip/log owns the top-RIGHT; at
-   390px the panel caps at 45vw so the two never meet. Paper-translucent
-   backing (same recipe as the top bar) so it stays legible over board fog.
-   Purely informational: pointer-events none, never steals a board tap. */
+/* --- v0.9 HUD column: top-LEFT fixed column — Round+Credits cluster on top,
+   casualty tally stacked below.  Only appears on the battle screen.
+   Mobile-first: capped at 48vw so it can't crowd the centre board on a 390px
+   phone. The column itself is transparent / pointer-events: none so board taps
+   pass through the gap between the two children. Children restore their own
+   pointer-events. ---------------------------------------------------------------- */
 
-.casualty-panel {
+.hud-column {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + 3.2rem);
+  top: calc(env(safe-area-inset-top) + 3.2rem); /* clear the top bar */
   left: 0.5rem;
   z-index: 18; /* over the board, under sheets/scrims (z 20+) */
-  max-width: 45vw;
+  max-width: 48vw;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  pointer-events: none; /* gap between children passes through to the board */
+}
+
+/* --- v0.9: Round + Credits HUD cluster (prominently BIGGER) ----------------- */
+
+.hud-cluster {
+  /* restore pointer-events so it can be tapped in future */
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 0.35rem 0.5rem 0.4rem;
+  background: var(--bar-bg);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(74, 68, 58, 0.12);
+  border-radius: 12px;
+}
+
+/* "R" glyph beside the big split-flap canvas. */
+.hud-cluster-round {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.hud-cluster-round-r {
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  line-height: 1;
+}
+
+/* Inside the cluster the credits-hud pill gets slightly larger typography to
+   match the bigger canvas. Specificity win: `.hud-cluster .credits-hud` >
+   `.credits-hud`, so it can't accidentally bleed back into the (now empty)
+   top bar. */
+.hud-cluster .credits-hud {
+  font-size: 1rem;
+  padding: 0.18rem 0.55rem;
+  gap: 0.35rem;
+}
+
+.hud-cluster .credits-glyph {
+  font-size: 1rem;
+}
+
+.hud-cluster .credits-income {
+  font-size: 0.8rem;
+}
+
+.hud-cluster .credits-committed {
+  font-size: 0.75rem;
+}
+
+/* Mobile cap: keep the cluster readable but slim on a 390px phone. */
+@media (max-width: 430px) {
+  .hud-cluster {
+    padding: 0.28rem 0.4rem 0.32rem;
+  }
+
+  .hud-cluster-round-r {
+    font-size: 0.95rem;
+  }
+}
+
+/* --- v1.3 Tweak C: casualty recap (chess-style captured pieces) ------------- */
+/* Sits inside .hud-column so position/top/left are managed by the column flex.
+   At 390px the column caps at 48vw so casualties can't reach the right half.
+   Paper-translucent backing (same recipe as the top bar) so it stays legible
+   over board fog. Clickable (pointer-events: auto) — tap to open the modal. */
+
+.casualty-panel {
+  /* position/top/left/z-index come from .hud-column — this element is in-flow
+     inside that flex column and simply stacks below .hud-cluster. */
+  pointer-events: auto;  /* restore: the parent column is pointer-events:none */
+  max-width: 100%;       /* respects parent's max-width: 48vw */
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -2168,8 +2251,6 @@ body {
   backdrop-filter: blur(6px);
   border: 1px solid rgba(74, 68, 58, 0.12);
   border-radius: 10px;
-  /* v0.9: now a button — pointer-events enabled, cursor shows interactivity */
-  pointer-events: auto;
   cursor: pointer;
   /* reset button defaults */
   font: inherit;

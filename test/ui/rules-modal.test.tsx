@@ -14,7 +14,8 @@ afterEach(cleanup);
 
 describe('TopBar "i" affordance', () => {
   it('opens the rules modal and closes it again', () => {
-    const { baseElement, getByLabelText } = render(<TopBar round={3} phase="planning" />);
+    // round + credits moved to HudCluster — TopBar now takes only phase + onBack.
+    const { baseElement, getByLabelText } = render(<TopBar phase="planning" />);
     expect(baseElement.querySelector('[data-testid="rules-modal"]')).toBeNull();
     fireEvent.click(getByLabelText('how to play'));
     expect(baseElement.querySelector('[data-testid="rules-modal"]')).not.toBeNull();

@@ -54,7 +54,7 @@ export function StartScreen() {
 
   return (
     <div className="app">
-      <TopBar round={null} phase="new battle" />
+      <TopBar phase="new battle" />
       <main className="start-screen">
         <p className="start-tagline">The mist is gathering. Choose your ground.</p>
         <div className="donor-grid">

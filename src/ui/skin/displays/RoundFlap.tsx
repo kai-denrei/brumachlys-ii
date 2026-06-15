@@ -21,7 +21,7 @@ import {
 
 /** Stable wear seed — pinned so the worn-card variance does not crawl. */
 const FLAP_SEED = 0x5031a2;
-/** Per-digit width / box height for the compact HUD (CSS px). */
+/** Per-digit width / box height for the compact HUD (CSS px) — defaults. */
 const DIGIT_W = 22;
 const BOX_H = 32;
 
@@ -33,7 +33,17 @@ function prefersReducedMotion(): boolean {
   );
 }
 
-export function RoundFlap({ value }: { value: number }) {
+export function RoundFlap({
+  value,
+  digitW = DIGIT_W,
+  boxH = BOX_H,
+}: {
+  value: number;
+  /** Override per-digit CSS width (px). Defaults to ${DIGIT_W}. */
+  digitW?: number;
+  /** Override box height (px). Defaults to ${BOX_H}. */
+  boxH?: number;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const driverRef = useRef(createSplitFlapDriver(String(value)));
   const rafRef = useRef<number | null>(null);
@@ -53,7 +63,7 @@ export function RoundFlap({ value }: { value: number }) {
     const rng = makeRng(FLAP_SEED);
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     canvas._dpr = dpr;
-    sizeCanvas(canvas, value);
+    sizeCanvas(canvas, value, digitW, boxH);
 
     const draw = (t: number) => {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -79,7 +89,7 @@ export function RoundFlap({ value }: { value: number }) {
     if (prevValueRef.current === value) return;
     prevValueRef.current = value;
     const canvas = canvasRef.current as DprCanvas | null;
-    if (canvas) sizeCanvas(canvas, value); // widen for an extra digit (R9 → R10)
+    if (canvas) sizeCanvas(canvas, value, digitW, boxH); // widen for an extra digit (R9 → R10)
     setTarget(
       driverRef.current,
       String(value),
@@ -102,18 +112,23 @@ export function RoundFlap({ value }: { value: number }) {
 
 /** Size the dpr-aware canvas to fit `value`'s digits (only touches width when it
  *  actually changes, so a same-length update is free). */
-function sizeCanvas(canvas: DprCanvas, value: number): void {
+function sizeCanvas(
+  canvas: DprCanvas,
+  value: number,
+  digitW: number = DIGIT_W,
+  boxH: number = BOX_H,
+): void {
   const dpr = canvas._dpr || 1;
   const digits = Math.max(1, String(value).length);
-  const cssW = DIGIT_W * digits;
+  const cssW = digitW * digits;
   const wantW = Math.round(cssW * dpr);
   if (canvas.width !== wantW) {
     canvas.width = wantW;
     canvas.style.width = `${cssW}px`;
   }
-  const wantH = Math.round(BOX_H * dpr);
+  const wantH = Math.round(boxH * dpr);
   if (canvas.height !== wantH) {
     canvas.height = wantH;
-    canvas.style.height = `${BOX_H}px`;
+    canvas.style.height = `${boxH}px`;
   }
 }

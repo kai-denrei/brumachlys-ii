@@ -51,6 +51,7 @@ import { Board, type CaptureToggleState, type StancePopoverState } from './ui/Bo
 import { BottomDock, type DockBuy } from './ui/BottomDock';
 import { BuildSheet } from './ui/BuildSheet';
 import { CasualtyPanel } from './ui/CasualtyPanel';
+import { HudCluster } from './ui/HudCluster';
 import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/Replay';
 import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
 import { SkirmishLog } from './ui/SkirmishLog';
@@ -1125,7 +1126,7 @@ function BattleScreen() {
 
   return (
     <div className="app">
-      <TopBar round={topRound} phase={phaseChip} credits={creditsHud} onBack={exitBattle} />
+      <TopBar phase={phaseChip} onBack={exitBattle} />
       {playerBaseless && (
         <div className="baseless-warning" role="alert" data-testid="baseless-warning">
           no bases — {graceLeft} round{graceLeft === 1 ? '' : 's'} to retake one
@@ -1253,7 +1254,12 @@ function BattleScreen() {
           />
         )}
       </main>
-      <CasualtyPanel casualties={casualties} unitTypes={types} />
+      {/* v0.9 HUD: top-left column — Round + Credits cluster on top, casualty
+          tally stacked immediately below. Fixed over the board, below modals. */}
+      <div className="hud-column">
+        <HudCluster round={topRound} credits={creditsHud} />
+        <CasualtyPanel casualties={casualties} unitTypes={types} />
+      </div>
       <SkirmishLog
         history={battleLog}
         live={
