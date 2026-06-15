@@ -104,6 +104,21 @@ export const PIPELINE: PipelineEntry[] = [
     commit: 'd9fabf0',
   },
   {
+    version: '0.9.x',
+    date: 'Jun 15',
+    status: 'shipped',
+    title: 'diagonal distance · radar · solari HUD',
+    items: [
+      'diagonals count as 1 tile (board topology) · friction rebalanced',
+      'split flap round number · odometer credits with per turn income',
+      'per unit radar: tap to measure shooting range in hops',
+      'capture toggle sits atop the base · capturing animation',
+      'rules: real board hop distance examples',
+      'conquest checkmate when the last base is sat on',
+    ],
+    commit: '26cddd2',
+  },
+  {
     version: 'next',
     date: null,
     status: 'next',
@@ -123,4 +138,4 @@ export const PIPELINE: PipelineEntry[] = [
  *  output would couple the bundle to the test runner. Update alongside the
  *  version bump; the pipeline test pins it to this constant, not to the
  *  live suite. */
-export const TEST_COUNT = 772;
+export const TEST_COUNT = 795;
