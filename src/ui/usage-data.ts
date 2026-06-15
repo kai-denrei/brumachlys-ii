@@ -34,38 +34,38 @@ export type SessionUsage = {
   byModel: ModelUsage[];
 };
 
-/** v0.8 build session — Jun 14 2026.
+/** v0.8 + v0.9 build session — cumulative through Jun 15 2026.
  *  Source: `claude /usage` output at session close. Update each session. */
 export const SESSION_USAGE: SessionUsage = {
-  totalCost: 40.08,
-  apiDuration: '2h 31m 17s',
-  wallDuration: '5h 26m 44s',
-  linesAdded: 2951,
-  linesRemoved: 257,
+  totalCost: 217.72,
+  apiDuration: '7h 29m 24s',
+  wallDuration: '1d 14h 13m',
+  linesAdded: 10768,
+  linesRemoved: 1151,
   byModel: [
     {
       model: 'claude-haiku-4-5',
-      inputK: 21.1,
-      outputK: 22.1,
-      cacheReadM: 2.9,
-      cacheWriteK: 191.5,
-      cost: 0.66,
+      inputK: 25.8,
+      outputK: 68.1,
+      cacheReadM: 7.1,
+      cacheWriteK: 497.2,
+      cost: 1.7,
     },
     {
       model: 'claude-opus-4-8',
-      inputK: 21.1,
-      outputK: 130.3,
-      cacheReadM: 7.9,
-      cacheWriteK: 651.9,
-      cost: 13.84,
+      inputK: 210.3,
+      outputK: 927.4,
+      cacheReadM: 214.1,
+      cacheWriteK: 4500,
+      cost: 169.55,
     },
     {
       model: 'claude-sonnet-4-6',
-      inputK: 14.3,
-      outputK: 343.0,
-      cacheReadM: 51.5,
-      cacheWriteK: 1300,
-      cost: 25.58,
+      inputK: 33.2,
+      outputK: 631.3,
+      cacheReadM: 85.8,
+      cacheWriteK: 3000,
+      cost: 46.48,
     },
   ],
 };
