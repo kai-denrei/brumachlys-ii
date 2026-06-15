@@ -192,16 +192,25 @@ export function renderOdometer(
     const place = n - 1 - i; // i=0 is leftmost (highest) place
     const pos = base / Math.pow(10, place);
     const whole = Math.floor(pos);
-    let frac = pos - whole;
-    const flipping =
-      frac > 0.62
-        ? ease((frac - 0.62) / 0.38, easeAmt) * 0.38 + 0.62
-        : frac;
-    frac = place === 0 ? ease(frac, easeAmt * 0.5) : flipping;
-
-    const misalign = (rng.hash(i + 3, 17) - 0.5) * alignAmt * 0.1;
-    const highWheel = rng.hash(i + 7, 41) < 0.16 ? -0.06 : 0;
-    const roll = frac + misalign + highWheel;
+    // At REST the bank must read as crisp whole digits. The continuous-counter
+    // model (`frac = pos - whole`) leaves the higher wheels mid-roll — e.g. value
+    // 300 on a 4-wheel bank rolls the thousands wheel to 0.3, showing a permanent
+    // HALF digit. So apply the rolling offset (and the wear misalignment) ONLY
+    // while a roll is in progress; at rest every wheel snaps to roll 0 so only
+    // its center digit shows. (Wear at rest could nudge u past the lip and even
+    // skip the center digit, so it's dropped from the resting frame entirely.)
+    let roll = 0;
+    if (rolling) {
+      const rawFrac = pos - whole;
+      const flipping =
+        rawFrac > 0.62
+          ? ease((rawFrac - 0.62) / 0.38, easeAmt) * 0.38 + 0.62
+          : rawFrac;
+      const frac = place === 0 ? ease(rawFrac, easeAmt * 0.5) : flipping;
+      const misalign = (rng.hash(i + 3, 17) - 0.5) * alignAmt * 0.1;
+      const highWheel = rng.hash(i + 7, 41) < 0.16 ? -0.06 : 0;
+      roll = frac + misalign + highWheel;
+    }
 
     const cx = startX + dw * (i + 0.5) + gp * i;
     const x0 = cx - dw / 2;
