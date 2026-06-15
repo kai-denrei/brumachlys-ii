@@ -1,7 +1,9 @@
 // StartScreen — spec §9.6: donor map picker with generated previews, seed
 // field + randomize, Battle button. Previews are the ACTUAL boards each donor
-// produces at a fixed seed (7), generated once and cached module-level so
-// returning from a battle doesn't regenerate.
+// produces at its curated `defaultSeed` when it ships one (so the card matches
+// the board you'll first play — e.g. Aruba's "good layout"), else a fixed seed
+// (7). Generated once and cached module-level so returning from a battle
+// doesn't regenerate.
 //
 // E1 (conquest addendum §A): previews render as paper-tone SILHOUETTES —
 // the cell mesh without terrain tint. Terrain is no longer public knowledge;
@@ -21,7 +23,8 @@ const previewCache = new Map<string, BoardGraph>();
 function previewBoard(donorId: string): BoardGraph {
   let b = previewCache.get(donorId);
   if (!b) {
-    b = generateBoard(loadDonor(donorId), PREVIEW_SEED);
+    const entry = DONOR_ENTRIES.find((e) => e.id === donorId);
+    b = generateBoard(loadDonor(donorId), entry?.defaultSeed ?? PREVIEW_SEED);
     previewCache.set(donorId, b);
   }
   return b;

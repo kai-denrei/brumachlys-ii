@@ -333,6 +333,11 @@ export type AppState = {
   screen: Screen;
   donorId: string;
   seed: number;
+  /** Donor ids whose curated `defaultSeed` has already been auto-applied this
+   *  session. selectDonor fills the seed from `entry.defaultSeed` only on a
+   *  donor's FIRST selection (e.g. Aruba → 25837); afterwards the player's own
+   *  seed stands even if they re-pick the same map. */
+  donorDefaultsApplied: ReadonlySet<string>;
   /** E3 (addendum §B): start-screen mode select. Conquest is the default. */
   mode: GameMode;
   /** E3: conquest round limit (off/40/60/80 on the start screen; null=off).
@@ -454,6 +459,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   screen: 'start',
   donorId: DONOR_ENTRIES[0]!.id,
   seed: 7,
+  donorDefaultsApplied: new Set(),
   mode: 'conquest',
   roundLimit: null,
   archetypeKey: defaultArchetypeKey(),
@@ -475,7 +481,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   casualties: [],
   recap: EMPTY_RECAP,
 
-  selectDonor: (donorId) => set({ donorId }),
+  selectDonor: (donorId) =>
+    set((s) => {
+      const entry = DONOR_ENTRIES.find((e) => e.id === donorId);
+      // First pick of a donor that ships a curated seed → adopt its "good
+      // layout" (e.g. Aruba → 25837). Re-selecting later leaves the seed alone.
+      if (entry?.defaultSeed != null && !s.donorDefaultsApplied.has(donorId)) {
+        return {
+          donorId,
+          seed: entry.defaultSeed,
+          donorDefaultsApplied: new Set(s.donorDefaultsApplied).add(donorId),
+        };
+      }
+      return { donorId };
+    }),
   setSeed: (seed) => set({ seed: Math.trunc(seed) }),
   randomizeSeed: () => set({ seed: Date.now() % 1_000_000 }),
   setMode: (mode) => set({ mode }),

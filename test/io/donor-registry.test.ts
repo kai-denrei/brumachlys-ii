@@ -35,4 +35,10 @@ describe('donor-registry', () => {
   it('unknown id throws with the bundled list', () => {
     expect(() => loadDonor('nope')).toThrow(/unknown donor id/);
   });
+
+  it('Aruba ships its curated default seed (25837 — the "good layout")', () => {
+    const aruba = DONOR_ENTRIES.find((e) => e.id === '5');
+    expect(aruba?.name).toBe('Aruba');
+    expect(aruba?.defaultSeed).toBe(25837);
+  });
 });
