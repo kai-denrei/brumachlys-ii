@@ -63,9 +63,11 @@ export function angleAt(board: Board, pivot: CellId, a: CellId, b: CellId): numb
 
 /**
  * All cells within `hops` BFS steps of `from`, INCLUDING `from` itself
- * (hops = 0 → [from]). Sorted ascending for determinism.
+ * (hops = 0 → {from: 0}), mapped to their BFS distance. The map's insertion
+ * order is BFS order; callers needing a deterministic id-sorted list should use
+ * `cellsWithin`.
  */
-export function cellsWithin(board: Board, from: CellId, hops: number): CellId[] {
+export function cellsWithinD(board: Board, from: CellId, hops: number): Map<CellId, number> {
   cellOrThrow(board, from);
   const dist = new Map<CellId, number>([[from, 0]]);
   let frontier: CellId[] = [from];
@@ -80,5 +82,13 @@ export function cellsWithin(board: Board, from: CellId, hops: number): CellId[] 
     }
     frontier = next;
   }
-  return [...dist.keys()].sort((x, y) => x - y);
+  return dist;
+}
+
+/**
+ * All cells within `hops` BFS steps of `from`, INCLUDING `from` itself
+ * (hops = 0 → [from]). Sorted ascending for determinism.
+ */
+export function cellsWithin(board: Board, from: CellId, hops: number): CellId[] {
+  return [...cellsWithinD(board, from, hops).keys()].sort((x, y) => x - y);
 }

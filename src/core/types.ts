@@ -37,6 +37,15 @@ export type UnitInstance = {
   stance: Stance;
   /** Gang-up accumulator (spec §5.3). Counter-attacks are NEVER appended. */
   attackedFrom: AttackedFromEntry[];
+  /** Veterancy (v0.8): accrued experience in credit-value units. 10% of each
+   *  killed unit's type cost. Optional — absent means 0 (legacy fixtures). */
+  xp?: number;
+  /** Veterancy rank = floor(2*xp / ownCost). Grants +rank attack strength and
+   *  is healed +2 count per rank gained. Optional — absent means 0. */
+  rank?: number;
+  /** Lifetime enemy units this unit has destroyed in combat (xp is credit
+   *  value; kills is the count). Optional — absent means 0 (legacy fixtures). */
+  kills?: number;
 };
 
 export type TerrainEffect = {
@@ -80,6 +89,9 @@ export type AttackBreakdown = AttackTerms & { gangUp: GangUpBreakdown };
 /** Why a move ended short of its planned destination (§2.5). */
 export type TruncationReason =
   | 'budget' // terrain cost exhausted the movement budget
+  | 'enemy-friction' // v0.9: movement friction from enemies adjacent to the path
+  //                  exhausted the budget (an enemy surprise can be HIDDEN at
+  //                  planning, so a plan that fit can truncate at resolution)
   | 'enemy-contact' // mid-path enemy: surprise contact, stopped one cell short
   | 'friendly-occupied' // may not END on a friendly cell: backed up
   | 'invalid-step' // stale/illegal path step (re-validated at execution time)
@@ -189,6 +201,14 @@ export type ResolutionEvent =
       faction: FactionId;
       unitTypeKey: string;
       reason: SpawnFailReason;
+    }
+  | {
+      type: 'promotion'; // v0.8 — end-of-round veterancy rank-up (survivors only)
+      unitId: string;
+      cell: CellId;
+      faction: FactionId;
+      rank: number; // the NEW rank after promotion
+      healedTo: number; // count after the +2/rank heal (capped at 10)
     }
   | { type: 'game-over'; outcome: GameOutcome };
 

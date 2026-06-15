@@ -23,8 +23,10 @@ export { GrainFilterDef, GrainOverlay, GRAIN_FILTER_ID, GRAIN_OPACITY } from './
 export {
   BuildPips,
   BuyGhosts,
+  CaptureIntentMarkers,
   EffectRenderer,
   HoldFireIcon,
+  ProposalGhost,
   ShieldIcon,
   StanceIcon,
   SwordIcon,
@@ -34,8 +36,12 @@ export {
 export type {
   BuildPipMark,
   BuyGhostMark,
+  CaptureIntentMark,
   EffectRendererProps,
   GhostOrder,
+  ProposalGhostMark,
 } from './EffectRenderer';
 export { ReplayFx, ReplayTrails } from './ReplayFx';
 export type { ImpactMark, ReplayFxData, ReplayFxProps, TrailMark } from './ReplayFx';
+// v0.9 HUD: canvas split-flap round number + odometer credits (displays/).
+export { RoundFlap, CreditsOdometer } from './displays';

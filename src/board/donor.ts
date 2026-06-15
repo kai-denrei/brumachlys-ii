@@ -56,9 +56,22 @@ export type DonorMap = {
 /** E2 (addendum §B.3): credit fallback when the donor XML omits the values. */
 export const DEFAULT_CREDITS = 100;
 
-/** §4.1 step 4. */
+/** §4.1 step 4 — the PLAYABLE-board floor: every generated board, however tiny
+ * the donor, must reach at least this many cells (post-silhouette) so it is
+ * coherent and playable. The 6-tile "smallest map" donor still becomes a board
+ * of ≥ this size by subdividing the mesh more (see meshTargetFor). */
+export const PLAYABLE_FLOOR_CELLS = 60;
+
+/** §4.1 step 4 — the playable-board ceiling: large donors are capped here so
+ * the mesh never explodes (perf + on-screen legibility). */
+export const PLAYABLE_CEILING_CELLS = 250;
+
+/** §4.1 step 4: the desired PLAYABLE (post-silhouette) cell count for a donor —
+ * its tile count clamped into the playable band. Small donors floor at
+ * PLAYABLE_FLOOR_CELLS (and the mesh is subdivided harder to actually reach it,
+ * see meshTargetFor); large donors are capped at PLAYABLE_CEILING_CELLS. */
 export function targetCellsFor(donor: DonorMap): number {
-  return Math.max(60, Math.min(250, donor.tiles.length));
+  return Math.max(PLAYABLE_FLOOR_CELLS, Math.min(PLAYABLE_CEILING_CELLS, donor.tiles.length));
 }
 
 /** §4.1 step 5: deletion radius = 1.4 × donor tile pitch (normalized space). */
@@ -70,8 +83,31 @@ export const MIN_LAND_FRACTION = 0.8;
 /** §4.1 step 6: max retries with seed+1 before erroring visibly. */
 export const MAX_RETRIES = 8;
 
-/** §6.4 standard army size — the connectivity guard's placeability probe. */
+/** §6.4 standard army size — the connectivity guard's placeability probe on a
+ * normal-sized board. On boards too small to host two 8-unit forces with
+ * breathing room the probe (and the realised starting force) scale DOWN — see
+ * adaptiveForceSizeFor; never demand 8 units on a board that cannot hold them. */
 export const GUARD_FORCE_SIZE = 8;
+
+/** Adaptive starting-force sizing (§6.4 + small-board safety). A board must host
+ * TWO distinct starting forces with maneuvering room, so a single force may
+ * claim at most ≈ 1/FORCE_LAND_DIVISOR of the land cells. divisor 4 ⇒ two
+ * forces use ≤ half the land, leaving the rest as contested ground. On a
+ * PLAYABLE_FLOOR_CELLS board (~55 land) this yields ⌊55/4⌋ = 13 → clamps to the
+ * full GUARD_FORCE_SIZE; only genuinely tiny boards drop below 8. */
+export const FORCE_LAND_DIVISOR = 4;
+
+/** The starting-force / placeability-probe size for a generated board: the
+ * standard army (GUARD_FORCE_SIZE) on any board with room, scaling DOWN on tiny
+ * boards so two forces still fit with breathing room. Always ≥ 1 (a board with
+ * land can host at least a single-unit force) and ≤ GUARD_FORCE_SIZE. PURE: a
+ * function of the board's land-cell count only. */
+export function adaptiveForceSizeFor(board: Board): number {
+  let land = 0;
+  for (const cell of board.cells.values()) if (isLand(cell.terrain)) land++;
+  const room = Math.floor(land / FORCE_LAND_DIVISOR);
+  return Math.max(1, Math.min(GUARD_FORCE_SIZE, room));
+}
 
 const SQRT3 = Math.sqrt(3);
 
@@ -138,15 +174,49 @@ function donorFrame(donor: DonorMap): DonorFrame {
   };
 }
 
-/** The square mesh frame is larger than a non-square donor bbox; cells outside
- * the silhouette get deleted (§4.1 step 5). Compensate mesh density by the
- * estimated surviving fraction so the post-silhouette BOARD lands near
- * targetCells (that's what targetCells describes — §4.1 step 4 sizes the mesh
- * "to produce ≈ that many dual cells" on the playable board). Fraction clamped
- * at 1/4 to cap the transient mesh at 4× targetCells for pathologically thin
- * donors. */
+/** DENSITY ESTIMATE (not a hard bound) of the fraction of MESH cells that
+ * survive to the final playable board for a compact (square-ish) donor:
+ * silhouette deletion (§4.1 step 5) trims mesh corners outside the donor's
+ * rounded hex silhouette, and the connectivity guard prunes off-component land +
+ * keeps only adjacent water. Typical realised yield across the bundled donors
+ * (seeds 1..16): large-square donors ~0.90, compact tiny donors ~0.65–0.75.
+ * We divide the mesh target by this estimate to BIAS the mesh count upward, so
+ * an average seed comfortably clears PLAYABLE_FLOOR_CELLS without retrying.
+ *
+ * This is NOT a guaranteed worst case: an unlucky seed can yield below 0.65
+ * (donor "5" at seeds 55/87 realised ~0.613 → a 57-cell board). The actual
+ * playable-floor GUARANTEE is the runtime floor guard in attempt() (a board
+ * below PLAYABLE_FLOOR_CELLS fails the attempt and retries with seed+1), NOT
+ * this constant. Aspect (thin-donor) loss is handled separately by keptFraction. */
+export const SILHOUETTE_YIELD = 0.65;
+
+/** §4.1 steps 4–5: how many MESH cells to aim for so the post-silhouette BOARD
+ * lands in the playable band. Two independent density compensations, the larger
+ * wins:
+ *
+ *  1. ASPECT compensation (keptFraction): the square mesh frame is larger than a
+ *     non-square donor bbox, so thin donors lose big dead bands to silhouette
+ *     deletion. Dividing by keptFraction (clamped at 1/4 ⇒ ≤ 4× cap) restores
+ *     the board toward targetCells for thin donors.
+ *  2. PLAYABLE-FLOOR compensation (SILHOUETTE_YIELD): even a compact donor whose
+ *     keptFraction ≈ 1 loses ~1/3 of its mesh to silhouette + connectivity
+ *     pruning, so a 60-target mesh yields only ~40 board cells. To GUARANTEE the
+ *     playable floor on tiny donors we subdivide the mesh harder — enough that
+ *     even the worst-case yield clears PLAYABLE_FLOOR_CELLS. This is the
+ *     "subdivide small donors MORE" rule; it never shrinks a donor that already
+ *     comfortably exceeds the floor (the max() keeps the larger compensation).
+ *
+ * Result: a 6-tile donor targets ~92 mesh cells → ~60–100 board cells; a
+ * 300-tile square donor keeps its ~250 target untouched. */
 function meshTargetFor(targetCells: number, frame: DonorFrame): number {
-  return Math.round(targetCells / Math.max(frame.keptFraction, 0.25));
+  const aspectCompensated = Math.round(targetCells / Math.max(frame.keptFraction, 0.25));
+  // Floor: bias the mesh count up so a TYPICAL silhouette yield clears the
+  // playable floor (the runtime floor guard in attempt() retries any unlucky
+  // seed that still falls short). Only bites when the donor's target is small.
+  const floorForPlayable = Math.ceil(
+    Math.min(targetCells, PLAYABLE_FLOOR_CELLS) / SILHOUETTE_YIELD,
+  );
+  return Math.max(aspectCompensated, floorForPlayable);
 }
 
 /** Introspection helper (donor curation stats, tests): the mesh-cell count
@@ -163,11 +233,18 @@ function isLand(terrain: TerrainKey): boolean {
 }
 
 /** Nearest donor tile index for a point. Strict-less comparison + document
- * order ⇒ deterministic ties. Linear scan: ≤250 cells × ≤~500 tiles. */
-function nearestTile(centers: Vec2[], p: Vec2): { index: number; dist: number } {
-  let best = 0;
+ * order ⇒ deterministic ties. Linear scan: ≤250 cells × ≤~500 tiles.
+ * Optional `accept` filters candidate tiles (orphan reversion excludes base
+ * tiles); returns index -1 (dist Infinity) when no candidate is accepted. */
+function nearestTile(
+  centers: Vec2[],
+  p: Vec2,
+  accept?: (index: number) => boolean,
+): { index: number; dist: number } {
+  let best = -1;
   let bestD = Infinity;
   for (let i = 0; i < centers.length; i++) {
+    if (accept && !accept(i)) continue;
     const dx = centers[i]![0] - p[0];
     const dy = centers[i]![1] - p[1];
     const d = dx * dx + dy * dy;
@@ -176,7 +253,7 @@ function nearestTile(centers: Vec2[], p: Vec2): { index: number; dist: number } 
       best = i;
     }
   }
-  return { index: best, dist: Math.sqrt(bestD) };
+  return { index: best, dist: best === -1 ? Infinity : Math.sqrt(bestD) };
 }
 
 /** Prune every cell's neighbor list to ids still present in `cells`. */
@@ -230,12 +307,19 @@ function anchorSource(donor: DonorMap, faction: FactionId): { x: number; y: numb
 }
 
 /** Nearest passable (non-water) cell to a normalized point. Iteration in
- * ascending-id order + strict-less ⇒ deterministic ties. */
-function nearestPassableCell(cells: Map<CellId, Cell>, p: Vec2): CellId | null {
+ * ascending-id order + strict-less ⇒ deterministic ties. `exclude` skips
+ * already-claimed cells so a colliding base site can fall through to the
+ * NEXT-nearest free passable cell (declared sites aren't silently dropped). */
+function nearestPassableCell(
+  cells: Map<CellId, Cell>,
+  p: Vec2,
+  exclude?: ReadonlySet<CellId>,
+): CellId | null {
   let best: CellId | null = null;
   let bestD = Infinity;
   for (const [id, cell] of cells) {
     if (!isLand(cell.terrain)) continue;
+    if (exclude?.has(id)) continue;
     const dx = cell.center[0] - p[0];
     const dy = cell.center[1] - p[1];
     const d = dx * dx + dy * dy;
@@ -345,6 +429,20 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
   }
   pruneNeighbors(cells);
 
+  // Step 4 RUNTIME FLOOR GUARD: the post-silhouette board must clear the
+  // playable floor. meshTargetFor biases the mesh upward (SILHOUETTE_YIELD) so
+  // this almost always holds first try, but the yield is a density ESTIMATE,
+  // not a hard bound — an unlucky seed (e.g. donor "5" at seeds 55/87) can land
+  // a 57-cell board. Treat that exactly like a connectivity-guard failure: it
+  // does NOT satisfy the attempt, so generateBoard retries with seed+1. This is
+  // what actually GUARANTEES the floor at runtime (cf. SILHOUETTE_YIELD doc).
+  if (cells.size < PLAYABLE_FLOOR_CELLS) {
+    return {
+      ok: false,
+      reason: `board ${cells.size} cells < playable floor ${PLAYABLE_FLOOR_CELLS}`,
+    };
+  }
+
   // Step 7: anchors — nearest passable cell to each faction's donor anchor.
   const board: Board = { cells, seed, donorMapId: donor.id };
   const anchors: CellId[] = [];
@@ -357,28 +455,78 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
   if (anchors[0] === anchors[1]) {
     return { ok: false, reason: 'faction anchors collide on one cell' };
   }
+  // Placeability probe (§4.1 step 7 / §6.4), size-adaptive: a normal board must
+  // host two GUARD_FORCE_SIZE forces, but a tiny board only needs to host its
+  // smaller adaptive force at each anchor. The runtime floor guard above keeps
+  // boards ≥ PLAYABLE_FLOOR_CELLS so this probe is ~always the full 8; the
+  // scaling is the safety net for any board that still comes out small.
+  const probe = adaptiveForceSizeFor(board);
   for (const a of anchors) {
     try {
-      placeForce(board, a, GUARD_FORCE_SIZE);
+      placeForce(board, a, probe);
     } catch (e) {
       return { ok: false, reason: `cannot host placement at anchor ${a}: ${(e as Error).message}` };
     }
   }
   board.placementAnchors = [anchors[0]!, anchors[1]!];
 
-  // E2 (addendum §B): carry base sites, economy values, and mapped start-unit
-  // types onto the Board so conquest setup (core/setup.ts) never sees the
-  // donor. Base sites project like anchors (nearest passable cell); when two
-  // donor bases land on one cell, the FIRST in document order wins.
+  // E2 (addendum §B) + §B base-rendering invariant: carry base sites, economy
+  // values, and mapped start-unit types onto the Board so conquest setup
+  // (core/setup.ts) never sees the donor. Base sites project like anchors
+  // (nearest passable cell), in donor document order.
+  //
+  // THE INVARIANT (v0.9): cell.terrain === 'base'  ⟺  cell ∈ board.bases.
+  // Two independent donor→mesh projections must be reconciled or they diverge:
+  //   (1) terrain assignment (nearestTile, above): a mesh cell whose nearest
+  //       donor tile is a Base tile gets terrain 'base';
+  //   (2) base-site projection (nearestPassableCell, here): each donor base
+  //       SITE projects to a (possibly different) cell that is registered in
+  //       board.bases and FORCED to 'base'.
+  // A cell can get 'base' from (1) without being a registered site in (2) — an
+  // ORPHAN: it renders/reports as a base (info sheet keys on terrain === 'base')
+  // but is NOT capturable (capture toggle + resolver gate key on board.bases).
+  // We enforce the invariant in BOTH directions below.
+  //
+  // (a) PRESERVE DECLARED SITES on collision. When a site's nearest passable
+  //     cell is already claimed by an earlier site, fall through to the
+  //     NEXT-nearest FREE passable cell (exclude the claimed set) so a designer
+  //     base isn't silently dropped on a projection collision. Only a donor
+  //     base with NO free passable cell anywhere is dropped (documented).
   const baseSites: Board['bases'] = [];
   const baseCellsSeen = new Set<CellId>();
   for (const b of donor.bases) {
-    const cell = nearestPassableCell(cells, frame.project(b.x, b.y));
-    if (cell === null || baseCellsSeen.has(cell)) continue;
+    const target = frame.project(b.x, b.y);
+    let cell = nearestPassableCell(cells, target);
+    if (cell !== null && baseCellsSeen.has(cell)) {
+      // Collision: search the next-nearest free passable cell.
+      cell = nearestPassableCell(cells, target, baseCellsSeen);
+    }
+    if (cell === null) continue; // no free passable cell at all → drop (rare)
     baseCellsSeen.add(cell);
     baseSites.push({ cell, faction: b.faction });
+    // Guarantee consistency: the registered base cell renders as base terrain.
+    cells.get(cell)!.terrain = 'base';
   }
   board.bases = baseSites;
+
+  // (b) ELIMINATE ORPHANS. Any cell that got 'base' from the terrain pass but is
+  //     NOT a registered base site is a projection artifact: revert it to a
+  //     sensible non-base terrain so phantom, uncapturable base art disappears.
+  //     Deterministically re-pick its nearest donor tile EXCLUDING base AND
+  //     water donor tiles (falling back to 'plains'). Reverted terrain is
+  //     therefore always land, so passability / connectivity / anchors are
+  //     unaffected (and this runs after the placeability probes).
+  for (const [id, cell] of cells) {
+    if (cell.terrain !== 'base' || baseCellsSeen.has(id)) continue;
+    const { index } = nearestTile(
+      frame.centers,
+      cell.center,
+      // EXCLUDE base AND water: reverting to water would make a previously
+      // passable (base) cell impassable and could break connectivity/anchors.
+      (i) => donor.tiles[i]!.terrain !== 'base' && donor.tiles[i]!.terrain !== 'water',
+    );
+    cell.terrain = index === -1 ? 'plains' : donor.tiles[index]!.terrain;
+  }
   board.economy = {
     initialCredits:
       donor.initialCredits !== undefined && donor.initialCredits > 0
@@ -402,10 +550,12 @@ function attempt(donor: DonorMap, frame: DonorFrame, seed: number, targetCells: 
  * Board generation from a Weewar donor (spec §3.3 / §4.1). Pure & deterministic:
  * same (donor, seed, targetCells) → identical Board.
  *
- * Connectivity-guard failures retry with seed+1, up to `maxRetries` (default 8,
- * §4.1 step 6); `maxRetries: 0` = first-try-only (donor curation uses this).
- * Cell-count variance at small targets is ±30% — the guard judges connectivity
- * fractions and placeability, never absolute counts, so drift is tolerated.
+ * Connectivity-guard AND playable-floor failures retry with seed+1, up to
+ * `maxRetries` (default 8, §4.1 step 6); `maxRetries: 0` = first-try-only (donor
+ * curation uses this). Cell-count variance at small targets is ±30%: the mesh
+ * target is biased upward so the floor is usually cleared first try, but the
+ * runtime floor guard (board < PLAYABLE_FLOOR_CELLS ⇒ retry) is what actually
+ * GUARANTEES every returned board is at least PLAYABLE_FLOOR_CELLS.
  */
 export function generateBoard(
   donor: DonorMap,
@@ -422,8 +572,8 @@ export function generateBoard(
     reasons.push(`seed ${seed + k}: ${result.reason}`);
   }
   throw new Error(
-    `generateBoard: donor "${donor.id}" failed the connectivity guard after ${
+    `generateBoard: donor "${donor.id}" failed to produce a playable board after ${
       maxRetries + 1
-    } attempt(s) —\n  ${reasons.join('\n  ')}`,
+    } attempt(s) (connectivity guard and/or the ${PLAYABLE_FLOOR_CELLS}-cell playable floor) —\n  ${reasons.join('\n  ')}`,
   );
 }

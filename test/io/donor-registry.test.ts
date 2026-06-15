@@ -15,7 +15,7 @@ beforeAll(() => {
 });
 
 describe('donor-registry', () => {
-  it('lists exactly the 5 XMLs bundled in data/maps/', () => {
+  it('lists exactly the XMLs bundled in data/maps/ (count derived, never stale)', () => {
     const files = readdirSync(MAPS_DIR)
       .filter((f) => f.endsWith('.xml'))
       .map((f) => f.replace(/\.xml$/, ''))

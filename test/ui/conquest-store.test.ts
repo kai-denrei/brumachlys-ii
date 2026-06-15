@@ -190,4 +190,69 @@ describe('conquest store (E3)', () => {
     }
     expect(aiSpawned).toBe(true);
   });
+
+  // v0.8 Task 2.4: queueCapture / removeCapture store actions
+  it('queueCapture adds a capture order; removeCapture removes it; directive modified flag flips', () => {
+    seedConquest();
+    // arm the capture
+    s().queueCapture('pi');
+    expect(s().orders['pi']?.capture).toEqual({ kind: 'capture', unitId: 'pi' });
+    // re-arming is idempotent (edit semantics — replaces the same-kind slot)
+    s().queueCapture('pi');
+    expect(s().orders['pi']?.capture).toEqual({ kind: 'capture', unitId: 'pi' });
+    // disarm removes only the capture, leaving other orders untouched
+    s().removeCapture('pi');
+    expect(s().orders['pi']?.capture).toBeUndefined();
+    // removeCapture on a unit with no capture is a no-op
+    s().removeCapture('pi');
+    expect(s().orders['pi']).toBeUndefined();
+  });
+
+  it('queueCapture + removeCapture mark the directive as modified', () => {
+    seedConquest();
+    // Manually inject a directive state
+    useAppStore.setState({ directive: { kind: 'fortify', modified: false } });
+    s().queueCapture('pi');
+    expect(s().directive?.modified).toBe(true);
+    // Reset modified to false, then verify removeCapture also flips it
+    useAppStore.setState({ directive: { kind: 'fortify', modified: false } });
+    s().removeCapture('pi');
+    expect(s().directive?.modified).toBe(true);
+  });
+
+  it('FIX C: capture order is dropped when the move no longer ends on a capturable base', () => {
+    seedConquest();
+    // Move 'pi' from cell 2 to enemy base (cell 5) and arm a capture.
+    s().tryQueueOrder({ kind: 'move', unitId: 'pi', path: [3, 4, 5] });
+    s().queueCapture('pi');
+    expect(s().orders['pi']?.capture).toBeDefined();
+
+    // Replace the move so the unit ends on cell 3 (a plain) — no longer a base.
+    s().tryQueueOrder({ kind: 'move', unitId: 'pi', path: [3] });
+    // settleDependentOrders fires inside tryQueueOrder; the capture must be gone.
+    expect(s().orders['pi']?.capture).toBeUndefined();
+  });
+
+  it('FIX C: capture order is NOT dropped when the move still ends on an unowned base', () => {
+    seedConquest();
+    s().tryQueueOrder({ kind: 'move', unitId: 'pi', path: [3, 4, 5] });
+    s().queueCapture('pi');
+    expect(s().orders['pi']?.capture).toBeDefined();
+    // Re-queue the same move — still ends on the enemy base (cell 5, owned by faction 1).
+    s().tryQueueOrder({ kind: 'move', unitId: 'pi', path: [3, 4, 5] });
+    expect(s().orders['pi']?.capture).toBeDefined();
+  });
+
+  it('queueCapture orders survive flattenOrders and reach the resolver', () => {
+    seedConquest();
+    // Move 'pi' to the enemy base (cell 5) and arm a capture so the
+    // resolver has a valid capture attempt to process.
+    s().tryQueueOrder({ kind: 'move', unitId: 'pi', path: [3, 4, 5] });
+    s().queueCapture('pi');
+    s().commit();
+    // The resolver ran without throwing; capture processing at resolution is
+    // covered by core tests — here we just confirm the store wiring lands.
+    expect(s().uiPhase).toBe('replay');
+    expect(s().orders).toEqual({});  // cleared on commit
+  });
 });

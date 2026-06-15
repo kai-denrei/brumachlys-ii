@@ -68,7 +68,7 @@
 import type { Board, CellId, TerrainKey } from '../board/types';
 import { graphDistance } from '../board/geometry';
 import { initTieKey } from './rng';
-import { IMPASSABLE } from './pathing';
+import { IMPASSABLE, enemyFrictionAt } from './pathing';
 import { gangUpBreakdown, makeAttackedFromEntry } from './combat/gangup';
 import type { GangUpBreakdown } from './combat/gangup';
 import type { AttackContext, Combatant, ResolutionModel } from './combat/model';
@@ -134,13 +134,15 @@ export function resolveRound(
   const stanceOf = new Map<string, StanceOrder>();
   const moveOf = new Map<string, MoveOrder>();
   const attackOf = new Map<string, AttackOrder>();
+  const captureOf = new Set<string>(); // v0.8 — unit ids that opted to claim
   for (const faction of [0, 1] as const) {
     for (const order of ordersByFaction[faction] ?? []) {
       const u = next.units[order.unitId];
       if (!u || u.faction !== faction || u.count <= 0) continue;
       if (order.kind === 'stance') stanceOf.set(order.unitId, order);
       else if (order.kind === 'move') moveOf.set(order.unitId, order);
-      else attackOf.set(order.unitId, order);
+      else if (order.kind === 'attack') attackOf.set(order.unitId, order);
+      else if (order.kind === 'capture') captureOf.add(order.unitId); // v0.8 — opt-in claim
     }
   }
 
@@ -167,6 +169,16 @@ export function resolveRound(
   const killUnit = (u: UnitInstance): void => {
     events.push({ type: 'kill', unitId: u.id, cell: u.cell, faction: u.faction });
     delete next.units[u.id];
+  };
+
+  // v0.8 veterancy: credit the killer with 10% of the victim TYPE's cost.
+  // Accrues even if the killer later dies — promotion (end of round) filters
+  // to survivors, so a dead killer's xp simply never matures.
+  const awardXp = (killer: UnitInstance, victim: UnitInstance): void => {
+    const vt = unitTypes[victim.type];
+    if (!vt) return;
+    killer.xp = (killer.xp ?? 0) + Math.round(0.1 * vt.cost); // Math.round: half-up, deterministic — matches the rest of combat math
+    killer.kills = (killer.kills ?? 0) + 1;
   };
 
   // ── 0. Stance orders apply first (§2.3) ───────────────────────────────────
@@ -199,6 +211,16 @@ export function resolveRound(
     const pathTaken: CellId[] = [];
     let reason: TruncationReason | null = null;
 
+    // v0.9 ENEMY FRICTION: the ACTUAL living enemies at this mover's turn —
+    // friction is consistent with the blind-game fog design, so a hidden enemy
+    // the planner never saw can truncate a move here. Recomputed per mover
+    // against CURRENT positions (earlier movers this Phase A have already shifted
+    // — deterministic: the loop runs in the fixed §2.2 initiative order).
+    const enemyCells = new Set<CellId>();
+    for (const o of alive()) {
+      if (o.faction !== u.faction) enemyCells.add(o.cell);
+    }
+
     for (let i = 0; i < order.path.length; i++) {
       const step = order.path[i]!;
       const isLast = i === order.path.length - 1;
@@ -209,13 +231,19 @@ export function resolveRound(
         reason = 'invalid-step';
         break;
       }
-      const stepCost = ut.terrainEffects[stepCell.terrain]?.movementCost ?? IMPASSABLE;
-      if (stepCost >= IMPASSABLE) {
+      const terrainCost = ut.terrainEffects[stepCell.terrain]?.movementCost ?? IMPASSABLE;
+      if (terrainCost >= IMPASSABLE) {
         reason = 'invalid-step';
         break;
       }
+      // Friction (tenths) from enemies adjacent to the cell being entered, on
+      // top of terrain. If the combined step cost exceeds the remaining budget
+      // the move truncates — distinguished from a pure terrain-budget halt so
+      // the replay can say "slowed by the enemy" (TruncationReason).
+      const friction = enemyFrictionAt(board, step, enemyCells);
+      const stepCost = terrainCost + friction;
       if (stepCost > budget) {
-        reason = 'budget';
+        reason = friction > 0 && terrainCost <= budget ? 'enemy-friction' : 'budget';
         break;
       }
       const enemy = enemyAt(step, u.faction);
@@ -392,8 +420,9 @@ export function resolveRound(
       }
 
       // Stances ignored by OMITTING stance (§2.6); both share the terrain.
-      const attC: Combatant = { count: att.count, type: attType, terrain };
-      const defC: Combatant = { count: def.count, type: defType, terrain };
+      // v0.8 veterancy: carry damageBonus so a veteran's rank bonus applies in brawls.
+      const attC: Combatant = { count: att.count, type: attType, terrain, damageBonus: att.rank ?? 0 };
+      const defC: Combatant = { count: def.count, type: defType, terrain, damageBonus: def.rank ?? 0 };
       const r = model.battleExchange({
         attacker: attC,
         defender: defC,
@@ -416,6 +445,10 @@ export function resolveRound(
           ? breakdownFor(model, { attacker: defC, defender: attC, bonusB: 0 })
           : null,
       });
+      // v0.8 veterancy: credit XP before removing — mutual annihilation credits
+      // both sides (each will be deleted; neither will reach the promotion step).
+      if (def.count <= 0) awardXp(att, def);
+      if (att.count <= 0) awardXp(def, att);
       if (def.count <= 0) killUnit(def);
       if (att.count <= 0) killUnit(att);
       // Mutual immunity: no progress possible — both survive on the cell.
@@ -447,6 +480,15 @@ export function resolveRound(
         events.push({ type: 'lost-target', attackerId: att.id, targetCell: action.explicitTarget });
         continue;
       }
+      // Cannot-damage gate (mirrors pickAutoTarget): if the occupant's armor
+      // type takes 0 from this attacker, the shot can't hurt it — fizzle rather
+      // than fire for 0 damage and eat a counter. Planning-time validation no
+      // longer covers this for preemptive empty-cell shots, so gate at fire time.
+      const occType = unitTypes[occ.type];
+      if (!occType || (attType.attackStrengths[occType.armorType] ?? 0) <= 0) {
+        events.push({ type: 'lost-target', attackerId: att.id, targetCell: action.explicitTarget });
+        continue;
+      }
       target = occ;
     } else {
       // E2: in conquest, owned bases extend the attacker faction's vision
@@ -465,12 +507,14 @@ export function resolveRound(
       type: attType,
       terrain: terrainOf(att.cell),
       stance: att.stance,
+      damageBonus: att.rank ?? 0, // v0.8 veterancy: rank bonus applies to strikes
     };
     const defC: Combatant = {
       count: target.count,
       type: defType,
       terrain: terrainOf(target.cell),
       stance: target.stance,
+      damageBonus: target.rank ?? 0, // v0.8 veterancy: counter inherits rank via defender pass-through
     };
     const r = model.battleExchange({
       attacker: attC,
@@ -508,19 +552,32 @@ export function resolveRound(
         breakdown: breakdownFor(model, { attacker: defC, defender: attC, bonusB: 0 }),
       });
     }
-    if (target.count <= 0) killUnit(target);
-    if (att.count <= 0) killUnit(att);
+    // v0.8 veterancy: award XP to the killer BEFORE removing the unit from state.
+    // att killed target (main strike); target's counter killed att (counter-fire).
+    if (target.count <= 0) {
+      awardXp(att, target);
+      killUnit(target);
+    }
+    if (att.count <= 0) {
+      // The defender's counter killed the attacker. Credit it even if the
+      // defender also died this exchange — XP on a dead unit never matures
+      // (it's removed before the promotion step), but this keeps Phase B
+      // consistent with the brawl path's mutual-death crediting.
+      if (r.counterFired) awardXp(target, att);
+      killUnit(att);
+    }
   }
 
-  // ── B.5. Captures (conquest only — addendum §B.2, v0.6 rules change) ──────
+  // ── B.5. Captures (conquest only — addendum §B.2, v0.8 opt-in rule) ───────
   // A personnel unit ending the round alive on a base cell not owned by its
-  // faction flips it immediately — and is CONSUMED by the claim: the unit is
-  // removed from state (operator rules change, v0.6). The capture event
+  // faction flips it (and is CONSUMED) ONLY when it has a { kind: 'capture' }
+  // order this round (v0.8 deliberate-capture change). Without the order the
+  // unit stands on the base, survives, and flips nothing. The capture event
   // carries `unitConsumed: true`; no `kill` event is emitted (this is not a
   // combat death — replay renders a dissolve, casualty rows still count it
   // as a loss for its owner). B.5 runs AFTER all Phase B combat, so every
-  // order the unit held this round already resolved; only its future-round
-  // orders are moot (the sanitize pass drops orders for unknown units).
+  // combat order the unit held this round already resolved; only its future-
+  // round orders are moot (the sanitize pass drops orders for unknown units).
   // Vehicles never capture. Init order (the round's one ordering mechanism,
   // §2.2) — deterministic when units of both factions share a base cell
   // (mutual-immunity brawl edge: flips run in sequence, each claimant
@@ -530,6 +587,7 @@ export function resolveRound(
     const bases = next.bases!;
     for (const u of alive().sort(cmpUnits)) {
       if (!(u.cell in bases)) continue;
+      if (!captureOf.has(u.id)) continue; // v0.8 — capture is deliberate now
       const ut = unitTypes[u.type];
       if (!ut || ut.armorType !== 'personnel') continue;
       const from = bases[u.cell]!;
@@ -544,6 +602,30 @@ export function resolveRound(
         unitConsumed: true,
       });
       delete next.units[u.id]; // spent in the claim — distinct from a kill
+    }
+  }
+
+  // ── Veterancy promotion (v0.8) — survivors only, repeatable. Runs after
+  // capture (consumed claimants are already gone) and before attackedFrom is
+  // cleared. rank = floor(2*xp / ownCost); each rank gained heals +2 (max 10).
+  for (const u of Object.values(next.units).sort(cmpUnits)) {
+    if (u.count <= 0) continue;
+    const ut = unitTypes[u.type];
+    if (!ut || ut.cost <= 0) continue;
+    const newRank = Math.floor((2 * (u.xp ?? 0)) / ut.cost);
+    const oldRank = u.rank ?? 0;
+    if (newRank > oldRank) {
+      const heal = 2 * (newRank - oldRank);
+      u.count = Math.min(10, u.count + heal); // heal may be fully clamped at count 10; promotion event still fires — rank advance is meaningful even without count gain
+      u.rank = newRank;
+      events.push({
+        type: 'promotion',
+        unitId: u.id,
+        cell: u.cell,
+        faction: u.faction,
+        rank: newRank,
+        healedTo: u.count,
+      });
     }
   }
 
@@ -628,6 +710,9 @@ export function resolveRound(
           count: 10,
           stance: 'aggressive',
           attackedFrom: [],
+          xp: 0,
+          rank: 0,
+          kills: 0,
         };
         events.push({
           type: 'spawn',
@@ -659,8 +744,22 @@ export function resolveRound(
     const b0 = ownedBases(0);
     const b1 = ownedBases(1);
 
-    const dead0 = u0 === 0 && b0 === 0;
-    const dead1 = u1 === 0 && b1 === 0;
+    // v0.9 checkmate: a unitless faction survives ONLY if it can still spawn —
+    // i.e. it owns a base with NO enemy unit standing on it. An owned base
+    // occupied by an enemy (even one that cannot capture) can't produce, so
+    // 0 units + every owned base blocked by an enemy (or 0 bases owned) is an
+    // immediate loss, not a drawn-out base-collapse grace.
+    const livingUnits = alive();
+    const canRecover = (f: FactionId): boolean => {
+      for (const [cellKey, owner] of Object.entries(bases)) {
+        if (owner !== f) continue;
+        const cell = Number(cellKey);
+        if (!livingUnits.some((u) => u.cell === cell && u.faction !== f)) return true;
+      }
+      return false;
+    };
+    const dead0 = u0 === 0 && !canRecover(0);
+    const dead1 = u1 === 0 && !canRecover(1);
     if (dead0 && dead1) outcome = { winner: null, reason: 'conquest' };
     else if (dead1) outcome = { winner: 0, reason: 'conquest' };
     else if (dead0) outcome = { winner: 1, reason: 'conquest' };
@@ -746,7 +845,7 @@ function breakdownFor(
 ): AttackBreakdown {
   const terms = model.explainAttack
     ? model.explainAttack(ctx)
-    : { A: 0, Ta: 0, D: 0, Td: 0, B: ctx.bonusB, p: 0, damage: model.attackDamage(ctx) };
+    : { A: 0, Ta: 0, D: 0, Td: 0, B: ctx.bonusB, vet: 0, p: 0, damage: model.attackDamage(ctx) };
   return { ...terms, gangUp: gang ?? { total: 0, contributions: [] } };
 }
 

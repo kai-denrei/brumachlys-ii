@@ -62,6 +62,7 @@ function seedBattle(units: UnitInstance[], board = lineBoard(8)) {
     uiPhase: 'planning',
     replay: null,
     selectedUnitId: null,
+    pendingMove: null, // v0.9: reset the propose-then-confirm proposal too
     orders: {},
     focus: null,
     notice: null,
@@ -91,9 +92,16 @@ describe('pass-through friendlies — required regression', () => {
     expect(tinted).toContain(3);
     expect(tinted).not.toContain(1);
 
-    // ORDERABLE: tapping the far cell queues the move THROUGH the friendly.
+    // ORDERABLE: v0.9 propose-then-confirm — the FIRST tap proposes (path
+    // computed THROUGH the friendly, not yet queued), the SECOND tap on the
+    // same dest commits it as a real order. The committed path is unchanged
+    // from the pre-v0.9 single-tap behavior; only the confirm step is new.
     fireEvent.click(container.querySelector('[data-cell-id="2"]')!);
+    expect(s().pendingMove).toEqual({ unitId: 'a', dest: 2, path: [1, 2] });
+    expect(s().orders['a']?.move).toBeUndefined(); // proposed, not queued yet
+    fireEvent.click(container.querySelector('[data-cell-id="2"]')!); // confirm
     expect(s().orders['a']?.move?.path).toEqual([1, 2]);
+    expect(s().pendingMove).toBeNull();
 
     // RESOLVES THROUGH: commit; the unit ends on the far cell, no truncation.
     s().commit();
@@ -103,21 +111,28 @@ describe('pass-through friendlies — required regression', () => {
     expect(game.log.some((e) => e.type === 'path-truncated' && e.unitId === 'a')).toBe(false);
   });
 
-  it('ghost-token fix: tapping a friendly ghost with a unit selected queues the move underneath', () => {
+  it('ghost-token fix: tapping a friendly ghost with a unit selected proposes (then confirms) the move underneath', () => {
     // f has a queued move ending on cell 2; its ghost token covers that cell.
-    // With a selected, a tap landing on the ghost must queue a's move to 2 —
-    // not open f's order sheet (the pre-v1.1 behavior).
+    // With a selected, a tap landing on the ghost must route to a's move to 2 —
+    // NOT open f's order sheet (the pre-v1.1 behavior). v0.9: the ghost tap
+    // falls through to onCellTap(2), which now PROPOSES; a second tap confirms.
     seedBattle([unit('a', 0, 0), unit('f', 0, 4), unit('e', 1, 7)]);
     expect(s().tryQueueOrder({ kind: 'move', unitId: 'f', path: [3, 2] }).ok).toBe(true);
     const { container } = render(<App />);
     fireEvent.click(container.querySelector('[data-unit-id="a"]')!);
 
     const ghost = container.querySelector('[data-ghost-unit-id="f"] .ghost-token')!;
-    fireEvent.click(ghost.querySelector('[data-unit-id]') ?? ghost);
+    const ghostTarget = () =>
+      container.querySelector('[data-ghost-unit-id="f"] .ghost-token [data-unit-id]') ?? ghost;
+    fireEvent.click(ghostTarget()); // first tap → propose a:[1,2]
+    expect(s().pendingMove).toEqual({ unitId: 'a', dest: 2, path: [1, 2] });
+    expect(s().orders['a']?.move).toBeUndefined();
+    // No order sheet opened for f at any point.
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
 
+    fireEvent.click(container.querySelector('[data-cell-id="2"]')!); // confirm
     expect(s().orders['a']?.move?.path).toEqual([1, 2]);
     expect(s().selectedUnitId).toBe('a');
-    // No order sheet opened for f.
     expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 
@@ -140,7 +155,12 @@ describe('pass-through friendlies — required regression', () => {
       Number(el.getAttribute('data-tint-cell')),
     );
     expect(tinted).toContain(1); // the vacating tile is tinted now
+    // v0.9 propose-then-confirm: tap proposes the move onto the vacating tile
+    // (still a move, not a selection-switch — the key point of this regression),
+    // a second tap on the same tile commits it.
     fireEvent.click(container.querySelector('[data-cell-id="1"]')!);
+    expect(s().pendingMove).toEqual({ unitId: 'a', dest: 1, path: [1] });
+    fireEvent.click(container.querySelector('[data-cell-id="1"]')!); // confirm
     expect(s().orders['a']?.move?.path).toEqual([1]); // queued, not selection-switch
   });
 

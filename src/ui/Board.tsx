@@ -39,15 +39,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Board as BoardGraph, CellId, Vec2 } from '../board/types';
 import { orderedUnitIds } from '../core/orders';
-import type { FactionId, Stance, UnitInstance } from '../core/types';
+import type { FactionId, Stance, UnitInstance, UnitType } from '../core/types';
 import { PLAYER_FACTION, useAppStore } from '../state/store';
 import {
   BuildPips,
   BuyGhosts,
+  CaptureIntentMarkers,
   CellRenderer,
   EffectRenderer,
   GrainFilterDef,
   GrainOverlay,
+  ProposalGhost,
   ReplayFx,
   ReplayTrails,
   StanceIcon,
@@ -56,7 +58,9 @@ import {
   factionColor,
   type BuildPipMark,
   type BuyGhostMark,
+  type CaptureIntentMark,
   type GhostOrder,
+  type ProposalGhostMark,
   type Pt,
   type ReplayFxData,
   type TrailMark,
@@ -68,6 +72,15 @@ export type BoardHighlights = {
   reachable?: ReadonlySet<CellId> | ReadonlyMap<CellId, number>;
   /** Attackable targets: pulsing ring (§9.2). */
   targets?: ReadonlySet<CellId>;
+  /** v0.9 preemptive fire (area denial): EMPTY in-range cells a selected RANGED
+   * unit may fire at, anticipating an enemy moving there. Rendered as a faint
+   * DASHED aim-ring — distinct from the solid target-ring on actual enemies. */
+  aimCells?: ReadonlySet<CellId>;
+  /** v0.9 ENEMY FRICTION (movement friction near enemies): reachable cells
+   * whose ENTRY pays an enemy-adjacency movement malus (core/pathing). Marked
+   * with a small "slow" tick over the reach tint so the player SEES the soft
+   * malus at planning — the reach already shrank; this names WHY. */
+  frictionCells?: ReadonlySet<CellId>;
   /** Selected unit's vision set — its edge renders as a faint contour (§9.2). */
   visionEdge?: ReadonlySet<CellId>;
 };
@@ -78,6 +91,18 @@ export type StancePopoverState = {
   /** §2.4: hold-fire is blocked while an explicit attack is queued. */
   holdFireDisabled: boolean;
   onPick: (stance: Stance) => void;
+};
+
+/** v0.8 Task 2.4: the capture-toggle popover shown for the selected unit when
+ * it is eligible to capture (conquest + personnel + planned end is enemy/neutral
+ * base). A boolean toggle: armed = capture order queued. */
+export type CaptureToggleState = {
+  /** Whether the capture order is currently armed. */
+  armed: boolean;
+  /** v0.9: the base cell being captured (the unit's planned end). The toggle
+   *  anchors HERE — over the target base — not over the unit's start cell. */
+  targetCell: CellId;
+  onToggle: () => void;
 };
 
 export type BoardProps = {
@@ -113,6 +138,12 @@ export type BoardProps = {
   selectedUnitId?: string | null;
   /** Layer-2 queued-order ghosts (§9.3), drawn by skin/EffectRenderer. */
   ghosts?: readonly GhostOrder[];
+  /** v0.9 propose-then-confirm: the un-queued MOVE proposal awaiting confirm,
+   * drawn distinct from a committed ghost (brighter, dashed dest ring, hint).
+   * Null = no pending proposal. */
+  proposal?: ProposalGhostMark | null;
+  /** Tap the proposal ghost → commit it (same as a second tap on the dest). */
+  onProposalConfirm?: () => void;
   /** Layer-3 replay effects (§9.4), drawn by skin/ReplayFx. `key` remounts
    * the fx group per replay frame so CSS animations restart. */
   replayFx?: { key: number; fx: ReplayFxData } | null;
@@ -134,6 +165,27 @@ export type BoardProps = {
   onUnitHover?: (hover: { unitId: string; clientX: number; clientY: number } | null) => void;
   /** Stance popover on the selected unit (§9.2); rendered inside the SVG. */
   stancePopover?: StancePopoverState | null;
+  /** v0.8 Task 2.4: capture toggle anchored to the selected token, shown only
+   * when the unit is eligible to capture. Rendered inside the SVG alongside
+   * the stance popover so it pans/zooms with the board. */
+  captureToggle?: CaptureToggleState | null;
+  /** v0.8 Task 2.4: claim-intent markers — one per unit with an armed capture
+   * order; shown in the ghost layer (above grain, below units). */
+  captureIntentMarks?: readonly CaptureIntentMark[];
+  /** v0.9 radar: tap the bottom-left radar pip on an own unit to toggle the
+   * distance-measurement overlay on/off. Toggling: if the same unitId is
+   * already active it clears; a different id switches to the new unit.
+   * Only fired for own-faction units (Board gates it). */
+  onUnitRadarTap?: (unitId: string) => void;
+  /** v0.9 radar: when set, dims the board and renders shooting-range hop
+   * distances on all cells visible to the selected unit. */
+  rangeOverlay?: {
+    unitId: string;
+    /** The radar unit's cell (center of the measurement). */
+    cell: CellId;
+    /** All cells in the unit's vision → BFS hop-distance from the unit's cell. */
+    distances: ReadonlyMap<CellId, number>;
+  } | null;
   onCellTap?: (cellId: CellId) => void;
   onUnitTap?: (unitId: string) => void;
   onGhostTap?: (unitId: string) => void;
@@ -141,6 +193,9 @@ export type BoardProps = {
   /** Disable pan/zoom (start-screen previews). */
   interactive?: boolean;
   className?: string;
+  /** v0.8 veterancy: unit type registry — used by UnitRenderer to draw the
+   * XP progress sliver (needs cost per type). Absent → sliver not drawn. */
+  unitTypes?: Readonly<Record<string, UnitType>>;
 };
 
 const WORLD_SCALE = 1000; // screen units across the board's longer side
@@ -266,6 +321,8 @@ export function Board({
   highlights,
   selectedUnitId = null,
   ghosts,
+  proposal = null,
+  onProposalConfirm,
   replayFx = null,
   trails,
   focus = null,
@@ -273,6 +330,10 @@ export function Board({
   onUserPan,
   onUnitHover,
   stancePopover = null,
+  captureToggle = null,
+  captureIntentMarks,
+  onUnitRadarTap,
+  rangeOverlay = null,
   onCellTap,
   onUnitTap,
   onGhostTap,
@@ -280,6 +341,7 @@ export function Board({
   onCellLongPress,
   interactive = true,
   className,
+  unitTypes,
 }: BoardProps) {
   const cells = useMemo(() => [...board.cells.values()], [board]);
 
@@ -721,6 +783,15 @@ export function Board({
   const selectedUnit = selectedUnitId !== null ? unitById.get(selectedUnitId) : undefined;
   const selectedCell = selectedUnit ? board.cells.get(selectedUnit.cell) : undefined;
 
+  // v0.9 propose-then-confirm: adapt the void→void confirm handler to the
+  // (arg)→void shape tapGuard expects (same pattern as CaptureToggle).
+  const guardedProposalConfirm = tapGuard<undefined>(
+    onProposalConfirm ? () => onProposalConfirm() : undefined,
+  );
+  const proposalConfirmHandler = guardedProposalConfirm
+    ? () => guardedProposalConfirm(undefined)
+    : undefined;
+
   return (
     <svg
       className={`board-svg${className ? ` ${className}` : ''}`}
@@ -772,7 +843,11 @@ export function Board({
           })}
         </g>
         <GrainOverlay {...bbox} />
-        {(reachable || highlights?.targets || highlights?.visionEdge) && (
+        {(reachable ||
+          highlights?.targets ||
+          highlights?.aimCells ||
+          highlights?.frictionCells ||
+          highlights?.visionEdge) && (
           <g className="board-highlights" pointerEvents="none">
             {cells.map((cell) => {
               const alpha = reachAlpha(cell.id);
@@ -791,9 +866,56 @@ export function Board({
                 />
               );
             })}
+            {/* v0.9 enemy-friction cue: a small amber "slow" tick on reachable
+               cells whose entry pays the enemy-adjacency malus. The reach tint
+               already shrank near enemies; this marks WHY, legibly at phone
+               size, without cluttering open cells. */}
+            {highlights?.frictionCells &&
+              [...highlights.frictionCells].map((id) => {
+                const cell = board.cells.get(id);
+                if (!cell) return null;
+                const [cx, cy] = toScreen(cell.center);
+                return (
+                  <circle
+                    key={`fr${id}`}
+                    className="friction-tick"
+                    data-friction-cell={id}
+                    cx={cx}
+                    cy={cy}
+                    r={tokenSize * 0.16}
+                    fill="#d98a1f"
+                    opacity={0.85}
+                  />
+                );
+              })}
             {highlights?.visionEdge && (
               <VisionEdge board={board} toScreen={toScreen} cellSet={highlights.visionEdge} />
             )}
+            {highlights?.aimCells &&
+              [...highlights.aimCells].map((id) => {
+                const cell = board.cells.get(id);
+                if (!cell) return null;
+                const [cx, cy] = toScreen(cell.center);
+                // Dashed aim-ring on an EMPTY cell a ranged unit can preempt —
+                // visibly weaker than the solid enemy target-ring. Player-colored:
+                // this is a PLAYER-INTENT affordance ("I'm holding range here"),
+                // not an enemy presence, so it must read distinct from the
+                // enemy-colored target-ring drawn on actual enemies below.
+                return (
+                  <circle
+                    key={`aim${id}`}
+                    className="aim-ring"
+                    cx={cx}
+                    cy={cy}
+                    r={tokenSize * 0.66}
+                    fill="none"
+                    stroke={factionColor(PLAYER_FACTION)}
+                    strokeWidth={tokenSize * 0.07}
+                    strokeDasharray={`${tokenSize * 0.18} ${tokenSize * 0.12}`}
+                    opacity={0.62}
+                  />
+                );
+              })}
             {highlights?.targets &&
               [...highlights.targets].map((id) => {
                 const cell = board.cells.get(id);
@@ -823,6 +945,26 @@ export function Board({
             onGhostTap={tapGuard(onGhostTap)}
           />
         )}
+        {/* v0.9 propose-then-confirm: the un-queued proposal ghost, above the
+            committed ghosts so it reads as "the thing you're about to confirm". */}
+        {proposal && (
+          <ProposalGhost
+            board={board}
+            toScreen={toScreen}
+            tokenSize={tokenSize}
+            mark={proposal}
+            onConfirm={proposalConfirmHandler}
+          />
+        )}
+        {/* v0.8 Task 2.4: claim-intent markers in the ghost layer */}
+        {captureIntentMarks && captureIntentMarks.length > 0 && (
+          <CaptureIntentMarkers
+            board={board}
+            toScreen={toScreen}
+            tokenSize={tokenSize}
+            marks={captureIntentMarks}
+          />
+        )}
         {trails && trails.length > 0 && (
           <ReplayTrails board={board} toScreen={toScreen} tokenSize={tokenSize} trails={trails} />
         )}
@@ -841,6 +983,14 @@ export function Board({
             if (!cell) return null;
             const [x, y] = toScreen(cell.center);
             const slot = staggerByUnit.get(unit.id);
+            // v0.9 radar: only pass onRadar for own player units in interactive
+            // planning (not during replay/silhouette/minimal previews). Measuring
+            // an enemy's vision would leak hidden information.
+            const showRadar =
+              onUnitRadarTap !== undefined &&
+              pulseEligible &&
+              replayFx === null &&
+              unit.faction === PLAYER_FACTION;
             return (
               <UnitRenderer
                 key={unit.id}
@@ -850,14 +1000,93 @@ export function Board({
                 size={tokenSize}
                 scale={slot?.scale}
                 selected={unit.id === selectedUnitId}
+                // v0.9 active-unit halo: only on the selected own unit, only in
+                // interactive planning (never replay/silhouette/preview).
+                selectedHalo={
+                  unit.id === selectedUnitId && pulseEligible && replayFx === null
+                }
+                proposed={proposal?.unit.id === unit.id}
                 pulse={idlePulse(unit)}
                 recoil={recoilByUnit.get(unit.id) ?? null}
                 recoilKey={replayFx?.key ?? 0}
+                unitTypeCost={unitTypes ? unitTypes[unit.type]?.cost : undefined}
                 onTap={tapGuard(onUnitTap)}
+                onRadar={showRadar ? () => onUnitRadarTap(unit.id) : undefined}
+                radarActive={rangeOverlay?.unitId === unit.id}
               />
             );
           })}
         </g>
+        {/* v0.9 radar overlay: dims the entire board and labels visible tiles
+            with BFS shooting-range hop distances. Rendered above units so the
+            numbers are always legible. The radar unit itself is re-highlighted
+            with a bright ring on top of the dim so it reads as the origin.
+            Tapping the dim (anywhere outside the active radar pip) exits. */}
+        {rangeOverlay && (() => {
+          const radarCell = board.cells.get(rangeOverlay.cell);
+          if (!radarCell) return null;
+          const [rcx, rcy] = toScreen(radarCell.center);
+          return (
+            <g className="radar-overlay" pointerEvents="auto">
+              {/* dim wash — covers the entire viewBox */}
+              <rect
+                x={bbox.x}
+                y={bbox.y}
+                width={bbox.width}
+                height={bbox.height}
+                fill="rgba(0,0,0,0.52)"
+                className="radar-dim"
+                onClick={() => onUnitRadarTap?.(rangeOverlay.unitId)}
+                style={{ cursor: 'pointer' }}
+              />
+              {/* highlight ring around the radar unit so it stays bright */}
+              <circle
+                cx={rcx}
+                cy={rcy}
+                r={tokenSize * 0.88}
+                fill="none"
+                stroke={factionColor(PLAYER_FACTION)}
+                strokeWidth={tokenSize * 0.1}
+                opacity={0.95}
+                pointerEvents="none"
+              />
+              {/* distance labels on each visible cell */}
+              {[...rangeOverlay.distances.entries()].map(([cellId, dist]) => {
+                const c = board.cells.get(cellId);
+                if (!c) return null;
+                const [cx, cy] = toScreen(c.center);
+                // Color-grade by distance: near=green, mid=amber, far=red/dim.
+                const distColor =
+                  dist === 0
+                    ? 'rgba(255,255,255,0.55)'
+                    : dist <= 2
+                      ? '#6ee080'
+                      : dist <= 4
+                        ? '#f5d174'
+                        : '#f08070';
+                return (
+                  <text
+                    key={cellId}
+                    x={cx}
+                    y={cy}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize={tokenSize * 0.44}
+                    fontWeight={700}
+                    fill={distColor}
+                    stroke="rgba(0,0,0,0.55)"
+                    strokeWidth={tokenSize * 0.045}
+                    paintOrder="stroke"
+                    pointerEvents="none"
+                    className="radar-dist-label"
+                  >
+                    {dist === 0 ? '•' : dist}
+                  </text>
+                );
+              })}
+            </g>
+          );
+        })()}
         {/* v0.7 Item 1: build pips ABOVE units — always tappable over an
             occupant token. Planning only (buildPips is unset during replay). */}
         {buildPips && buildPips.length > 0 && (
@@ -885,6 +1114,18 @@ export function Board({
             anchor={toScreen(selectedCell.center)}
             tokenSize={tokenSize}
             state={stancePopover}
+            tapGuard={tapGuard}
+          />
+        )}
+        {/* v0.8 Task 2.4 · v0.9: capture toggle anchored over the TARGET base
+            (the unit's planned end), so it reads "capture this base" — not over
+            the unit's start cell. Shown only when eligible (conquest + personnel
+            + planned end is an unowned base). */}
+        {captureToggle && board.cells.get(captureToggle.targetCell) && (
+          <CaptureToggle
+            anchor={toScreen(board.cells.get(captureToggle.targetCell)!.center)}
+            tokenSize={tokenSize}
+            state={captureToggle}
             tapGuard={tapGuard}
           />
         )}
@@ -937,6 +1178,72 @@ function StancePopover({
           </g>
         );
       })}
+    </g>
+  );
+}
+
+/** v0.8 Task 2.4: capture toggle — a single pill-shaped button below the
+ * token, inside the SVG so it tracks pan/zoom like the stance popover.
+ * Shows only when the unit is eligible (conquest + personnel + planned end
+ * is an unowned base). Toggling arms/disarms the capture order. */
+function CaptureToggle({
+  anchor,
+  tokenSize,
+  state,
+  tapGuard,
+}: {
+  anchor: Pt;
+  tokenSize: number;
+  state: CaptureToggleState;
+  tapGuard: <T>(h: ((arg: T) => void) | undefined) => ((arg: T) => void) | undefined;
+}) {
+  const r = tokenSize * 0.44;
+  // Position ABOVE the base center so the pill reads as sitting on top of the
+  // base art and the capturing unit token (which stands on the same cell).
+  // The stance popover (when both show) goes further above at 1.55×; this sits
+  // at 1.1× which clears the token body without floating too far away.
+  const y = anchor[1] - tokenSize * 1.1;
+  const x = anchor[0];
+  const pillW = r * 3.2;
+  const pillH = r * 1.1;
+  const active = state.armed;
+  // tapGuard wraps a handler of any type; we need a void→void tap guard.
+  // Pass the toggle as a handler of `undefined` to satisfy the generic.
+  const guardedToggle = tapGuard<undefined>(state.onToggle ? () => { state.onToggle(); } : undefined);
+  const label = active ? '⚑ Capture ON' : '⚐ Capture';
+  const fillColor = active ? factionColor(0) : '#fff';
+  const strokeColor = active ? '#fff' : 'rgba(74,68,58,0.45)';
+  const textColor = active ? '#fff' : '#6b6356';
+
+  return (
+    <g
+      className={`capture-toggle${active ? ' capture-toggle-armed' : ''}`}
+      data-capture-toggle
+      data-testid="capture-toggle"
+      transform={`translate(${x} ${y})`}
+      onClick={guardedToggle ? () => guardedToggle(undefined) : undefined}
+      style={{ cursor: 'pointer' }}
+    >
+      <rect
+        x={-pillW / 2}
+        y={-pillH / 2}
+        width={pillW}
+        height={pillH}
+        rx={pillH / 2}
+        fill={fillColor}
+        stroke={strokeColor}
+        strokeWidth={r * 0.1}
+      />
+      <text
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize={r * 0.68}
+        fontWeight={600}
+        fill={textColor}
+        pointerEvents="none"
+      >
+        {label}
+      </text>
     </g>
   );
 }

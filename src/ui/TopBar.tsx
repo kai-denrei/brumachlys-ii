@@ -5,19 +5,17 @@ import { RulesModal } from './RulesModal';
 import { VersionBadge } from './VersionBadge';
 
 /** E3 conquest credits HUD. Planning: available minus committed buys
- * ("◈ 250 − 150 committed"); replay: the frame's creditsAfter feed ticks it. */
-export type CreditsHud = { value: number; committed?: number };
+ * ("◈ 250 − 150 committed"); replay: the frame's creditsAfter feed ticks it.
+ * v0.9: `income` is the per-turn credit gain (owned bases × perBaseCredits),
+ * shown beside the odometer during planning ("+200/turn"). */
+export type CreditsHud = { value: number; committed?: number; income?: number };
 
 export function TopBar({
-  round,
   phase,
-  credits,
   onBack,
 }: {
-  round: number | null;
+  /** round and credits moved to HudCluster (top-left fixed overlay). */
   phase: string;
-  /** Conquest only — omit in skirmish and on the start screen. */
-  credits?: CreditsHud | null;
   onBack?: () => void;
 }) {
   // v1.2 tweak 2: rules behind an "i" — self-contained, so every screen that
@@ -49,16 +47,8 @@ export function TopBar({
       >
         <span className="top-bar-pipeline-glyph">⌬</span>
       </button>
+      {/* Phase chip stays in the bar — game phase at a glance. */}
       <span className="top-bar-status">
-        {credits && (
-          <span className="credits-hud" data-testid="credits-hud">
-            ◈ {credits.value}
-            {credits.committed ? (
-              <span className="credits-committed"> − {credits.committed} committed</span>
-            ) : null}
-          </span>
-        )}
-        {round !== null && <span className="top-bar-round">R{round}</span>}
         <span className={`phase-chip phase-chip-${phase}`}>{phase}</span>
       </span>
       {/* portal: .top-bar's backdrop-filter would otherwise become the

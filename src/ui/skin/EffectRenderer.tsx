@@ -16,6 +16,15 @@ import { factionColor } from './palette';
 import { UnitRenderer } from './UnitRenderer';
 import type { Pt } from './rounded';
 
+/** v0.8 Task 2.4: claim-intent marker — shown on the BASE CELL a personnel unit
+ * will attempt to capture. One mark per unit with an armed capture order. */
+export type CaptureIntentMark = {
+  /** The base cell the unit plans to capture (its planned end cell). */
+  baseCell: CellId;
+  /** The capturing faction (colors the marker). */
+  faction: number;
+};
+
 /** One unit's queued plan, ready to draw. `movePath` excludes the start cell
  * (order shape, spec §2.3); `attackFrom` is the planned end position the
  * attack will fire from (move destination if a move is queued). */
@@ -32,6 +41,10 @@ export type GhostOrder = {
    * charge ghost is fully covered by the enemy token and can never be
    * tapped). */
   destOccupied?: boolean;
+  /** v0.9 preemptive fire: the attack target cell holds no known unit — a
+   * ranged unit is firing at an EMPTY cell (area denial). Draws a crosshair on
+   * the cell so the planned shot reads as "this cell", not "that unit". */
+  preemptive?: boolean;
 };
 
 export type EffectRendererProps = {
@@ -44,10 +57,48 @@ export type EffectRendererProps = {
   onGhostTap?: (unitId: string) => void;
 };
 
+/** v0.9 propose-then-confirm: a transient, un-queued MOVE proposal awaiting a
+ * second tap / Enter to commit. Rendered DISTINCTLY from a committed queued
+ * ghost — brighter, a solid (not dotted) bright path, a dashed pulsing
+ * destination ring, and a "tap again or Enter" hint pill. */
+export type ProposalGhostMark = {
+  unit: UnitInstance;
+  /** Move path (start excluded) — same shape as GhostOrder.movePath. */
+  movePath: readonly CellId[];
+  /** Destination cell (== movePath last) — carried for the dest ring. */
+  dest: CellId;
+  /** Destination holds another unit (charge/vacancy) — offset the ghost token. */
+  destOccupied?: boolean;
+};
+
 const center = (board: Board, id: CellId): Pt | null => {
   const cell = board.cells.get(id);
   return cell ? cell.center : null;
 };
+
+/**
+ * Shared path-projection + destination-offset preamble used by both
+ * GhostMove (committed ghost) and ProposalGhost (un-committed proposal).
+ * Returns null when any cell center is missing (board edge / stale data).
+ */
+function resolveMovePath(
+  board: Board,
+  toScreen: (p: readonly [number, number]) => Pt,
+  tokenSize: number,
+  startCell: CellId,
+  movePath: readonly CellId[],
+  destOccupied: boolean | undefined,
+): { pts: Pt[]; rawDest: Pt; dest: Pt } | null {
+  if (!movePath || movePath.length === 0) return null;
+  const worldPts = [startCell, ...movePath].map((id) => center(board, id));
+  if (worldPts.some((p) => p === null)) return null;
+  const pts = (worldPts as Pt[]).map(toScreen);
+  const rawDest = pts[pts.length - 1]!;
+  const dest: Pt = destOccupied
+    ? [rawDest[0] - tokenSize * 0.5, rawDest[1] - tokenSize * 0.5]
+    : rawDest;
+  return { pts, rawDest, dest };
+}
 
 function GhostMove({
   board,
@@ -63,14 +114,9 @@ function GhostMove({
   onGhostTap?: (unitId: string) => void;
 }) {
   const { unit, movePath } = ghost;
-  if (!movePath || movePath.length === 0) return null;
-  const worldPts = [unit.cell, ...movePath].map((id) => center(board, id));
-  if (worldPts.some((p) => p === null)) return null;
-  const pts = (worldPts as Pt[]).map(toScreen);
-  const rawDest = pts[pts.length - 1]!;
-  const dest: Pt = ghost.destOccupied
-    ? [rawDest[0] - tokenSize * 0.5, rawDest[1] - tokenSize * 0.5]
-    : rawDest;
+  const resolved = resolveMovePath(board, toScreen, tokenSize, unit.cell, movePath ?? [], ghost.destOccupied);
+  if (!resolved) return null;
+  const { pts, dest } = resolved;
   const color = factionColor(unit.faction);
   const cls = `ghost ghost-move${ghost.converging ? ' ghost-converging' : ''}`;
 
@@ -93,6 +139,99 @@ function GhostMove({
         onClick={onGhostTap ? () => onGhostTap(unit.id) : undefined}
       >
         <UnitRenderer unit={unit} x={dest[0]} y={dest[1]} size={tokenSize} />
+      </g>
+    </g>
+  );
+}
+
+/** v0.9 propose-then-confirm: draw the PROPOSAL ghost — a brighter, more
+ * assertive cousin of GhostMove for the un-committed move awaiting confirm.
+ * Differences from a queued ghost: a SOLID bright path (queued ghosts are
+ * dotted), a dashed pulsing destination ring, a higher-opacity ghost token,
+ * and a "tap again · Enter" hint pill above the destination. Tapping the ghost
+ * token commits (second tap on the same dest). */
+export function ProposalGhost({
+  board,
+  toScreen,
+  tokenSize,
+  mark,
+  onConfirm,
+}: {
+  board: Board;
+  toScreen: (p: readonly [number, number]) => Pt;
+  tokenSize: number;
+  mark: ProposalGhostMark;
+  onConfirm?: () => void;
+}) {
+  const { unit, movePath } = mark;
+  const resolved = resolveMovePath(board, toScreen, tokenSize, unit.cell, movePath, mark.destOccupied);
+  if (!resolved) return null;
+  const { pts, rawDest, dest } = resolved;
+  const color = factionColor(unit.faction);
+  const ringR = tokenSize * 0.74;
+  // Hint pill above the destination — "tap again · Enter" affordance.
+  const fs = tokenSize * 0.24;
+  const hint = 'tap again · ⏎';
+  // Use 0.62× per character so the ⏎ glyph (wider than a typical char) stays
+  // inside the pill background on narrow viewports (was 0.5×, which clipped it).
+  const pillW = hint.length * fs * 0.62 + fs * 1.4;
+  const pillH = fs * 1.6;
+  const pillY = rawDest[1] - tokenSize * 1.15;
+
+  return (
+    <g className="proposal-ghost" data-proposal-unit-id={unit.id}>
+      {/* Bright SOLID path — distinct from the dotted committed trail. */}
+      <polyline
+        className="proposal-trail"
+        points={pts.map((p) => `${p[0]},${p[1]}`).join(' ')}
+        fill="none"
+        stroke={color}
+        strokeWidth={tokenSize * 0.1}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={0.85}
+        pointerEvents="none"
+      />
+      {/* Dashed pulsing destination ring (CSS animates .proposal-dest-ring). */}
+      <circle
+        className="proposal-dest-ring"
+        cx={rawDest[0]}
+        cy={rawDest[1]}
+        r={ringR}
+        fill="none"
+        stroke={color}
+        strokeWidth={tokenSize * 0.08}
+        strokeDasharray={`${tokenSize * 0.2} ${tokenSize * 0.14}`}
+        pointerEvents="none"
+      />
+      <g
+        className="proposal-token"
+        opacity={0.7}
+        onClick={onConfirm ? () => onConfirm() : undefined}
+        style={onConfirm ? { cursor: 'pointer' } : undefined}
+      >
+        <UnitRenderer unit={unit} x={dest[0]} y={dest[1]} size={tokenSize} />
+      </g>
+      {/* Confirm-hint pill. */}
+      <g className="proposal-hint" transform={`translate(${rawDest[0]} ${pillY})`} pointerEvents="none">
+        <rect
+          x={-pillW / 2}
+          y={-pillH / 2}
+          width={pillW}
+          height={pillH}
+          rx={pillH / 2}
+          fill={color}
+          opacity={0.92}
+        />
+        <text
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={fs}
+          fontWeight={600}
+          fill="#fff"
+        >
+          {hint}
+        </text>
       </g>
     </g>
   );
@@ -355,6 +494,7 @@ function GhostAttack({
   const a = toScreen(fromWorld);
   const b = toScreen(toWorld);
   const color = factionColor(unit.faction);
+  const xR = tokenSize * 0.5; // preemptive crosshair radius on the empty cell
 
   // Thin arc: quadratic bezier bulging perpendicular to the chord (§9.3).
   const mx = (a[0] + b[0]) / 2;
@@ -372,6 +512,41 @@ function GhostAttack({
 
   return (
     <g className="ghost ghost-attack" data-ghost-attack-unit-id={unit.id}>
+      {ghost.preemptive && (
+        // Crosshair on the EMPTY target cell — the planned area-denial shot.
+        <g
+          className="preemptive-aim-mark"
+          data-preemptive-target={attackTarget}
+          pointerEvents="none"
+        >
+          <circle
+            cx={b[0]}
+            cy={b[1]}
+            r={xR}
+            fill="none"
+            stroke={color}
+            strokeWidth={tokenSize * 0.06}
+            strokeDasharray={`${tokenSize * 0.14} ${tokenSize * 0.1}`}
+            opacity={0.9}
+          />
+          <line
+            x1={b[0] - xR * 1.25}
+            y1={b[1]}
+            x2={b[0] + xR * 1.25}
+            y2={b[1]}
+            stroke={color}
+            strokeWidth={tokenSize * 0.05}
+          />
+          <line
+            x1={b[0]}
+            y1={b[1] - xR * 1.25}
+            x2={b[0]}
+            y2={b[1] + xR * 1.25}
+            stroke={color}
+            strokeWidth={tokenSize * 0.05}
+          />
+        </g>
+      )}
       <path
         className="attack-arc"
         d={`M${a[0]} ${a[1]} Q${cx} ${cy} ${b[0]} ${b[1]}`}
@@ -454,6 +629,98 @@ export function visionEdgeSegments(board: Board, cellSet: ReadonlySet<CellId>): 
     }
   }
   return segments;
+}
+
+// --- v0.8 Task 2.4: claim-intent markers -------------------------------------
+// A subtle faction-coloured flag ghost on each base cell where the player has
+// armed a capture order. Distinct from the capture REPLAY animation (which
+// uses a full fill/sweep/raise sequence); this is a planning-time affordance
+// that previews deliberate intent. Rendered in the planning ghost layer (above
+// grain/highlights, below units) so it reads without occluding tokens.
+
+export function CaptureIntentMarkers({
+  board,
+  toScreen,
+  tokenSize,
+  marks,
+}: {
+  board: Board;
+  toScreen: (p: readonly [number, number]) => Pt;
+  tokenSize: number;
+  marks: readonly CaptureIntentMark[];
+}) {
+  if (marks.length === 0) return null;
+  return (
+    <g className="capture-intent-markers" pointerEvents="none">
+      {marks.map((m) => {
+        const cell = board.cells.get(m.baseCell);
+        if (!cell) return null;
+        const [cx, cy] = toScreen(cell.center);
+        const color = factionColor(m.faction as 0 | 1);
+        const r = tokenSize * 0.34;
+        const poleH = tokenSize * 0.72;
+        // Flag pole: vertical line from center up; flag: small filled triangle
+        // to the right of the pole top. Pulsing ring beneath signals intent.
+        const poleX = cx - r * 0.12;
+        const poleTop = cy - poleH;
+        const flagW = r * 0.82;
+        const flagH = r * 0.52;
+        return (
+          <g
+            key={m.baseCell}
+            className="capture-intent"
+            data-capture-intent={m.baseCell}
+          >
+            {/* Pulsing ring — signals armed intent; distinct from the capture
+                replay ring (which uses fx-capture-pulse on the tile fill). */}
+            <circle
+              cx={cx}
+              cy={cy}
+              r={tokenSize * 0.62}
+              fill="none"
+              stroke={color}
+              strokeWidth={tokenSize * 0.06}
+              opacity={0.55}
+              className="capture-intent-ring"
+            />
+            {/* Capture-in-progress sweep arc: a short dashed arc that rotates
+                around the base to convey an ongoing claim attempt during
+                planning. Uses a short stroke-dasharray so only ~1/3 of the
+                circle is visible at once, spinning via CSS. */}
+            <circle
+              cx={cx}
+              cy={cy}
+              r={tokenSize * 0.62}
+              fill="none"
+              stroke={color}
+              strokeWidth={tokenSize * 0.09}
+              strokeDasharray={`${tokenSize * 1.3} ${tokenSize * 2.6}`}
+              strokeLinecap="round"
+              opacity={0.75}
+              className="capture-intent-sweep"
+            />
+            {/* Flag pole */}
+            <line
+              x1={poleX}
+              y1={cy + tokenSize * 0.08}
+              x2={poleX}
+              y2={poleTop}
+              stroke={color}
+              strokeWidth={tokenSize * 0.07}
+              strokeLinecap="round"
+              opacity={0.85}
+            />
+            {/* Flag triangle */}
+            <polygon
+              points={`${poleX},${poleTop} ${poleX + flagW},${poleTop + flagH * 0.5} ${poleX},${poleTop + flagH}`}
+              fill={color}
+              opacity={0.85}
+            />
+          </g>
+        );
+      })}
+    </g>
+  );
 }
 
 export function VisionEdge({

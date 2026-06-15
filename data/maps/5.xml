@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map id="5">
+  <name>Aruba</name>
+  <initialCredits>300</initialCredits>
+  <perBaseCredits>100</perBaseCredits>
+  <width>9</width>
+  <height>9</height>
+  <maxPlayers>2</maxPlayers>
+  <url>http://weewar.com/map/5</url>
+  <thumbnail>http://weewar.com/images/maps/boardThumb_5_ir5.png</thumbnail>
+  <preview>http://weewar.com/images/maps/preview_5_ir5.png</preview>
+  <revision>0</revision>
+  <creator>bert</creator>
+  <creatorProfile>http://weewar.com/user/bert</creatorProfile>
+  <terrains>
+    <terrain x="0" y="1" type="Mountains" />
+    <terrain x="0" y="2" type="Mountains" />
+    <terrain x="0" y="3" type="Mountains" />
+    <terrain x="1" y="0" type="Mountains" />
+    <terrain x="1" y="1" type="Woods" />
+    <terrain startFaction="0" x="1" y="2" type="Base" />
+    <terrain x="1" y="3" type="Plains" />
+    <terrain x="1" y="4" type="Mountains" />
+    <terrain x="1" y="5" type="Mountains" />
+    <terrain x="1" y="6" type="Mountains" />
+    <terrain x="1" y="7" type="Mountains" />
+    <terrain x="2" y="0" type="Mountains" />
+    <terrain x="2" y="1" type="Base" />
+    <terrain startUnit="Trooper" startUnitOwner="0" x="2" y="2" type="Plains" />
+    <terrain x="2" y="3" type="Plains" />
+    <terrain x="2" y="4" type="Plains" />
+    <terrain x="2" y="5" type="Plains" />
+    <terrain x="2" y="6" type="Plains" />
+    <terrain x="2" y="7" type="Mountains" />
+    <terrain x="3" y="0" type="Mountains" />
+    <terrain x="3" y="1" type="Mountains" />
+    <terrain x="3" y="2" type="Plains" />
+    <terrain x="3" y="3" type="Plains" />
+    <terrain x="3" y="4" type="Plains" />
+    <terrain x="3" y="5" type="Woods" />
+    <terrain x="3" y="6" type="Woods" />
+    <terrain x="3" y="7" type="Mountains" />
+    <terrain x="4" y="0" type="Water" />
+    <terrain x="4" y="1" type="Mountains" />
+    <terrain x="4" y="2" type="Plains" />
+    <terrain x="4" y="3" type="Woods" />
+    <terrain x="4" y="4" type="Plains" />
+    <terrain x="4" y="5" type="Plains" />
+    <terrain x="4" y="6" type="Plains" />
+    <terrain x="4" y="7" type="Mountains" />
+    <terrain x="5" y="0" type="Water" />
+    <terrain x="5" y="1" type="Swamp" />
+    <terrain x="5" y="2" type="Woods" />
+    <terrain x="5" y="3" type="Plains" />
+    <terrain x="5" y="4" type="Plains" />
+    <terrain x="5" y="5" type="Plains" />
+    <terrain x="5" y="6" type="Plains" />
+    <terrain x="5" y="7" type="Base" />
+    <terrain x="5" y="8" type="Mountains" />
+    <terrain x="6" y="0" type="Water" />
+    <terrain x="6" y="1" type="Water" />
+    <terrain x="6" y="2" type="Swamp" />
+    <terrain x="6" y="3" type="Water" />
+    <terrain x="6" y="4" type="Plains" />
+    <terrain startUnit="Trooper" startUnitOwner="1" x="6" y="5" type="Plains" />
+    <terrain x="6" y="6" type="Plains" />
+    <terrain x="6" y="7" type="Mountains" />
+    <terrain x="6" y="8" type="Mountains" />
+    <terrain x="7" y="2" type="Water" />
+    <terrain x="7" y="4" type="Water" />
+    <terrain x="7" y="5" type="Water" />
+    <terrain startFaction="1" x="7" y="6" type="Base" />
+    <terrain x="7" y="7" type="Water" />
+    <terrain x="8" y="6" type="Water" />
+  </terrains>
+</map>

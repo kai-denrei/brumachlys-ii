@@ -90,6 +90,9 @@ export function newGame(
         count: 10,
         stance: 'aggressive',
         attackedFrom: [],
+        xp: 0,
+        rank: 0,
+        kills: 0,
       };
     });
   }
@@ -275,6 +278,9 @@ function newConquestGame(
         count: 10,
         stance: 'aggressive',
         attackedFrom: [],
+        xp: 0,
+        rank: 0,
+        kills: 0,
       };
     });
   }

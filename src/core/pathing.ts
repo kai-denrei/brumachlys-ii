@@ -47,7 +47,42 @@ export type PathOpts = {
    * terrain per cell (dark ⇒ plains; see core/fog assumedTerrainView).
    * Default: truth. Planning-preview only — the resolver never sets this. */
   assumedTerrain?: (cell: CellId) => TerrainKey;
+  /** v0.9 ENEMY-FRICTION (movement friction near enemies): extra movement cost
+   * (tenths) to ENTER `cell`, on top of its terrain `movementCost`. The caller
+   * injects the friction field — typically `enemyFrictionAt(board, cell, …)` —
+   * so every movement-cost seam (validation, the reachable overlay, the
+   * resolver, the AI planner) agrees on one formula while each chooses its own
+   * enemy set (visible vs actual). Default: no extra cost (legacy behaviour). */
+  extraCostAt?: (cell: CellId) => number;
 };
+
+/** Tenths of extra movement cost per ENEMY unit on a cell adjacent to the one
+ * being ENTERED (v0.9). One adjacent enemy turns a plains step (3) into 4 — a
+ * noticeable but passable malus; three adjacent enemies (3 + 3 = 6) costs most
+ * of a standard infantry move, so being forced through a defensive line is
+ * expensive but never hard-blocked — friction is a SOFT field.
+ * Halved from 2→1 to compensate for the ~doubled neighbor degree introduced by
+ * the diagonal-adjacency topology change (corner-sharing cells are now distance
+ * 1), which otherwise doubled per-position friction near a defensive line. */
+export const FRICTION_PER_ENEMY = 1;
+
+/** Extra movement cost (tenths) to ENTER `cell`, from enemy units occupying
+ * cells ADJACENT to it. `enemyCells` is the set of cells the caller treats as
+ * enemy-held — VISIBLE enemies at planning seams, ACTUAL living enemies at the
+ * resolver. The starting cell's own adjacency never costs: only ENTERED cells
+ * pay (the pathfinder applies this per step). Pure. */
+export function enemyFrictionAt(
+  board: Board,
+  cell: CellId,
+  enemyCells: ReadonlySet<CellId>,
+): number {
+  if (enemyCells.size === 0) return 0;
+  let n = 0;
+  for (const nb of board.cells.get(cell)?.neighbors ?? []) {
+    if (enemyCells.has(nb)) n++;
+  }
+  return n * FRICTION_PER_ENEMY;
+}
 
 export type PathResult = {
   path: CellId[];
@@ -106,8 +141,13 @@ export function findPath(
     for (const n of board.cells.get(current.cell)!.neighbors) {
       const cell = board.cells.get(n);
       if (!cell) continue; // dangling neighbor id — defensive, P1 guards this
-      const stepCost = costs[terrainOf(cell)] ?? IMPASSABLE;
-      if (stepCost >= IMPASSABLE) continue;
+      const baseCost = costs[terrainOf(cell)] ?? IMPASSABLE;
+      if (baseCost >= IMPASSABLE) continue;
+      // Enemy friction (v0.9): extra cost to ENTER this cell, added before the
+      // budget check so reach/path costs include it. Impassable terrain is
+      // gated above — friction never makes a passable cell impassable, just
+      // pricier. Omitted ⇒ 0 (unchanged behaviour).
+      const stepCost = baseCost + (opts.extraCostAt ? opts.extraCostAt(n) : 0);
 
       const newCost = current.cost + stepCost;
       if (newCost > budget) continue;
@@ -156,8 +196,10 @@ export function reachableCells(
     for (const n of board.cells.get(current.cell)!.neighbors) {
       const cell = board.cells.get(n);
       if (!cell) continue;
-      const stepCost = costs[terrainOf(cell)] ?? IMPASSABLE;
-      if (stepCost >= IMPASSABLE) continue;
+      const baseCost = costs[terrainOf(cell)] ?? IMPASSABLE;
+      if (baseCost >= IMPASSABLE) continue;
+      // Enemy friction (v0.9) — see findPath. Shrinks reach near enemies.
+      const stepCost = baseCost + (opts.extraCostAt ? opts.extraCostAt(n) : 0);
       const newCost = current.cost + stepCost;
       if (newCost > budget) continue;
       if (newCost < (distances.get(n) ?? Infinity)) {

@@ -67,6 +67,9 @@ export type ReplayFxData = {
   captures?: { cell: CellId; to: FactionId; consumed?: UnitInstance }[];
   /** v0.6 Ask 7: surviving-defender strikes this frame (flash + recoil). */
   impacts?: ImpactMark[];
+  /** v0.8 veterancy: units that ranked up this frame — upward-chevron burst
+   *  at each cell in the faction colour (~450 ms, celebratory, not dominant). */
+  promotions?: Array<{ cell: CellId; faction: FactionId; rank: number }>;
 };
 
 export type ReplayFxProps = {
@@ -376,11 +379,16 @@ function DeathFx({
   );
 }
 
-// --- v0.6 Ask 7: the claim verb ----------------------------------------------
-// 150 ms tile pulse → color fill sweep across the cell polygon (paint-fill,
-// clipped to the rounded outline) → flag flip-in + a short shimmer. When the
-// capture CONSUMED the capturing unit (v0.6 rule) its token shrinks and
-// streams up into the flag point — the cost is part of the celebration.
+// --- v0.6 Ask 7: the claim verb (v0.8 strengthened) --------------------------
+// 0–150 ms: double ring pulse around the cell border (inner solid, outer gap).
+// 150–500 ms: paint-fill sweep expands from the center in the faction color
+//   (stronger than before — the sweep is now a deliberate stain, not a ghost).
+// 220–480 ms: keep/flag raises — the same motif as the static base-pip, with
+//   a brief wave (rotation oscillation) as it plants itself.
+// 480–700 ms: shimmer flash on the flag face.
+// Throughout (if consumed): the unit token rises from its position, shrinking
+//   and trailing 4 dissolve-sparks that merge into the flag tip — the cost of
+//   the capture is visible in the animation.
 
 function CaptureFx({
   board,
@@ -403,48 +411,119 @@ function CaptureFx({
   const pts = cellObj.polygon.map(toScreen);
   const d = roundedPolygonPath(pts);
   const color = factionColor(to);
-  const sweepR = Math.max(...pts.map((p) => Math.hypot(p[0] - at[0], p[1] - at[1]))) * 1.05;
+  const sweepR = Math.max(...pts.map((p) => Math.hypot(p[0] - at[0], p[1] - at[1]))) * 1.1;
   const clipId = `fx-cap-clip-${cell}`;
+  const ts = tokenSize;
+  // Dissolve-spark positions: 4 dots orbit the rising token and merge upward
+  const sparks = [0, 1, 2, 3].map((k) => {
+    const angle = (k / 4) * Math.PI * 2 + Math.PI / 4;
+    return { sx: Math.cos(angle) * ts * 0.38, sy: Math.sin(angle) * ts * 0.38 };
+  });
   return (
     <g className="fx-capture" pointerEvents="none">
-      <path className="fx-capture-pulse" d={d} fill="none" stroke={color} strokeWidth={tokenSize * 0.12} />
+      {/* double-ring pulse around the cell border */}
+      <path className="fx-capture-pulse" d={d} fill="none" stroke={color} strokeWidth={ts * 0.15} />
+      <path className="fx-capture-pulse-outer" d={d} fill="none" stroke={color} strokeWidth={ts * 0.08} />
+      {/* paint-fill sweep — clipped to the cell polygon */}
       <clipPath id={clipId}>
         <path d={d} />
       </clipPath>
       <g clipPath={`url(#${clipId})`}>
         <circle className="fx-capture-sweep" cx={at[0]} cy={at[1]} r={sweepR} fill={color} />
+        {/* lingering color stain behind the sweep so the cell reads as claimed */}
+        <circle className="fx-capture-stain" cx={at[0]} cy={at[1]} r={sweepR} fill={color} />
       </g>
+      {/* all positioned elements anchor to cell center */}
       <g transform={`translate(${at[0]} ${at[1]})`}>
+        {/* consumed unit token dissolves upward + sparks */}
         {consumed && (
-          <g className="fx-capture-consume">
-            <UnitRenderer unit={consumed} x={0} y={0} size={tokenSize} />
-          </g>
+          <>
+            <g className="fx-capture-consume">
+              <UnitRenderer unit={consumed} x={0} y={0} size={ts} />
+            </g>
+            {sparks.map(({ sx, sy }, k) => (
+              <circle
+                key={`sp${k}`}
+                className="fx-capture-spark"
+                cx={sx}
+                cy={sy}
+                r={ts * 0.07}
+                fill={color}
+                stroke="#fff"
+                strokeWidth={ts * 0.025}
+                style={{ animationDelay: `${0.12 + k * 0.04}s` } as React.CSSProperties}
+              />
+            ))}
+          </>
         )}
+        {/* flag: flagpole + banner — raises with a wave, matches OwnedBaseMotif
+            proportions so the FX flag and static base look like the same object */}
         <g className="fx-capture-flag">
+          {/* pole */}
           <line
             x1={0}
-            y1={tokenSize * 0.4}
+            y1={ts * 0.35}
             x2={0}
-            y2={-tokenSize * 0.5}
+            y2={-ts * 0.55}
             stroke={color}
-            strokeWidth={tokenSize * 0.1}
+            strokeWidth={ts * 0.1}
             strokeLinecap="round"
           />
+          {/* banner — wider than the old pennant so it reads on a phone */}
           <path
-            d={`M0 ${-tokenSize * 0.5} L${tokenSize * 0.55} ${-tokenSize * 0.3} L0 ${-tokenSize * 0.1} Z`}
+            d={`M0 ${-ts * 0.55} L${ts * 0.62} ${-ts * 0.33} L0 ${-ts * 0.1} Z`}
             fill={color}
           />
+          {/* highlight streak across the banner face */}
           <line
             className="fx-capture-shimmer"
-            x1={tokenSize * 0.06}
-            y1={-tokenSize * 0.44}
-            x2={tokenSize * 0.34}
-            y2={-tokenSize * 0.22}
+            x1={ts * 0.07}
+            y1={-ts * 0.48}
+            x2={ts * 0.38}
+            y2={-ts * 0.25}
             stroke="#fff"
-            strokeWidth={tokenSize * 0.06}
+            strokeWidth={ts * 0.07}
             strokeLinecap="round"
           />
         </g>
+      </g>
+    </g>
+  );
+}
+
+// --- v0.8 veterancy: the promotion verb ----------------------------------------
+// A brief upward-chevron burst in the faction colour at the unit's cell —
+// celebratory but not screen-dominating. ~450 ms total (PROMOTE_MS). Uses
+// the same spike-geometry as ClashBurst but shoots the spikes upward (a "rising
+// salute") and fades out with the CSS fx-promote class.
+
+function PromotionFx({ at, tokenSize, color }: { at: Pt; tokenSize: number; color: string }) {
+  const inner = tokenSize * 0.28;
+  const outer = tokenSize * 0.72;
+  // 5 upward spikes in a ~120° arc above the token center (−60° to +60° from up).
+  const spikes = [0, 1, 2, 3, 4].map((k) => {
+    const t = -Math.PI / 2 + ((k - 2) / 4) * (Math.PI * 0.67);
+    return [Math.cos(t), Math.sin(t)] as const;
+  });
+  return (
+    <g transform={`translate(${at[0]} ${at[1]})`} pointerEvents="none">
+      {/* outer positioning wrapper — CSS animation lives on the inner group
+          per the P9 rule: CSS transforms must not mix with SVG transform attrs */}
+      <g className="fx-promote">
+        {spikes.map(([ux, uy], k) => (
+          <line
+            key={k}
+            x1={ux * inner}
+            y1={uy * inner}
+            x2={ux * outer}
+            y2={uy * outer}
+            stroke={color}
+            strokeWidth={tokenSize * 0.08}
+            strokeLinecap="round"
+          />
+        ))}
+        {/* small star/circle burst at center */}
+        <circle r={inner * 0.7} fill={color} opacity={0.75} />
       </g>
     </g>
   );
@@ -607,6 +686,17 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
           consumed={consumed}
         />
       ))}
+      {(fx.promotions ?? []).map(({ cell, faction }, k) => {
+        const at = center(board, cell, toScreen);
+        return at ? (
+          <PromotionFx
+            key={`p${k}`}
+            at={at}
+            tokenSize={tokenSize}
+            color={factionColor(faction)}
+          />
+        ) : null;
+      })}
     </g>
   );
 }

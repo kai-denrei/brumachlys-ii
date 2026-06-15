@@ -73,6 +73,23 @@ describe('EffectRenderer (ghost layer, §9.3)', () => {
     expect(arc).not.toBeNull();
     expect(arc.getAttribute('d')).toMatch(/^M150 -50 Q/); // starts at cell 1's center, curved
     expect(container.querySelector('.attack-marker .icon-sword')).not.toBeNull();
+    // a normal (occupied-target) attack draws NO preemptive crosshair.
+    expect(container.querySelector('.preemptive-aim-mark')).toBeNull();
+  });
+
+  it('v0.9 preemptive fire: an attack on an EMPTY cell draws a crosshair on the target', () => {
+    const ghosts: GhostOrder[] = [
+      { unit: unit('a', 0, 0, 'artillery'), attackTarget: 3, attackFrom: 0, preemptive: true },
+    ];
+    const { container } = render(
+      <svg>
+        <EffectRenderer board={board} toScreen={toScreen} tokenSize={40} ghosts={ghosts} />
+      </svg>,
+    );
+    const mark = container.querySelector('.preemptive-aim-mark')!;
+    expect(mark).not.toBeNull();
+    expect(mark.getAttribute('data-preemptive-target')).toBe('3');
+    expect(container.querySelector('.attack-arc')).not.toBeNull(); // arc still drawn
   });
 
   it('flags converging ghosts with the amber-flash class', () => {

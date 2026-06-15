@@ -26,6 +26,7 @@ const SLOT_KIND_BADGE: Record<TimelineSlot['kind'], string> = {
   fizzle: '∅',
   capture: '⚑',
   spawn: '✚',
+  promotion: '★',
 };
 
 function chipUnit(slot: TimelineSlot): UnitInstance | null {
@@ -186,6 +187,14 @@ function StrikeBreakdown({
             <td className="bd-label">attack strength</td>
             <td className="bd-value">{b.A}</td>
           </tr>
+          {/* v0.8: veterancy bonus is folded into A — itemize it so the math is never invisible. */}
+          {b.vet > 0 && (
+            <tr className="bd-gangup-row">
+              <td className="bd-term" />
+              <td className="bd-label">↳ veterancy</td>
+              <td className="bd-value">+{b.vet}</td>
+            </tr>
+          )}
           <tr>
             <td className="bd-term">+ Ta</td>
             <td className="bd-label">terrain attack bonus</td>
@@ -321,6 +330,10 @@ export function SummarySheet({
                       .map((k) => unitTypes[k.type]?.name ?? k.type)
                       .join(', ')}
                   </span>
+                  <span className="summary-kill-value" style={{ color: factionColor(faction) }}>
+                    {'◈ '}
+                    {killsFor(faction).reduce((acc, k) => acc + (unitTypes[k.type]?.cost ?? 0), 0)}
+                  </span>
                 </div>
               ) : null,
             )}
@@ -353,12 +366,19 @@ function BannerRecap({ conquest }: { conquest?: ConquestOutcome | null }) {
   const fallen = casualties.filter((c) => c.faction === PLAYER_FACTION);
   const destroyed = casualties.filter((c) => c.faction !== PLAYER_FACTION);
 
-  const stats: { num: number; label: string; color?: string }[] = [
+  const creditSum = (list: typeof fallen) =>
+    list.reduce((acc, c) => acc + (types[c.type]?.cost ?? 0), 0);
+  const valueLost = creditSum(fallen);
+  const valueDestroyed = creditSum(destroyed);
+
+  const stats: { num: number | string; label: string; color?: string }[] = [
     { num: recap.rounds, label: 'rounds' },
     { num: recap.dealt, label: 'dmg dealt', color: factionColor(0) },
     { num: recap.taken, label: 'dmg taken', color: factionColor(1) },
     { num: recap.fizzles, label: 'fizzles' },
     { num: recap.brawls, label: 'brawls' },
+    { num: `◈ ${valueLost}`, label: 'value lost', color: factionColor(0) },
+    { num: `◈ ${valueDestroyed}`, label: 'value destroyed', color: factionColor(1) },
   ];
   // E3 conquest (v1.4 dashboard +2): bases held at the end, credits spent.
   if (conquest) {

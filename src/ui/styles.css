@@ -71,9 +71,52 @@ body {
 }
 
 .top-bar-round {
-  font-weight: 700;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
-  opacity: 0.75;
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+  /* #1: full opacity — round number is a primary stat */
+  opacity: 1;
+  /* v0.9 HUD: the split-flap canvas sits beside the "R" label, baseline-snug. */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+}
+
+.top-bar-round-r {
+  font-size: 0.7rem;
+  font-weight: 800;
+  opacity: 0.7;
+}
+
+/* v0.9 HUD: the canvas counters render block; vertical-align keeps them on the
+   bar's baseline row. The seeded-wear background is transparent, so the paper
+   shows through (no dark box in the light HUD). */
+.round-flap,
+.credits-odometer {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.round-flap-canvas,
+.credits-odometer-canvas {
+  display: block;
+}
+
+/* v0.9 HUD a11y: the canvas is aria-hidden; this carries the readable value for
+   screen readers + tests without affecting layout. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .phase-chip {
@@ -255,6 +298,139 @@ body {
   }
 }
 
+/* v0.9 active-unit halo: a pulsing faction-color ring around the unit the
+   player is commanding (selected). Louder than the idle "awaiting orders"
+   breath: a crisp, confident pulse so it's obvious WHICH unit is being moved.
+   When a move proposal is pending (.active-halo-proposed) it pulses faster and
+   brighter — the player is mid-confirm. Behind the token body; never taps. */
+.active-halo {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: active-halo-pulse 1.4s ease-in-out infinite;
+}
+
+.active-halo-ring {
+  opacity: 0.85;
+}
+
+.active-halo-proposed {
+  animation-duration: 0.85s;
+}
+
+.active-halo-proposed .active-halo-ring {
+  opacity: 1;
+}
+
+@keyframes active-halo-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.07);
+  }
+}
+
+/* Reduced motion: a static SOLID ring carries the "this unit is selected" cue
+   with no pulse (the proposed state just shows the thicker ring from the SVG). */
+@media (prefers-reduced-motion: reduce) {
+  .active-halo {
+    animation: none;
+    transform: none;
+  }
+
+  .active-halo-ring {
+    opacity: 0.9;
+  }
+}
+
+/* v0.9 radar: bottom-left pip on own units — distance-measurement toggle.
+   The sweep line rotates when the overlay is active so it reads as "scanning".
+   The pip itself inverts to faction color when active (SVG inline fill handles
+   the invert; this block adds the sweep spin and overlay label legibility). */
+.radar-sweep-spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: radar-sweep 2s linear infinite;
+}
+
+@keyframes radar-sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Reduced motion: no sweep rotation — the static sweep line stays at its
+   default angle. The active-state color inversion still communicates ON/OFF. */
+@media (prefers-reduced-motion: reduce) {
+  .radar-sweep-spin {
+    animation: none;
+  }
+}
+
+/* Radar overlay dim: the <rect> that covers the board. Rendered by Board.tsx
+   inside the pan/zoom group so it moves with the board (no coordinate sync). */
+.radar-dim {
+  /* cursor already set inline; this just clarifies intent. */
+  pointer-events: auto;
+}
+
+/* Distance labels: white text with dark stroke (paintOrder="stroke" in SVG),
+   so they read on both bright terrain and the dark dim wash. */
+.radar-dist-label {
+  font-family: -apple-system, 'Segoe UI', Roboto, monospace, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* v0.9 propose-then-confirm: the un-queued PROPOSAL ghost. The destination ring
+   pulses (dashed, faction color) to read as "tap again / Enter to confirm". The
+   solid bright trail + hint pill are static SVG (set in EffectRenderer). */
+.proposal-dest-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: proposal-dest-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes proposal-dest-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(0.97);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+.proposal-hint {
+  animation: proposal-hint-bob 1.2s ease-in-out infinite;
+}
+
+@keyframes proposal-hint-bob {
+  0%,
+  100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proposal-dest-ring {
+    animation: none;
+    opacity: 0.9;
+    transform: none;
+  }
+
+  .proposal-hint {
+    animation: none;
+  }
+}
+
 .target-ring {
   animation: ring-pulse 1.1s ease-in-out infinite;
   transform-box: fill-box;
@@ -270,6 +446,28 @@ body {
   50% {
     opacity: 0.35;
     transform: scale(1.18);
+  }
+}
+
+/* v0.9 preemptive fire: dashed aim-ring on EMPTY cells a ranged unit can fire
+   at. A slow, calm rotation — discoverable but quieter than the solid
+   target-ring that marks an actual enemy. */
+.aim-ring {
+  animation: aim-spin 6s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes aim-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .target-ring,
+  .aim-ring {
+    animation: none;
   }
 }
 
@@ -391,10 +589,27 @@ body {
 
 /* --- bottom dock --------------------------------------------------------- */
 
+/* The planning dock (.bottom-dock) and the replay dock (.replay-dock) swap in
+   the same footer slot (App: BottomDock ↔ ReplayDock). They have different
+   natural heights — the replay dock's timeline slots (34px) + per-slot kind
+   badge run taller than the planning chips (30px). Both docks are in normal
+   flow, so a height change resizes the flex sibling .board-area, and the SVG
+   board (preserveAspectRatio="meet") rescales/recenters inside its new box —
+   the spurious recenter the operator sees on commit (dock appears) and on
+   replay end (dock disappears). Fix: reserve one constant footer height on
+   BOTH docks so the board's box is identical across the swap. The shared
+   --dock-min-height covers the taller (replay) dock's content; the safe-area
+   inset lives in padding and is identical on both, so the border-box matches
+   exactly. */
+:root {
+  --dock-min-height: 3.1rem; /* ≥ replay dock content (34px slot + padding) */
+}
+
 .bottom-dock {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-height: calc(env(safe-area-inset-bottom) + var(--dock-min-height));
   padding: 0.45rem 0.75rem calc(env(safe-area-inset-bottom) + 0.45rem);
   background: var(--bar-bg);
   backdrop-filter: blur(6px);
@@ -453,6 +668,52 @@ body {
 
 .stance-disabled {
   cursor: default;
+}
+
+/* --- v0.8 Task 2.4 / v0.9: capture toggle (SVG, anchored ABOVE base) ------ */
+
+.capture-toggle {
+  cursor: pointer;
+}
+
+/* --- v0.8 Task 2.4 / v0.9: claim-intent markers (planning ghost layer) ---- */
+
+/* Pulsing ring: opacity breath signals armed intent. */
+.capture-intent-ring {
+  animation: capture-intent-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes capture-intent-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%       { opacity: 0.2; }
+}
+
+/* Sweeping arc: a short dashed stroke that spins around the base, reading as
+   "capture in progress". Distinct from the replay CaptureFx sweep (which uses
+   .fx-capture-sweep on a radial fill). 2.4 s per revolution — deliberate and
+   calm next to the louder replay animations. */
+.capture-intent-sweep {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: capture-intent-spin 2.4s linear infinite;
+}
+
+@keyframes capture-intent-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capture-intent-ring {
+    animation: none;
+    opacity: 0.55;
+  }
+
+  /* Sweep stops rotating; the static short arc remains visible so the
+     "in progress" cue still reads without any motion. */
+  .capture-intent-sweep {
+    animation: none;
+    opacity: 0.55;
+  }
 }
 
 /* --- P7: layer 2 — ghost orders (§9.3) ------------------------------------ */
@@ -688,7 +949,9 @@ body {
 
 .unit-card-stats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* #3: was 1fr 1fr — give each column enough room for "2-4", "1–2", "10 (armored)".
+     auto-fill ensures values like fmtRange("2-4") never clip. */
+  grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 1fr);
   gap: 0.25rem 0.8rem;
   margin: 0;
 }
@@ -697,16 +960,27 @@ body {
   display: flex;
   justify-content: space-between;
   font-size: 0.74rem;
+  min-width: 0;
 }
 
 .unit-card-stats dt {
   opacity: 0.6;
+  flex: none;
+  margin-right: 0.3rem;
 }
 
 .unit-card-stats dd {
   margin: 0;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* #3: ensure the sheet itself is wide enough on narrow phones.
+   .bottom-sheet uses max-height but no min-width — a tight phone (360 px)
+   lets the two-column grid clip. Force a comfortable minimum. */
+.bottom-sheet {
+  min-width: min(340px, 100vw);
 }
 
 /* --- P7: dock chip filled/hollow ------------------------------------------ */
@@ -841,10 +1115,17 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  /* Same reserved height as .bottom-dock so swapping the two docks never
+     resizes .board-area (and never recenters the SVG board). See the note by
+     .bottom-dock. */
+  min-height: calc(env(safe-area-inset-bottom) + var(--dock-min-height));
   padding: 0.45rem 0.75rem calc(env(safe-area-inset-bottom) + 0.45rem);
   background: var(--bar-bg);
   backdrop-filter: blur(6px);
   border-top: 1px solid rgba(74, 68, 58, 0.12);
+  /* The slide-up animation only TRANSLATES (no height change), so it doesn't
+     itself resize the board — and with the reserved height the swap is a pure
+     content change inside a fixed box. */
   animation: dock-slide-up 0.22s ease-out; /* slides over the dock (§9.4) */
 }
 
@@ -1291,6 +1572,17 @@ body {
   line-height: 1.45;
 }
 
+.rules-phases {
+  margin: 0 0 0.45rem;
+  padding-left: 1.2rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.rules-phases li {
+  margin-bottom: 0.3rem;
+}
+
 .rules-gangup {
   background: #fff;
   border-radius: 10px;
@@ -1350,6 +1642,14 @@ body {
   text-align: left !important;
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* v0.9: Tiles section adjacency diagram */
+.rules-tiles-svg {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  margin: 0.5rem auto 0.6rem;
 }
 
 @media (min-width: 700px) {
@@ -1440,6 +1740,175 @@ body {
   opacity: 0.7;
 }
 
+/* --- v0.8 pipeline additions: versioning block, usage panel, commit links -- */
+
+/* VERSION block — prominent header showing current build */
+.pipeline-versioning {
+  margin-bottom: 1.05rem;
+  padding: 0.6rem 0.75rem 0.55rem;
+  background: rgba(232, 128, 107, 0.1);
+  border: 1.5px solid rgba(232, 128, 107, 0.3);
+  border-radius: 10px;
+}
+
+.pipeline-versioning-label {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin-bottom: 0.3rem;
+}
+
+.pipeline-versioning-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.pipeline-versioning-ver {
+  font-weight: 800;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pipeline-versioning-date {
+  font-size: 0.72rem;
+  opacity: 0.55;
+}
+
+/* Session usage collapsible */
+.pipeline-usage-section {
+  margin-bottom: 1.05rem;
+  padding: 0.45rem 0.65rem;
+  background: #fff;
+  border-radius: 10px;
+}
+
+.pipeline-usage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pipeline-usage-label {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.pipeline-usage-toggle {
+  border: 1.5px solid rgba(74, 68, 58, 0.2);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.pipeline-usage-body {
+  margin-top: 0.45rem;
+}
+
+.pipeline-usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  margin-bottom: 0.4rem;
+}
+
+.pipeline-usage-table td {
+  padding: 0.18rem 0.2rem;
+  vertical-align: top;
+}
+
+.pus-label {
+  opacity: 0.6;
+  font-weight: 600;
+  width: 6rem;
+  white-space: nowrap;
+}
+
+.pus-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.pus-model-head {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  margin: 0.3rem 0 0.2rem;
+}
+
+.pipeline-usage-models {
+  font-size: 0.65rem;
+}
+
+.pipeline-usage-models th,
+.pipeline-usage-models td {
+  padding: 0.14rem 0.2rem;
+}
+
+.pus-th {
+  font-weight: 600;
+  opacity: 0.5;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-align: right;
+  padding-bottom: 0.2rem;
+}
+
+.pus-th:first-child {
+  text-align: left;
+}
+
+.pus-model-name {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.64rem;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.pus-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  white-space: nowrap;
+}
+
+/* GitHub commit link — monospace, dim, inline next to version */
+.pipeline-commit {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.65rem;
+  opacity: 0.45;
+  color: inherit;
+  text-decoration: none;
+  letter-spacing: 0.01em;
+  padding: 0.05rem 0.25rem;
+  border: 1px solid rgba(74, 68, 58, 0.18);
+  border-radius: 4px;
+  transition: opacity 0.15s ease;
+}
+
+.pipeline-commit:hover {
+  opacity: 0.75;
+  text-decoration: underline;
+}
+
 /* --- v1.1 Feature A: unit hover card (mouse only) ------------------------- */
 
 /* v1.2 tweak 3: the glance — identity line + one monospace stat line. */
@@ -1478,6 +1947,71 @@ body {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   opacity: 0.85;
+}
+
+/* --- #5 "Your turn" announcement — auto-advance toast (non-blocking) ------- */
+/* A centered pill that fades in, holds, then fades out. It sits above the
+   board (z 27) but pointer-events: none on the wrap so the board is still
+   fully interactive; the inner button re-enables pointer-events for tap-to-
+   dismiss. Reduced-motion: appears and holds for the full window, no motion. */
+
+.your-turn-announcement-wrap {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 5.8rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 27;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.your-turn-announcement {
+  pointer-events: auto;
+  border: none;
+  border-radius: 14px;
+  background: rgba(28, 26, 22, 0.88);
+  color: #f2eee3;
+  padding: 0.55rem 1.1rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 6px 22px rgba(20, 18, 14, 0.35);
+  animation: your-turn-fade 1.9s ease forwards;
+  font: inherit;
+}
+
+.your-turn-label {
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  color: #f2eee3;
+}
+
+.your-turn-recap {
+  font-size: 0.68rem;
+  opacity: 0.72;
+  letter-spacing: 0.03em;
+  color: #f2eee3;
+  white-space: nowrap;
+}
+
+@keyframes your-turn-fade {
+  0%   { opacity: 0; transform: translateY(-6px); }
+  12%  { opacity: 1; transform: translateY(0); }
+  72%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .your-turn-announcement {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 /* --- v1.1 Feature B: dependent-order notice -------------------------------- */
@@ -1614,18 +2148,101 @@ body {
   }
 }
 
-/* --- v1.3 Tweak C: casualty recap (chess-style captured pieces) ------------- */
-/* Top-LEFT below the top bar — the skirmish chip/log owns the top-RIGHT; at
-   390px the panel caps at 45vw so the two never meet. Paper-translucent
-   backing (same recipe as the top bar) so it stays legible over board fog.
-   Purely informational: pointer-events none, never steals a board tap. */
+/* --- v0.9 HUD column: top-LEFT fixed column — Round+Credits cluster on top,
+   casualty tally stacked below.  Only appears on the battle screen.
+   Mobile-first: capped at 48vw so it can't crowd the centre board on a 390px
+   phone. The column itself is transparent / pointer-events: none so board taps
+   pass through the gap between the two children. Children restore their own
+   pointer-events. ---------------------------------------------------------------- */
 
-.casualty-panel {
+.hud-column {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + 3.2rem);
+  top: calc(env(safe-area-inset-top) + 3.2rem); /* clear the top bar */
   left: 0.5rem;
   z-index: 18; /* over the board, under sheets/scrims (z 20+) */
-  max-width: 45vw;
+  max-width: 48vw;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  pointer-events: none; /* gap between children passes through to the board */
+}
+
+/* --- v0.9: Round + Credits HUD cluster (prominently BIGGER) ----------------- */
+
+.hud-cluster {
+  /* restore pointer-events so it can be tapped in future */
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 0.35rem 0.5rem 0.4rem;
+  background: var(--bar-bg);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(74, 68, 58, 0.12);
+  border-radius: 12px;
+}
+
+/* "R" glyph beside the big split-flap canvas. */
+.hud-cluster-round {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.hud-cluster-round-r {
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  line-height: 1;
+}
+
+/* Inside the cluster the credits-hud pill gets slightly larger typography to
+   match the bigger canvas. Specificity win: `.hud-cluster .credits-hud` >
+   `.credits-hud`, so it can't accidentally bleed back into the (now empty)
+   top bar. */
+.hud-cluster .credits-hud {
+  font-size: 1rem;
+  padding: 0.18rem 0.55rem;
+  gap: 0.35rem;
+}
+
+.hud-cluster .credits-glyph {
+  font-size: 1rem;
+}
+
+.hud-cluster .credits-income {
+  font-size: 0.8rem;
+}
+
+.hud-cluster .credits-committed {
+  font-size: 0.75rem;
+}
+
+/* Mobile cap: keep the cluster readable but slim on a 390px phone. */
+@media (max-width: 430px) {
+  .hud-cluster {
+    padding: 0.28rem 0.4rem 0.32rem;
+  }
+
+  .hud-cluster-round-r {
+    font-size: 0.95rem;
+  }
+}
+
+/* --- v1.3 Tweak C: casualty recap (chess-style captured pieces) ------------- */
+/* Sits inside .hud-column so position/top/left are managed by the column flex.
+   At 390px the column caps at 48vw so casualties can't reach the right half.
+   Paper-translucent backing (same recipe as the top bar) so it stays legible
+   over board fog. Clickable (pointer-events: auto) — tap to open the modal. */
+
+.casualty-panel {
+  /* position/top/left/z-index come from .hud-column — this element is in-flow
+     inside that flex column and simply stacks below .hud-cluster. */
+  pointer-events: auto;  /* restore: the parent column is pointer-events:none */
+  max-width: 100%;       /* respects parent's max-width: 48vw */
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -1634,7 +2251,20 @@ body {
   backdrop-filter: blur(6px);
   border: 1px solid rgba(74, 68, 58, 0.12);
   border-radius: 10px;
-  pointer-events: none;
+  cursor: pointer;
+  /* reset button defaults */
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.casualty-panel:hover,
+.casualty-panel:focus-visible {
+  border-color: rgba(74, 68, 58, 0.28);
+  background: rgba(242, 238, 227, 0.98);
+  outline: none;
 }
 
 .casualty-row {
@@ -1649,21 +2279,139 @@ body {
   display: block;
 }
 
+/* --- v0.9: casualty detail modal -------------------------------------------- */
+
+/* Reuses .rules-modal + .rules-body for the shell; these classes are the
+   extra layout within the modal. */
+.casualty-modal {
+  /* cap height on tall phones so it doesn't push past the scrim edge */
+  max-height: calc(100dvh - env(safe-area-inset-top) - 0.6rem);
+}
+
+.casualty-modal-section {
+  margin-bottom: 1.2rem;
+}
+
+.casualty-modal-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.55rem;
+}
+
+.casualty-modal-section-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.casualty-modal-section-value {
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* Wrapping row of big unit buttons. */
+.casualty-modal-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+/* Each tappable unit button — bigger icon + optional count badge. */
+.casualty-modal-unit-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  background: rgba(74, 68, 58, 0.06);
+  border: 1.5px solid rgba(74, 68, 58, 0.12);
+  border-radius: 10px;
+  padding: 0.35rem 0.45rem 0.2rem;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+  /* min touch target */
+  min-width: 52px;
+  min-height: 52px;
+}
+
+.casualty-modal-unit-btn:hover,
+.casualty-modal-unit-btn:focus-visible {
+  border-color: rgba(74, 68, 58, 0.32);
+  background: rgba(74, 68, 58, 0.1);
+  outline: none;
+}
+
+.casualty-modal-unit-btn.is-selected {
+  border-color: rgba(74, 68, 58, 0.5);
+  background: rgba(74, 68, 58, 0.13);
+}
+
+.casualty-modal-icon {
+  width: 46px;
+  height: 46px;
+  display: block;
+}
+
+.casualty-modal-count {
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+/* Inline stat card that appears below the row when a unit is selected. */
+.casualty-modal-detail {
+  margin-top: 0.4rem;
+  border-top: 1px solid rgba(74, 68, 58, 0.1);
+  padding-top: 0.5rem;
+  animation: sheet-up 0.14s ease-out;
+}
+
 /* --- E3 conquest (addendum §B) ------------------------------------------------
    Credits HUD, mode/round-limit selects, build sheet, buy chips/ghosts,
    baseless grace warning, capture/spawn replay FX. */
 
 .credits-hud {
-  font-weight: 700;
+  /* #1: credits as a bold pill — prominent, mobile-legible */
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
   color: var(--faction-a);
   white-space: nowrap;
+  background: rgba(232, 128, 107, 0.12);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  /* v0.9 HUD: glyph · odometer canvas · per-turn income on one snug row. */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.credits-glyph {
+  font-size: 0.8rem;
+  line-height: 1;
 }
 
 .credits-committed {
   font-weight: 600;
   font-size: 0.62rem;
-  opacity: 0.75;
+  opacity: 0.7;
+}
+
+/* v0.9 HUD: per-turn income — a small green-leaning "+N/turn" beside credits.
+   Distinct hue from the faction-a credits so it reads as income, not spend. */
+.credits-income {
+  font-weight: 700;
+  font-size: 0.64rem;
+  letter-spacing: 0.01em;
+  color: #4f8b54;
+  white-space: nowrap;
 }
 
 .baseless-warning {
@@ -2310,36 +3058,47 @@ body {
   }
 }
 
-/* capture = fill / flip / pulse — 150 ms tile pulse → paint-fill sweep across
-   the polygon (claimant color, clipped to the rounded cell outline) → flag
-   flip-in + short shimmer. The CONSUMED capturing unit dissolves INTO the
-   flag (v0.6 capture-consumes rule, made legible). 500 ms end to end. */
+/* capture = pulse → deliberate paint-fill claim → flag raising + shimmer.
+   v0.8 strengthened: the sweep is a solid stain, not a ghost; the flag waves
+   as it plants; the consumed unit dissolves into the mast tip with sparks.
+   Total timing: ~700 ms (CAPTURE_MS). */
+
+/* double-ring border pulse: inner ring starts bright, outer rings delayed */
 .fx-capture-pulse {
-  animation: fx-cap-pulse 0.15s ease-out both;
+  animation: fx-cap-pulse 0.2s ease-out both;
+}
+
+.fx-capture-pulse-outer {
+  animation: fx-cap-pulse 0.3s ease-out 0.06s both;
 }
 
 @keyframes fx-cap-pulse {
   0% {
-    opacity: 0.85;
+    opacity: 0.9;
+    stroke-width: inherit;
+  }
+  55% {
+    opacity: 0.6;
   }
   100% {
     opacity: 0;
   }
 }
 
+/* paint-fill sweep: expands from center, more opaque so it reads as a CLAIM */
 .fx-capture-sweep {
   transform-box: fill-box;
   transform-origin: center;
-  animation: fx-cap-sweep 0.35s ease-out 0.15s both;
+  animation: fx-cap-sweep 0.38s ease-out 0.15s both;
 }
 
 @keyframes fx-cap-sweep {
   0% {
-    opacity: 0.55;
-    transform: scale(0.04);
+    opacity: 0.72;
+    transform: scale(0.03);
   }
-  60% {
-    opacity: 0.45;
+  50% {
+    opacity: 0.55;
     transform: scale(1);
   }
   100% {
@@ -2348,20 +3107,47 @@ body {
   }
 }
 
-.fx-capture-flag {
+/* lingering stain: stays at low opacity after the sweep fades — the cell
+   reads as freshly painted even before the static base tint takes over */
+.fx-capture-stain {
   transform-box: fill-box;
   transform-origin: center;
-  animation: fx-capture-raise 0.26s ease-out 0.22s both;
+  animation: fx-cap-stain 0.5s ease-out 0.2s both;
+}
+
+@keyframes fx-cap-stain {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  30% {
+    opacity: 0.22;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+/* flag raise: plants itself with a wave (overshoot + oscillation) */
+.fx-capture-flag {
+  transform-box: fill-box;
+  transform-origin: center bottom; /* pivot at the base of the pole */
+  animation: fx-capture-raise 0.32s cubic-bezier(0.22, 1.4, 0.5, 1) 0.25s both;
 }
 
 @keyframes fx-capture-raise {
   from {
     opacity: 0;
-    transform: scale(0.2) rotate(-22deg);
+    transform: scale(0.15) rotate(-30deg);
   }
-  60% {
+  55% {
     opacity: 1;
-    transform: scale(1.12) rotate(5deg);
+    transform: scale(1.08) rotate(8deg); /* banner waves as it plants */
+  }
+  78% {
+    transform: scale(1.02) rotate(-3deg); /* settles back */
   }
   to {
     opacity: 1;
@@ -2369,36 +3155,66 @@ body {
   }
 }
 
+/* shimmer streak across the banner — fires after the flag is up */
 .fx-capture-shimmer {
-  animation: fx-cap-shimmer 0.14s ease-out 0.4s both;
+  animation: fx-cap-shimmer 0.18s ease-out 0.5s both;
 }
 
 @keyframes fx-cap-shimmer {
   0% {
     opacity: 0;
   }
-  50% {
-    opacity: 0.9;
+  40% {
+    opacity: 0.95;
   }
   100% {
     opacity: 0;
   }
 }
 
+/* consumed unit: rises and compresses into the flag tip — the cost of the
+   capture made legible. Delayed until after the pulse so the token is
+   seen before it dissolves. */
 .fx-capture-consume {
   transform-box: fill-box;
   transform-origin: center;
-  animation: fx-cap-consume 0.3s ease-in 0.15s both;
+  animation: fx-cap-consume 0.38s ease-in 0.15s both;
 }
 
 @keyframes fx-cap-consume {
   0% {
-    opacity: 0.9;
+    opacity: 0.92;
     transform: translate(0, 0) scale(1);
+  }
+  60% {
+    opacity: 0.55;
+    transform: translate(0, -40%) scale(0.45);
   }
   100% {
     opacity: 0;
-    transform: translate(0, -55%) scale(0.12); /* streams into the flag point */
+    transform: translate(0, -62%) scale(0.08); /* merges into the flag tip */
+  }
+}
+
+/* dissolve sparks: orbit the rising token then vanish as it merges up */
+.fx-capture-spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-cap-spark 0.38s ease-in 0.15s both;
+}
+
+@keyframes fx-cap-spark {
+  0% {
+    opacity: 0.9;
+    transform: translate(0, 0) scale(1);
+  }
+  40% {
+    opacity: 0.7;
+    transform: translate(0, -25%) scale(0.7);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(0, -70%) scale(0.1);
   }
 }
 
@@ -2451,6 +3267,30 @@ body {
   }
 }
 
+/* v0.8 veterancy: promotion flair — upward-chevron burst in the faction colour.
+   Celebratory but brief (~450 ms). The inner group carries the animation
+   (P9 rule: never mix CSS transforms with SVG transform attributes). */
+.fx-promote {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-promote-rise 0.45s ease-out forwards;
+}
+
+@keyframes fx-promote-rise {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.5) translateY(0);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.15) translateY(-14%);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3) translateY(-22%);
+  }
+}
+
 /* reduced motion: every verb cuts to its END STATE — no movement, outcomes
    still legible (flag up, scrim dark, transient flashes simply absent). */
 @media (prefers-reduced-motion: reduce) {
@@ -2468,9 +3308,13 @@ body {
   .fx-death-cheer,
   .fx-death-outline,
   .fx-capture-pulse,
+  .fx-capture-pulse-outer,
   .fx-capture-sweep,
+  .fx-capture-stain,
   .fx-capture-shimmer,
   .fx-capture-consume,
+  .fx-capture-spark,
+  .fx-promote,
   .banner-scrim-win::before,
   .banner-scrim-win::after,
   .banner-scrim-loss {
@@ -2486,9 +3330,13 @@ body {
   .fx-death-cheer,
   .fx-death-outline,
   .fx-capture-pulse,
+  .fx-capture-pulse-outer,
   .fx-capture-sweep,
+  .fx-capture-stain,
   .fx-capture-shimmer,
-  .fx-capture-consume {
+  .fx-capture-consume,
+  .fx-capture-spark,
+  .fx-promote {
     opacity: 0;
   }
 }

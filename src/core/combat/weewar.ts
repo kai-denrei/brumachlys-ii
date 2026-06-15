@@ -1,9 +1,16 @@
 // The weewar resolution model (spec §5.2), ported from v1 core/combat.ts.
 // Pure functions. No module state, no ambient randomness.
 //
+//   A     = baseA + vet   (where baseA = attacker.attackStrengths[defender.armorType]
+//                          and vet = attacker.damageBonus when baseA > 0, else 0)
 //   p = clamp(0.5 + 0.05 * ((A + Ta) - (D + Td) + B), 0, 1)
 //   raw = roundDamage(min(attackerCount, defenderCount) * p)
 //   damage = (A > 0 && p > 0 && raw === 0) ? 1 : raw
+//
+// Veterancy (v0.8 §rank): A is composite — baseA from the unit-type table plus
+// the attacker's damageBonus rank bonus. The bonus is suppressed to 0 when
+// baseA = 0 so a unit cannot gain the ability to damage an armor type it
+// otherwise cannot engage.
 //
 // The "min" is canonical: spec §5.2's formula text says `attackerCount * p`,
 // but the §5.4 third vector (B=3, p=0.55, attacker count 10, defender count 6
@@ -39,7 +46,11 @@ export function explainAttack(ctx: AttackContext): AttackTerms {
   const { attacker, defender, bonusB } = ctx;
 
   // A is looked up by the *defender's* armor type in the *attacker's* table.
-  const A = attacker.type.attackStrengths[defender.type.armorType];
+  const baseA = attacker.type.attackStrengths[defender.type.armorType];
+  // Veterancy only sharpens an attack that can already land (base A > 0).
+  // A unit must not gain the ability to damage an armor type it otherwise cannot.
+  const vet = baseA > 0 ? (attacker.damageBonus ?? 0) : 0;
+  const A = baseA + vet;
   const D = defender.type.armor;
   const Ta = attacker.type.terrainEffects[attacker.terrain]?.attackBonus ?? 0;
   const terrainTd = defender.type.terrainEffects[defender.terrain]?.armorBonus ?? 0;
@@ -48,7 +59,7 @@ export function explainAttack(ctx: AttackContext): AttackTerms {
 
   // Cannot fire: dead participant or cannot engage this armor type.
   if (attacker.count <= 0 || defender.count <= 0 || A <= 0) {
-    return { A, Ta, D, Td, B: bonusB, p: 0, damage: 0 };
+    return { A, Ta, D, Td, B: bonusB, vet, p: 0, damage: 0 };
   }
 
   const p = clamp01(0.5 + 0.05 * (A + Ta - (D + Td) + bonusB));
@@ -57,7 +68,7 @@ export function explainAttack(ctx: AttackContext): AttackTerms {
   // Minimum-damage floor: never round to 0 when the attacker can damage this
   // armor type and the formula gave any positive probability.
   const damage = raw === 0 && p > 0 ? 1 : raw;
-  return { A, Ta, D, Td, B: bonusB, p, damage };
+  return { A, Ta, D, Td, B: bonusB, vet, p, damage };
 }
 
 export function attackDamage(ctx: AttackContext): number {
@@ -82,6 +93,7 @@ export function battleExchange(ctx: ExchangeContext): ExchangeResult {
   const holdsFire = defender.stance === 'hold-fire';
   const counterFired = inRange && canTarget && defender.count > 0 && !holdsFire;
 
+  // defender.damageBonus rides along: a veteran's counter-fire keeps its rank bonus (gang-up B is still 0).
   const defenderCounterDealt = counterFired
     ? attackDamage({
         attacker: defender,

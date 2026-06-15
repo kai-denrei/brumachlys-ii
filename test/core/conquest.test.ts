@@ -63,7 +63,7 @@ function baseLine(n: number, baseCells: CellId[]): Board {
 
 // ── Phase B.5: capture (§B.2) ─────────────────────────────────────────────────
 
-describe('capture (Phase B.5) — the claim consumes the claimant (v0.6)', () => {
+describe('capture (Phase B.5) — opt-in claim consumes the claimant (v0.8)', () => {
   test('personnel ending the round on an ENEMY base flips it + capture event; unit is CONSUMED', () => {
     const board = baseLine(5, [1]);
     const state = makeConquestState(
@@ -71,7 +71,10 @@ describe('capture (Phase B.5) — the claim consumes the claimant (v0.6)', () =>
       [makeUnit('inf', 0, 0, 'infantry'), makeUnit('far', 1, 4, 'infantry')],
       { bases: { 1: 1 } },
     );
-    const { state: s, events } = resolve(board, state, [{ kind: 'move', unitId: 'inf', path: [1] }]);
+    const { state: s, events } = resolve(board, state, [
+      { kind: 'move', unitId: 'inf', path: [1] },
+      { kind: 'capture', unitId: 'inf' }, // v0.8: capture is now opt-in
+    ]);
     expect(s.bases![1]).toBe(0);
     expect(ofType(events, 'capture')).toEqual([
       { type: 'capture', unitId: 'inf', cell: 1, from: 1, to: 0, unitConsumed: true },
@@ -89,7 +92,9 @@ describe('capture (Phase B.5) — the claim consumes the claimant (v0.6)', () =>
       [makeUnit('rgr', 0, 1, 'ranger'), makeUnit('far', 1, 4, 'infantry')],
       { bases: { 1: null } },
     );
-    const { state: s, events } = resolve(board, state);
+    const { state: s, events } = resolve(board, state, [
+      { kind: 'capture', unitId: 'rgr' }, // v0.8: capture is now opt-in
+    ]);
     expect(s.bases![1]).toBe(0);
     expect(ofType(events, 'capture')).toEqual([
       { type: 'capture', unitId: 'rgr', cell: 1, from: null, to: 0, unitConsumed: true },
@@ -106,7 +111,8 @@ describe('capture (Phase B.5) — the claim consumes the claimant (v0.6)', () =>
         [makeUnit('u', 0, 0, key), makeUnit('far', 1, 2, 'infantry')],
         { bases: { 0: null } },
       );
-      const { state: s } = resolve(board, state);
+      // v0.8: capture is now opt-in; add the order so the claim fires.
+      const { state: s } = resolve(board, state, [{ kind: 'capture', unitId: 'u' }]);
       expect(s.bases![0]).toBe(0);
       expect(s.units['u']).toBeUndefined();
     }
@@ -117,7 +123,8 @@ describe('capture (Phase B.5) — the claim consumes the claimant (v0.6)', () =>
         [makeUnit('u', 0, 0, key), makeUnit('far', 1, 2, 'infantry')],
         { bases: { 0: null } },
       );
-      const { state: s, events } = resolve(board, state);
+      // Vehicles with a capture order still cannot claim (armorType !== personnel).
+      const { state: s, events } = resolve(board, state, [{ kind: 'capture', unitId: 'u' }]);
       expect(s.bases![0]).toBe(null);
       expect(ofType(events, 'capture')).toHaveLength(0);
       expect(s.units['u']).toBeDefined(); // no capture ⇒ no consumption
@@ -168,6 +175,7 @@ describe('capture (Phase B.5) — the claim consumes the claimant (v0.6)', () =>
       [
         { kind: 'move', unitId: 'snp', path: [1] },
         { kind: 'attack', unitId: 'snp', targetCell: 2 },
+        { kind: 'capture', unitId: 'snp' }, // v0.8: capture is now opt-in
       ],
       [{ kind: 'stance', unitId: 'inf', stance: 'hold-fire' }],
     );
@@ -193,6 +201,7 @@ describe('capture (Phase B.5) — the claim consumes the claimant (v0.6)', () =>
     );
     const { state: s, events } = resolve(board, state, [
       { kind: 'stance', unitId: 'inf', stance: 'hold-fire' },
+      { kind: 'capture', unitId: 'inf' }, // v0.8: capture is now opt-in
     ]);
     const hits = ofType(events, 'attack').filter((a) => a.defenderId === 'inf');
     expect(hits.length).toBeGreaterThan(0); // it really was shot
@@ -212,7 +221,7 @@ describe('capture (Phase B.5) — the claim consumes the claimant (v0.6)', () =>
       [makeUnit('inf', 0, 1, 'infantry'), makeUnit('far', 1, 4, 'infantry')],
       { bases: { 1: null } },
     );
-    const r1 = resolve(board, state);
+    const r1 = resolve(board, state, [{ kind: 'capture', unitId: 'inf' }]); // v0.8: opt-in
     expect(r1.state.units['inf']).toBeUndefined(); // consumed in round 1
     // Round 2: orders for the consumed id must be ignored — no move, no
     // attack, no lost-target, nothing referencing it.
@@ -239,7 +248,10 @@ describe('capture (Phase B.5) — the claim consumes the claimant (v0.6)', () =>
     const r1 = resolve(
       board,
       state,
-      [{ kind: 'move', unitId: 'rgr', path: [1] }],
+      [
+        { kind: 'move', unitId: 'rgr', path: [1] },
+        { kind: 'capture', unitId: 'rgr' }, // v0.8: capture is now opt-in
+      ],
       [],
       { 0: [], 1: [{ kind: 'buy', baseCell: 1, unitTypeKey: 'infantry' }] },
     );
@@ -306,7 +318,8 @@ describe('income (Phase E)', () => {
       [makeUnit('inf', 0, 1, 'infantry'), makeUnit('far', 1, 3, 'infantry')],
       { bases: { 1: 1 }, credits: { 0: 0, 1: 0 } },
     );
-    const { state: s } = resolve(board, state);
+    // v0.8: capture is now opt-in; add the order so the claim fires.
+    const { state: s } = resolve(board, state, [{ kind: 'capture', unitId: 'inf' }]);
     expect(s.credits).toEqual({ 0: 100, 1: 0 });
   });
 
@@ -379,7 +392,10 @@ describe('production (Phase E)', () => {
     const { state: s, events } = resolve(
       board,
       state,
-      [{ kind: 'move', unitId: 'rgr', path: [1] }],
+      [
+        { kind: 'move', unitId: 'rgr', path: [1] },
+        { kind: 'capture', unitId: 'rgr' }, // v0.8: capture is now opt-in
+      ],
       [],
       { 0: [], 1: [buy(1, 'tank')] },
     );
@@ -488,8 +504,11 @@ describe('conquest win and loss', () => {
       { bases: { 1: 0 }, baseless: { 0: 0, 1: BASELESS_GRACE - 1 } },
     );
     // Faction 1's ranger takes the base on what would otherwise be its
-    // final grace round.
-    const { state: s } = resolve(board, state, [], [{ kind: 'move', unitId: 'rgr', path: [1] }]);
+    // final grace round. v0.8: capture is now opt-in.
+    const { state: s } = resolve(board, state, [], [
+      { kind: 'move', unitId: 'rgr', path: [1] },
+      { kind: 'capture', unitId: 'rgr' },
+    ]);
     expect(s.bases![1]).toBe(1);
     expect(s.baseless).toEqual({ 0: 1, 1: 0 }); // faction 0 starts ITS count
     expect(s.outcome).toBeUndefined();
@@ -624,7 +643,8 @@ describe('conquest determinism', () => {
       makeUnit('b-grd', 1, 5, 'grenadier'),
     ];
     const o0: Order[] = [
-      { kind: 'move', unitId: 'a-rgr', path: [3] }, // capture the neutral base
+      { kind: 'move', unitId: 'a-rgr', path: [3] },
+      { kind: 'capture', unitId: 'a-rgr' }, // v0.8 opt-in: claim the neutral base at cell 3
       { kind: 'move', unitId: 'a-inf', path: [2] },
     ];
     const o1: Order[] = [{ kind: 'move', unitId: 'b-grd', path: [4] }];

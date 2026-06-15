@@ -74,7 +74,7 @@ import aiJson from '../../data/ai.json';
 import type { CellId, TerrainKey } from '../board/types';
 import { attackDamage, battleExchange } from '../core/combat/weewar';
 import type { Order } from '../core/orders';
-import { findPath, movementCostsFor, reachableCells } from '../core/pathing';
+import { enemyFrictionAt, findPath, movementCostsFor, reachableCells } from '../core/pathing';
 import { ROUND_LIMIT } from '../core/resolver';
 import { fnv1a32, initTieKey } from '../core/rng';
 import type { Rng } from '../core/rng';
@@ -809,10 +809,17 @@ export function createGreedyPlanner(
         // traversable mid-path.
         const canStopAt = (c: CellId): boolean => !friendlyOccupied.has(c);
         const canPassThrough = (c: CellId): boolean => !enemyCells.has(c);
+        // v0.9 ENEMY FRICTION (movement friction near enemies): the planner
+        // prices reach/paths with the SAME malus the resolver will charge — but
+        // from its KNOWN enemy set (view.enemies / `enemyCells`, the visible/
+        // believed positions), so plans are realistic and don't constantly
+        // truncate. A genuinely fog-hidden enemy still surprises at resolution.
+        const extraCostAt = (c: CellId): number => enemyFrictionAt(board, c, enemyCells);
 
         const reach = reachableCells(board, costs, u.cell, ut.movement, {
           canStopAt,
           canPassThrough,
+          extraCostAt,
         });
         // Stay-put is ALWAYS a candidate — even from a cell the unit could
         // never re-enter (vehicle placed on a mountain).
@@ -932,6 +939,8 @@ export function createGreedyPlanner(
           /** Brawl charge: move INTO this enemy's cell, no attack order. */
           charge: EnemyInfo | null;
           chargeDamage: number; // counts the brawl sim expects to destroy
+          /** Brawl: our expected count AFTER the exchange (0 = we die). */
+          chargeOurEnd: number;
         };
         let best: Pick | null = null;
 
@@ -1027,6 +1036,7 @@ export function createGreedyPlanner(
                 tie,
                 charge: targetEi,
                 chargeDamage,
+                chargeOurEnd: sim.ourEnd,
               };
             }
             continue;
@@ -1180,6 +1190,7 @@ export function createGreedyPlanner(
               tie,
               charge: null,
               chargeDamage: 0,
+              chargeOurEnd: 0, // not a charge; field unused
             };
           }
         }
@@ -1193,6 +1204,7 @@ export function createGreedyPlanner(
             budget: ut.movement,
             canStopAt,
             canPassThrough,
+            extraCostAt, // v0.9: same friction the reach used — the path must fit it
           });
           if (pr && pr.path.length > 0) {
             orders.push({ kind: 'move', unitId: u.id, path: pr.path });
@@ -1218,6 +1230,24 @@ export function createGreedyPlanner(
         const stance: Stance =
           !best.target && !best.charge && best.taken > 0 ? 'defensive' : 'aggressive';
         if (stance !== u.stance) orders.push({ kind: 'stance', unitId: u.id, stance });
+
+        // v0.8 — capture is now opt-in (resolver B.5 intent gate). Emit the
+        // order iff: conquest mode, personnel unit, landing on a capturable base
+        // (not own). For a brawl charge, the scoring only priced a capture if
+        // the sim expected the unit to survive (chargeOurEnd > 0); emit only
+        // then — a charge that kills the unit should not also attempt a claim.
+        // Trust the scorer: the unit already chose this destination, and
+        // cqBonusAt competed the capture value against alternatives (§8.2),
+        // so emitting the order here is consistent with that decision.
+        if (cq && ut.armorType === 'personnel') {
+          const bi = baseAt.get(landedOn);
+          if (bi && bi.owner !== view.faction) {
+            const willCaptureAfterCharge = best.charge === null || best.chargeOurEnd > 0;
+            if (willCaptureAfterCharge) {
+              orders.push({ kind: 'capture', unitId: u.id });
+            }
+          }
+        }
 
         friendlyOccupied.delete(u.cell);
         friendlyOccupied.add(landedOn);

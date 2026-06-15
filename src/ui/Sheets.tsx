@@ -84,6 +84,11 @@ export function OrderSheet({
   if (orders.stance) {
     rows.push({ kind: 'stance', label: 'Stance', detail: STANCE_LABEL[orders.stance.stance] });
   }
+  // v0.8 Task 2.4: capture order — show in the order sheet so the player can
+  // remove it from the sheet in addition to the in-board toggle.
+  if (orders.capture) {
+    rows.push({ kind: 'capture', label: 'Capture', detail: 'will claim base on arrival' });
+  }
 
   return (
     <SheetShell title={`${unitType?.name ?? unit.type} — orders`} onClose={onClose}>
@@ -243,6 +248,10 @@ export function UnitCard({ unit, unitType }: { unit: UnitInstance; unitType: Uni
       </div>
       <dl className="unit-card-stats">
         <div>
+          <dt>cost</dt>
+          <dd>◈ {unitType.cost}</dd>
+        </div>
+        <div>
           <dt>initiative</dt>
           <dd>{unitType.initiative}</dd>
         </div>
@@ -271,6 +280,12 @@ export function UnitCard({ unit, unitType }: { unit: UnitInstance; unitType: Uni
           </dd>
         </div>
       </dl>
+      <div className="unit-card-veterancy">
+        <span className="unit-card-vet-label">veterancy</span>
+        <span className="unit-card-vet-stats">
+          {'★'.repeat(Math.max(0, unit.rank ?? 0)) || '—'} &nbsp; xp {unit.xp ?? 0} &nbsp; kills {unit.kills ?? 0}
+        </span>
+      </div>
     </div>
   );
 }
@@ -323,6 +338,9 @@ export function UnitHoverCard({
         {fmtRange(unitType.minRange, unitType.maxRange)} v:{unitType.vision} p:
         {unitType.attackStrengths.personnel} h:{unitType.attackStrengths.armored} m:
         {unitType.movement}
+        {(unit.kills ?? 0) > 0 || (unit.rank ?? 0) > 0
+          ? ` · k:${unit.kills ?? 0} ★${unit.rank ?? 0}`
+          : null}
       </div>
     </div>
   );

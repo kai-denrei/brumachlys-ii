@@ -52,6 +52,7 @@ function seedBattle(units: UnitInstance[]) {
     uiPhase: 'planning',
     replay: null,
     selectedUnitId: null,
+    pendingMove: null,
     orders: {},
     focus: null,
   });
@@ -156,6 +157,31 @@ describe('planning slice', () => {
     expect(conv.get(2)).toEqual(['a', 'b']);
   });
 
+  it('v0.9 preemptive fire: a RANGED unit queues an attack on an empty in-range cell; a melee one cannot', () => {
+    const s = () => useAppStore.getState();
+    // artillery 'g' at cell 0 (range 2-4, vision only 1). A friendly sniper at
+    // cell 0 (vision 4) spots cell 3 so it is visible to the player faction —
+    // preemptive fire still requires SEEING the cell. 'a' is a melee infantry.
+    seedBattle([
+      unit('g', 0, 0, 'artillery'),
+      unit('spotter', 0, 0, 'sniper'),
+      unit('a', 0, 0),
+    ]);
+    // cell 3 is empty, visible (spotter), and in artillery range (dist 3 ∈ [2,4]).
+    expect(s().tryQueueOrder({ kind: 'attack', unitId: 'g', targetCell: 3 }).ok).toBe(true);
+    expect(s().orders['g']!.attack!.targetCell).toBe(3);
+    // a melee infantry cannot preempt an empty cell — rejects no-target.
+    expect(s().tryQueueOrder({ kind: 'attack', unitId: 'a', targetCell: 1 })).toEqual({
+      ok: false,
+      reason: 'no-target',
+    });
+    // an out-of-range empty cell still rejects for the ranged unit.
+    expect(s().tryQueueOrder({ kind: 'attack', unitId: 'g', targetCell: 1 })).toEqual({
+      ok: false,
+      reason: 'out-of-range',
+    });
+  });
+
   it('exitBattle clears the planning slice', () => {
     const s = () => useAppStore.getState();
     s().selectUnit('a');
@@ -164,5 +190,89 @@ describe('planning slice', () => {
     expect(s().selectedUnitId).toBeNull();
     expect(s().orders).toEqual({});
     expect(s().focus).toBeNull();
+  });
+
+  // --- v0.9 propose-then-confirm store actions (driven directly) ---------------
+
+  it('proposeMove sets pending without queuing; commitPendingMove queues it', () => {
+    const s = () => useAppStore.getState();
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    expect(s().pendingMove).toEqual({ unitId: 'a', dest: 1, path: [1] });
+    expect(s().orders['a']).toBeUndefined(); // proposed, not queued
+
+    expect(s().commitPendingMove()).toBe(true);
+    expect(s().pendingMove).toBeNull();
+    expect(s().orders['a']!.move!.path).toEqual([1]);
+  });
+
+  it('commitPendingMove is a no-op (false) with no pending proposal', () => {
+    const s = () => useAppStore.getState();
+    expect(s().commitPendingMove()).toBe(false);
+    expect(s().orders).toEqual({});
+  });
+
+  it('commit() flushes a dangling pending proposal — the COMMIT button no longer drops a set-up move', () => {
+    const s = () => useAppStore.getState();
+    seedBattle([unit('a', 0, 0)]); // lone unit, no enemies → unambiguous resolution
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    expect(s().orders['a']).toBeUndefined(); // proposed, not yet queued
+    s().commit(); // the COMMIT button path (no explicit second tap / Enter)
+    expect(s().pendingMove).toBeNull();
+    // The proposal was flushed into the round and resolved: 'a' moved to cell 1.
+    // (The bug discarded the pending move and 'a' stayed at cell 0.)
+    expect(s().game!.units['a']!.cell).toBe(1);
+  });
+
+  it('proposeMove REPLACES an existing proposal (one per unit/session)', () => {
+    const s = () => useAppStore.getState();
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    s().proposeMove({ unitId: 'a', dest: 3, path: [1, 2, 3] });
+    expect(s().pendingMove).toEqual({ unitId: 'a', dest: 3, path: [1, 2, 3] });
+  });
+
+  it('selectUnit / clearPendingMove / clearOrders all drop a pending proposal', () => {
+    const s = () => useAppStore.getState();
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    s().selectUnit('b'); // switching selection drops the (un-committed) proposal
+    expect(s().pendingMove).toBeNull();
+
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    s().clearPendingMove();
+    expect(s().pendingMove).toBeNull();
+
+    s().proposeMove({ unitId: 'a', dest: 1, path: [1] });
+    s().clearOrders();
+    expect(s().pendingMove).toBeNull();
+  });
+
+  it('a proposal that no longer validates is still cleared (commit returns false)', () => {
+    const s = () => useAppStore.getState();
+    // ending on a friendly with no queued vacancy is rejected by tryQueueOrder.
+    s().selectUnit('a');
+    s().proposeMove({ unitId: 'a', dest: 4, path: [1, 2, 3, 4] }); // cell 4 holds friendly b
+    expect(s().commitPendingMove()).toBe(false); // rejected
+    expect(s().pendingMove).toBeNull(); // proposal still cleared
+    expect(s().orders['a']).toBeUndefined(); // nothing queued
+  });
+
+  it('a rejected commit surfaces a notice (FIX 2 — no silent drop)', () => {
+    const s = () => useAppStore.getState();
+    // Propose a move onto a friendly-occupied cell (no vacancy queued) — validation
+    // will reject it. commitPendingMove must signal a notice so the player learns
+    // the move wasn't placed, rather than silently discarding the proposal.
+    s().selectUnit('a');
+    // Ensure notice starts null so the signal is clearly new.
+    useAppStore.setState({ notice: null });
+    s().proposeMove({ unitId: 'a', dest: 4, path: [1, 2, 3, 4] }); // cell 4 holds friendly b
+    const result = s().commitPendingMove();
+    expect(result).toBe(false); // rejected
+    expect(s().pendingMove).toBeNull(); // cleared (no ghost left)
+    expect(s().notice).not.toBeNull(); // player gets feedback — move was rejected
+    expect(s().notice?.text).toMatch(/move/i); // notice is about the move
   });
 });

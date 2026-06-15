@@ -37,6 +37,7 @@ function brawlStrike(cell: CellId, att: string, def: string): Strike {
       D: 4,
       Td: 0,
       B: 0,
+      vet: 0,
       gangUp: { total: 0, contributions: [] },
       p: 0.7,
       damage: 3,
@@ -180,7 +181,8 @@ describe('GameOverBanner dashboard (v1.4)', () => {
     getByText('The mist parts. The field is yours.');
     const recap = getByTestId('battle-recap');
     const nums = [...recap.querySelectorAll('.summary-num')].map((el) => el.textContent);
-    expect(nums).toEqual(['12', '73', '58', '4', '3']);
+    // value lost (sniper=200) and value destroyed (2×tank=600) added in v0.9.
+    expect(nums).toEqual(['12', '73', '58', '4', '3', '◈ 200', '◈ 600']);
     // icon rows: 1 fallen + 2 enemy destroyed (chess style, repeats repeat)
     expect(container.querySelectorAll('.recap-icon-row').length).toBe(2);
     expect(recap.querySelectorAll('.casualty-icon').length).toBe(3);

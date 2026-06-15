@@ -16,6 +16,9 @@ export type PipelineEntry = {
   title: string;
   /** Laconic one liners. */
   items: string[];
+  /** Short git SHA (7 chars). When set, a GitHub commit link is rendered next
+   *  to the version label. Leave undefined for unshipped entries. */
+  commit?: string;
 };
 
 /** Chronological, the parking lot last. Append new releases at the bottom
@@ -33,6 +36,7 @@ export const PIPELINE: PipelineEntry[] = [
       'fog honest replay',
       'GitHub Pages pipeline',
     ],
+    commit: '8be1448',
   },
   {
     version: '0.3.x',
@@ -45,6 +49,7 @@ export const PIPELINE: PipelineEntry[] = [
       'skirmish log · hover cards',
       'replay feel: stagger, trails, casualty recap',
     ],
+    commit: 'b72f4e7',
   },
   {
     version: '0.4.0',
@@ -52,6 +57,7 @@ export const PIPELINE: PipelineEntry[] = [
     status: 'shipped',
     title: 'discovery fog',
     items: ['dark / memory / live tiers', 'silhouette previews'],
+    commit: 'c898151',
   },
   {
     version: '0.5.x',
@@ -63,6 +69,54 @@ export const PIPELINE: PipelineEntry[] = [
       'win modes · economy AI · mode select',
       'idle pulse · victory dashboard',
     ],
+    commit: '76d9fe7',
+  },
+  {
+    version: '0.8.x',
+    date: 'Jun 14',
+    status: 'shipped',
+    title: 'veterancy · deliberate capture · faster resolution',
+    items: [
+      'veterancy ranks: xp · promotion · pips',
+      'deliberate opt in base capture',
+      'simultaneous replay: all moves then all combats',
+      'size adaptive maps: small to large',
+      'refreshed bases · capture claim animation',
+      'auto advance turns · Enter to commit',
+    ],
+    commit: 'c1f61ca',
+  },
+  {
+    version: '0.9.x',
+    date: 'Jun 14',
+    status: 'shipped',
+    title: 'capture fix · propose then confirm · area denial',
+    items: [
+      'base art now always matches a capturable base',
+      'propose then confirm moves · active unit halo',
+      'ranged area denial: fire on an empty tile',
+      'kill count · xp · rank in the unit card',
+      'credit value of losses · clearer phase rules',
+      'board holds steady when the speed control toggles',
+      'health colored counts · enemy movement friction',
+      'expandable casualties · tile adjacency guide',
+    ],
+    commit: 'd9fabf0',
+  },
+  {
+    version: '0.9.x',
+    date: 'Jun 15',
+    status: 'shipped',
+    title: 'diagonal distance · radar · solari HUD',
+    items: [
+      'diagonals count as 1 tile (board topology) · friction rebalanced',
+      'split flap round number · odometer credits with per turn income',
+      'per unit radar: tap to measure shooting range in hops',
+      'capture toggle sits atop the base · capturing animation',
+      'rules: real board hop distance examples',
+      'conquest checkmate when the last base is sat on',
+    ],
+    commit: '26cddd2',
   },
   {
     version: 'next',
@@ -84,4 +138,4 @@ export const PIPELINE: PipelineEntry[] = [
  *  output would couple the bundle to the test runner. Update alongside the
  *  version bump; the pipeline test pins it to this constant, not to the
  *  live suite. */
-export const TEST_COUNT = 561;
+export const TEST_COUNT = 795;

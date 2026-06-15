@@ -235,11 +235,17 @@ describe('Phase A.5 brawls', () => {
 
   test('charge-into-fog: enemy hidden at destination → brawl occurs (§13.5)', () => {
     const board = plainsLine(4);
-    // Infantry vision 2; the tank at distance 3 is fog-hidden at planning time.
-    const state = makeState(board, [makeUnit('i', 0, 0, 'infantry'), makeUnit('t', 1, 3, 'tank')]);
-    const { events } = resolve(board, state, [{ kind: 'move', unitId: 'i', path: [1, 2, 3] }]);
+    // Vision-2 charger; the defender at distance 3 is fog-hidden at planning
+    // time. v0.9: the charger must be a TANK (budget 12) rather than infantry
+    // (budget 9) — enemy friction (+1 entering cell 2, which borders the
+    // defender on cell 3) now costs the charge 10 of its 12 budget, where an
+    // infantry's 9 no longer reaches (3+4+3=10 > 9). The charge-into-fog
+    // INTENT is preserved (a fog-hidden enemy at the destination still triggers
+    // the §2.6 brawl); friction only means a slower mover can't sprint right up.
+    const state = makeState(board, [makeUnit('t', 0, 0, 'tank'), makeUnit('d', 1, 3, 'infantry')]);
+    const { events } = resolve(board, state, [{ kind: 'move', unitId: 't', path: [1, 2, 3] }]);
     expect(ofType(events, 'move')).toEqual([
-      { type: 'move', unitId: 'i', from: 0, to: 3, pathTaken: [1, 2, 3] },
+      { type: 'move', unitId: 't', from: 0, to: 3, pathTaken: [1, 2, 3] },
     ]);
     expect(ofType(events, 'brawl-exchange').length).toBeGreaterThan(0);
     expect(ofType(events, 'kill')).toHaveLength(1);
@@ -453,6 +459,122 @@ describe('Phase B combat', () => {
   });
 });
 
+// ── v0.9 preemptive fire (area denial) ────────────────────────────────────────
+// A ranged unit's explicit attack on an EMPTY cell fires at whoever occupies it
+// at Phase B (after movement): enemy → hit; empty or friendly → lost-target.
+// The resolver needs NO change for this — the explicit-target path already does
+// it (enemyAt is enemy-only; a missing/friendly occupant yields lost-target).
+// These tests lock that contract in.
+
+describe('preemptive fire: explicit attack on an empty cell', () => {
+  test('enemy MOVES onto the targeted empty cell → hit (no lost-target)', () => {
+    const board = plainsLine(7);
+    // artillery at 0 (range 2-4) preemptively targets empty cell 3; an enemy
+    // humvee at 6 moves 6→5→4→3, ending ON cell 3 in Phase A. Distance 0→3 == 3.
+    const state = makeState(board, [
+      makeUnit('art', 0, 0, 'artillery'),
+      makeUnit('h', 1, 6, 'humvee'),
+    ]);
+    const { state: s, events } = resolve(
+      board,
+      state,
+      [{ kind: 'attack', unitId: 'art', targetCell: 3 }],
+      [{ kind: 'move', unitId: 'h', path: [5, 4, 3] }],
+    );
+    expect(ofType(events, 'lost-target')).toHaveLength(0);
+    const attacks = ofType(events, 'attack').filter((a) => a.attackerId === 'art');
+    expect(attacks).toHaveLength(1);
+    expect(attacks[0]).toMatchObject({ defenderId: 'h' });
+    expect(s.units['h']!.count).toBeLessThan(10); // took the hit
+  });
+
+  test('cell STAYS empty → fizzle (lost-target), no damage', () => {
+    const board = plainsLine(7);
+    // No enemy ever reaches cell 3 — the humvee sits at 6.
+    const state = makeState(board, [
+      makeUnit('art', 0, 0, 'artillery'),
+      makeUnit('h', 1, 6, 'humvee'),
+    ]);
+    const { state: s, events } = resolve(
+      board,
+      state,
+      [{ kind: 'attack', unitId: 'art', targetCell: 3 }],
+      [{ kind: 'stance', unitId: 'h', stance: 'hold-fire' }],
+    );
+    expect(ofType(events, 'lost-target')).toEqual([
+      { type: 'lost-target', attackerId: 'art', targetCell: 3 },
+    ]);
+    expect(ofType(events, 'attack').filter((a) => a.attackerId === 'art')).toHaveLength(0);
+    expect(s.units['h']!.count).toBe(10);
+  });
+
+  test('FRIENDLY moves onto the targeted cell → fizzle, no friendly fire', () => {
+    const board = plainsLine(7);
+    // artillery (faction 0) targets empty cell 3; a FRIENDLY ranger (faction 0)
+    // moves onto cell 3. enemyAt(3, 0) finds no enemy → lost-target, no hit.
+    const state = makeState(board, [
+      makeUnit('art', 0, 0, 'artillery'),
+      makeUnit('r', 0, 6, 'ranger'),
+    ]);
+    const { state: s, events } = resolve(
+      board,
+      state,
+      [
+        { kind: 'attack', unitId: 'art', targetCell: 3 },
+        { kind: 'move', unitId: 'r', path: [5, 4, 3] },
+      ],
+    );
+    expect(ofType(events, 'lost-target')).toEqual([
+      { type: 'lost-target', attackerId: 'art', targetCell: 3 },
+    ]);
+    expect(ofType(events, 'attack').filter((a) => a.attackerId === 'art')).toHaveLength(0);
+    expect(s.units['r']!.count).toBe(10); // friendly untouched
+  });
+
+  test('UNDAMAGEABLE enemy moves onto the targeted cell → fizzle, NO attack, NO counter', () => {
+    // Fix (v0.9): the explicit-target path must gate on attackStrengths at fire
+    // time, exactly like pickAutoTarget. Artillery deals 0 to 'air' armor; if an
+    // aircraft moves onto the preemptively-targeted cell, the shot can't hurt it,
+    // so it must fizzle (lost-target) rather than fire for 0 and eat a counter.
+    const board = plainsLine(7);
+    // Synthetic 'aircraft' target: armorType 'air' (artillery's attackStrengths
+    // ['air'] === 0). Clone artillery's terrainEffects so it's a valid type; it
+    // can counter (nonzero attackStrengths) — proving NO counter is eaten.
+    const artType = types['artillery']!;
+    const aircraft: typeof artType = {
+      ...artType,
+      key: 'aircraft',
+      name: 'Aircraft',
+      armorType: 'air',
+      minRange: 1,
+      maxRange: 1,
+      attackStrengths: { personnel: 6, armored: 6, naval: 0, air: 0 },
+    };
+    const testTypes = { ...types, aircraft };
+    const state = makeState(board, [
+      makeUnit('art', 0, 0, 'artillery'),
+      { ...makeUnit('plane', 1, 6, 'aircraft'), count: 10 },
+    ]);
+    // art targets empty cell 3; the aircraft moves 6→5→4→3, ending ON cell 3.
+    const { state: s, events } = resolveRound(
+      board,
+      state,
+      { 0: [{ kind: 'attack', unitId: 'art', targetCell: 3 }], 1: [{ kind: 'move', unitId: 'plane', path: [5, 4, 3] }] },
+      testTypes,
+      weewar,
+    );
+    // Fizzle: a lost-target on cell 3, NO attack from art, and (critically) NO
+    // counter — neither side took damage.
+    expect(ofType(events, 'lost-target')).toEqual([
+      { type: 'lost-target', attackerId: 'art', targetCell: 3 },
+    ]);
+    expect(ofType(events, 'attack').filter((a) => a.attackerId === 'art')).toHaveLength(0);
+    expect(ofType(events, 'counter')).toHaveLength(0);
+    expect(s.units['art']!.count).toBe(10); // attacker ate no counter
+    expect(s.units['plane']!.count).toBe(10); // undamageable target untouched
+  });
+});
+
 // ── §2.8 win / draw ───────────────────────────────────────────────────────────
 
 describe('win and draw detection', () => {
@@ -493,6 +615,87 @@ describe('win and draw detection', () => {
     expect(s.outcome).toBeUndefined();
     expect(s.phase).toBe('planning');
     expect(s.round).toBe(ROUND_LIMIT);
+  });
+});
+
+// ── v0.9 ENEMY FRICTION (movement friction near enemies) ──────────────────────
+//
+// A move PLANNED against no/visible enemies truncates at resolution when the
+// ACTUAL (incl. hidden) enemies add friction over budget; an open-field move is
+// unchanged; the truncation emits the distinct 'enemy-friction' reason.
+describe('movement friction near enemies (resolver Phase A)', () => {
+  /** Lane 0—1—2—3—4 with a side cell 5 attached to lane cell `besideCell`. An
+   *  enemy parked on cell 5 borders that lane cell. */
+  function laneWithSide(besideCell: number): Board {
+    const specs: { center: Vec2; terrain: 'plains' }[] = [
+      { center: [0, 0], terrain: 'plains' }, // 0
+      { center: [1, 0], terrain: 'plains' }, // 1
+      { center: [2, 0], terrain: 'plains' }, // 2
+      { center: [3, 0], terrain: 'plains' }, // 3
+      { center: [4, 0], terrain: 'plains' }, // 4
+      { center: [besideCell, 1], terrain: 'plains' }, // 5 (beside `besideCell`)
+    ];
+    const edges: [number, number][] = [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [5, besideCell],
+    ];
+    return syntheticBoard(specs, edges);
+  }
+
+  test('open-field walk is unchanged: infantry completes 0→3 (cost 9)', () => {
+    const board = laneWithSide(3); // side cell exists but is EMPTY
+    const state = makeState(board, [makeUnit('a', 0, 0, 'infantry')]);
+    const { state: s, events } = resolve(board, state, [
+      { kind: 'move', unitId: 'a', path: [1, 2, 3] },
+    ]);
+    expect(s.units['a']!.cell).toBe(3);
+    expect(ofType(events, 'path-truncated')).toHaveLength(0);
+  });
+
+  test('a hidden enemy bordering the destination truncates with enemy-friction', () => {
+    // Enemy on cell 5, adjacent to lane cell 3. Infantry budget 9. Entering
+    // 1 (3) → 2 (3) → leaves budget 3; entering 3 = terrain 3 (fits) + friction
+    // 1 = 4 > 3 → truncate AT cell 2, reason 'enemy-friction'.
+    const board = laneWithSide(3);
+    const state = makeState(board, [
+      makeUnit('a', 0, 0, 'infantry'),
+      makeUnit('e', 1, 5, 'infantry'),
+    ]);
+    const { state: s, events } = resolve(board, state, [
+      { kind: 'move', unitId: 'a', path: [1, 2, 3] },
+    ]);
+    expect(s.units['a']!.cell).toBe(2); // stopped one short of the friction cell
+    const tr = ofType(events, 'path-truncated');
+    expect(tr).toHaveLength(1);
+    expect(tr[0]!.reason).toBe('enemy-friction');
+    expect(tr[0]!.planned).toBe(3);
+    expect(tr[0]!.actual).toBe(2);
+  });
+
+  test("a pure terrain-budget halt still reports 'budget', not 'enemy-friction'", () => {
+    // Long plains lane, no enemy: infantry runs out of budget on terrain alone.
+    const board = plainsLine(6);
+    const state = makeState(board, [makeUnit('a', 0, 0, 'infantry')]);
+    const { events } = resolve(board, state, [
+      { kind: 'move', unitId: 'a', path: [1, 2, 3, 4] }, // cost 12 > 9
+    ]);
+    const tr = ofType(events, 'path-truncated');
+    expect(tr).toHaveLength(1);
+    expect(tr[0]!.reason).toBe('budget');
+  });
+
+  test('friction is deterministic: identical inputs → identical logs', () => {
+    const board = laneWithSide(3);
+    const mk = () =>
+      resolve(
+        board,
+        makeState(board, [makeUnit('a', 0, 0, 'infantry'), makeUnit('e', 1, 5, 'infantry')]),
+        [{ kind: 'move', unitId: 'a', path: [1, 2, 3] }],
+      );
+    expect(JSON.stringify(mk().events)).toBe(JSON.stringify(mk().events));
   });
 });
 

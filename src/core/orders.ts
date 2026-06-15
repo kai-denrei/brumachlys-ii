@@ -13,16 +13,18 @@
 import type { Board, CellId, TerrainKey } from '../board/types';
 import { graphDistance } from '../board/geometry';
 import type { FactionId, Stance, UnitInstance, UnitType } from './types';
-import { IMPASSABLE } from './pathing';
+import { IMPASSABLE, enemyFrictionAt } from './pathing';
 
 export type Order =
   | { kind: 'move'; unitId: string; path: CellId[] } // destination cells only, start excluded
   | { kind: 'attack'; unitId: string; targetCell: CellId }
-  | { kind: 'stance'; unitId: string; stance: Stance };
+  | { kind: 'stance'; unitId: string; stance: Stance }
+  | { kind: 'capture'; unitId: string }; // v0.8 — opt-in claim (consumes the unit)
 
 export type MoveOrder = Extract<Order, { kind: 'move' }>;
 export type AttackOrder = Extract<Order, { kind: 'attack' }>;
 export type StanceOrder = Extract<Order, { kind: 'stance' }>;
+export type CaptureOrder = Extract<Order, { kind: 'capture' }>;
 export type OrderKind = Order['kind'];
 
 /** A unit's planned round: at most one order per kind (spec §2.3). */
@@ -30,6 +32,7 @@ export type UnitOrders = {
   move?: MoveOrder;
   attack?: AttackOrder;
   stance?: StanceOrder;
+  capture?: CaptureOrder; // v0.8
 };
 
 /** All queued orders for one faction, by unit id. Treated as immutable. */
@@ -130,6 +133,10 @@ export function validateOrder(ctx: OrderContext, order: Order): ValidationResult
         return reject('hold-fire-blocks-attack');
       }
       return OK;
+    case 'capture':
+      // capture is always queueable; the resolver decides if it actually fires
+      // (personnel + ends on a capturable base) — otherwise it's a harmless no-op.
+      return OK;
   }
 }
 
@@ -151,6 +158,16 @@ function validateMove(
   const path = order.path;
   if (path.length === 0) return reject('empty-path');
 
+  // v0.9 ENEMY FRICTION (movement friction near enemies): cells holding a
+  // VISIBLE enemy unit. Planning uses the SAME fog rule as the through-enemy
+  // check below — only enemies the faction can see add friction; a hidden one
+  // surprises at resolution by design. Cheap to build (own units are few); the
+  // helper short-circuits to 0 when the set is empty.
+  const enemyCells = new Set<CellId>();
+  for (const o of units) {
+    if (o.faction !== unit.faction && o.count > 0 && visible.has(o.cell)) enemyCells.add(o.cell);
+  }
+
   let prev = unit.cell;
   let cost = 0;
   for (let i = 0; i < path.length; i++) {
@@ -163,7 +180,12 @@ function validateMove(
     const terrain = ctx.assumedTerrain ? ctx.assumedTerrain(step) : cell.terrain;
     const stepCost = ut.terrainEffects[terrain]?.movementCost ?? IMPASSABLE;
     if (stepCost >= IMPASSABLE) return reject('impassable');
-    cost += stepCost;
+    // Enemy friction is added AFTER the impassable gate (terrain alone decides
+    // passability) and BEFORE the budget check, so a step bordered by enemies
+    // can push a walk over budget — the soft malus the player sees as reduced
+    // reach. The mover's own START cell is never charged (loop enters at i=0
+    // for the FIRST entered cell; `unit.cell` is `prev`, not a `step`).
+    cost += stepCost + enemyFrictionAt(board, step, enemyCells);
     if (cost > ut.movement) return reject('over-budget');
 
     const occ = occupant(units, step, unit.id);
@@ -197,13 +219,30 @@ function validateAttack(
   const stance = queued?.stance?.stance ?? unit.stance;
   if (stance === 'hold-fire') return reject('hold-fire-blocks-attack');
 
+  // You must SEE the cell you fire at — true for both normal and preemptive shots.
   if (!visible.has(order.targetCell)) return reject('target-not-visible');
-  const target = occupant(units, order.targetCell, unit.id);
-  if (!target || target.faction === unit.faction) return reject('no-target');
 
-  const targetType = unitTypes[target.type];
-  if (targetType && (ut.attackStrengths[targetType.armorType] ?? 0) <= 0) {
-    return reject('cannot-damage');
+  const target = occupant(units, order.targetCell, unit.id);
+
+  // v0.9 PREEMPTIVE FIRE (area denial): a RANGED unit (maxRange > 1 — e.g.
+  // artillery, sniper) may target an EMPTY in-range cell, anticipating an enemy
+  // moving onto it. The resolver fires at whoever occupies the cell at Phase B:
+  // an enemy there takes the hit; empty-or-friendly fizzles ('lost-target', see
+  // resolver §2.7 explicit-target path). No friendly fire. Melee units
+  // (maxRange === 1) keep today's behaviour: an empty target rejects 'no-target'.
+  // A FRIENDLY on the cell always rejects (you can't shoot your own / a friendly
+  // sitting there is not a valid claim).
+  if (!target) {
+    if (ut.maxRange <= 1) return reject('no-target'); // melee: must have an enemy
+    // ranged + empty cell: fall through to the range check below.
+  } else if (target.faction === unit.faction) {
+    return reject('no-target'); // friendly-occupied — never a valid attack target
+  } else {
+    // enemy on the cell: keep the existing cannot-damage gate (normal attack).
+    const targetType = unitTypes[target.type];
+    if (targetType && (ut.attackStrengths[targetType.armorType] ?? 0) <= 0) {
+      return reject('cannot-damage');
+    }
   }
 
   const from = plannedEndCell(unit, queued);
@@ -238,7 +277,7 @@ export function removeOrder(queues: OrderQueues, unitId: string, kind: OrderKind
 export function orderedUnitIds(queues: OrderQueues): Set<string> {
   const ids = new Set<string>();
   for (const [unitId, uo] of Object.entries(queues)) {
-    if (uo.move || uo.attack || uo.stance) ids.add(unitId);
+    if (uo.move || uo.attack || uo.stance || uo.capture) ids.add(unitId);
   }
   return ids;
 }
@@ -255,6 +294,7 @@ export function flattenOrders(queues: OrderQueues): Order[] {
     if (uo.stance) orders.push(uo.stance);
     if (uo.move) orders.push(uo.move);
     if (uo.attack) orders.push(uo.attack);
+    if (uo.capture) orders.push(uo.capture);
   }
   return orders;
 }
