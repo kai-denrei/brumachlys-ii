@@ -120,6 +120,11 @@ function BattleScreen() {
   const types = useMemo(() => loadUnits(), []);
   const autopilot = useMemo(() => urlFlag('autopilot') === 'greedy', []);
 
+  // v0.9 radar: the unit whose shooting-range distances are displayed on the
+  // board. null = overlay hidden. Toggled by tapping the bottom-left radar pip
+  // on own units during planning. Cleared on phase change (planning exits).
+  const [rangeOverlayUnit, setRangeOverlayUnit] = useState<string | null>(null);
+
   // #5 auto-advance: "Your turn — R{n}" announcement token (null = not shown).
   // The announcement appears when replay finishes (summary phase), auto-fades
   // after ~1.9 s via CSS animation. A JS backstop timer (2200 ms) clears it
@@ -237,6 +242,12 @@ function BattleScreen() {
 
   // Phase flips reuse the same <Board> instance — drop a stale hover card.
   useEffect(() => setHover(null), [uiPhase]);
+
+  // v0.9 radar: clear the overlay whenever the phase leaves planning — the
+  // measurement is only meaningful while the player can act on it.
+  useEffect(() => {
+    if (uiPhase !== 'planning') setRangeOverlayUnit(null);
+  }, [uiPhase]);
 
   useEffect(() => {
     if (uiPhase !== 'replay' || !script) return;
@@ -963,6 +974,30 @@ function BattleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conquest, boardUnits, orders]);
 
+  // v0.9 radar: toggle handler — same id clears, different id switches.
+  const onUnitRadarTap = useCallback((unitId: string) => {
+    setRangeOverlayUnit((cur) => (cur === unitId ? null : unitId));
+  }, []);
+
+  // v0.9 radar: compute the overlay payload whenever a unit is selected for
+  // radar. Finds the unit, computes its vision set (using the same args as the
+  // main visible-cells call), then BFS-distances every visible cell from the
+  // unit's position using graphDistance. Heavy in theory on large maps but fog
+  // (vision set) bounds the visible cell count tightly.
+  const rangeOverlay = useMemo(() => {
+    if (!rangeOverlayUnit || !board) return null;
+    const unit = boardUnits.find((u) => u.id === rangeOverlayUnit);
+    if (!unit || unit.faction !== PLAYER_FACTION) return null;
+    // Compute vision for this single unit (same args as the main visibleCells call).
+    const vision = visibleCells(board, [unit], PLAYER_FACTION, types, gameBases);
+    // BFS distance from the unit's cell to each visible cell.
+    const distances = new Map<CellId, number>();
+    for (const cell of vision) {
+      distances.set(cell, graphDistance(board, unit.cell, cell));
+    }
+    return { unitId: unit.id, cell: unit.cell, distances };
+  }, [rangeOverlayUnit, board, boardUnits, types, gameBases]);
+
   if (!board || !game) return null;
 
   // --- replay rendering (§9.4 / §7) ----------------------------------------------
@@ -1207,6 +1242,8 @@ function BattleScreen() {
             stancePopover={stancePopover}
             captureToggle={captureToggle}
             captureIntentMarks={captureIntentMarks}
+            onUnitRadarTap={onUnitRadarTap}
+            rangeOverlay={rangeOverlay}
             onCellTap={onCellTap}
             onUnitTap={onUnitTap}
             onGhostTap={onGhostTap}

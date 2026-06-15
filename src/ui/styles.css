@@ -346,6 +346,44 @@ body {
   }
 }
 
+/* v0.9 radar: bottom-left pip on own units — distance-measurement toggle.
+   The sweep line rotates when the overlay is active so it reads as "scanning".
+   The pip itself inverts to faction color when active (SVG inline fill handles
+   the invert; this block adds the sweep spin and overlay label legibility). */
+.radar-sweep-spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: radar-sweep 2s linear infinite;
+}
+
+@keyframes radar-sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Reduced motion: no sweep rotation — the static sweep line stays at its
+   default angle. The active-state color inversion still communicates ON/OFF. */
+@media (prefers-reduced-motion: reduce) {
+  .radar-sweep-spin {
+    animation: none;
+  }
+}
+
+/* Radar overlay dim: the <rect> that covers the board. Rendered by Board.tsx
+   inside the pan/zoom group so it moves with the board (no coordinate sync). */
+.radar-dim {
+  /* cursor already set inline; this just clarifies intent. */
+  pointer-events: auto;
+}
+
+/* Distance labels: white text with dark stroke (paintOrder="stroke" in SVG),
+   so they read on both bright terrain and the dark dim wash. */
+.radar-dist-label {
+  font-family: -apple-system, 'Segoe UI', Roboto, monospace, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
 /* v0.9 propose-then-confirm: the un-queued PROPOSAL ghost. The destination ring
    pulses (dashed, faction color) to read as "tap again / Enter to confirm". The
    solid bright trail + hint pill are static SVG (set in EffectRenderer). */

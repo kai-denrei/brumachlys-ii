@@ -55,6 +55,11 @@ export type UnitRendererProps = {
    * progress toward the next rank. Absent → sliver is not drawn. */
   unitTypeCost?: number;
   onTap?: (unitId: string) => void;
+  /** v0.9 radar: fires when the player taps the bottom-left radar pip.
+   * Only rendered when this prop is provided (own units, non-minimal, planning). */
+  onRadar?: () => void;
+  /** v0.9 radar: when true the radar pip renders as ACTIVE (inverted fill). */
+  radarActive?: boolean;
 };
 
 export const UnitRenderer = memo(function UnitRenderer({
@@ -72,6 +77,8 @@ export const UnitRenderer = memo(function UnitRenderer({
   recoilKey = 0,
   unitTypeCost,
   onTap,
+  onRadar,
+  radarActive = false,
 }: UnitRendererProps) {
   const color = factionColor(unit.faction);
   const h = size / 2;
@@ -164,6 +171,62 @@ export const UnitRenderer = memo(function UnitRenderer({
           >
             {unit.count}
           </text>
+        </g>
+      )}
+      {/* v0.9 radar: bottom-left pip — mirrors the count pip (bottom-right).
+          Only rendered for own units in planning (onRadar provided by Board).
+          The radar icon: a filled circle with 2 concentric arcs + a sweep line.
+          Active state inverts fill to faction color. Tap stops propagation so
+          it does NOT trigger the unit's own select/propose tap. */}
+      {!minimal && onRadar && (
+        <g
+          className={`unit-radar${radarActive ? ' unit-radar-active' : ''}`}
+          transform={`translate(${-h * 0.78} ${h * 0.78})`}
+          pointerEvents="auto"
+          onClick={(e) => { e.stopPropagation(); onRadar(); }}
+          style={{ cursor: 'pointer' }}
+          aria-label={radarActive ? 'radar on — tap to exit' : 'radar — measure distances'}
+          role="button"
+        >
+          {/* pip background circle */}
+          <circle
+            r={pipR}
+            fill={radarActive ? color : '#fff'}
+            stroke={darken(color, 0.18)}
+            strokeWidth={pipR * 0.14}
+          />
+          {/* radar rings (2 concentric arcs, top-right quadrant) */}
+          <circle
+            r={pipR * 0.38}
+            fill="none"
+            stroke={radarActive ? '#fff' : color}
+            strokeWidth={pipR * 0.13}
+            strokeDasharray={`${pipR * 0.6} ${pipR * 9}`}
+            strokeDashoffset={pipR * 0.0}
+            opacity={0.85}
+          />
+          <circle
+            r={pipR * 0.68}
+            fill="none"
+            stroke={radarActive ? '#fff' : color}
+            strokeWidth={pipR * 0.11}
+            strokeDasharray={`${pipR * 0.55} ${pipR * 9}`}
+            strokeDashoffset={pipR * 0.0}
+            opacity={0.65}
+          />
+          {/* sweep line from center — rotates when active */}
+          <g className={radarActive ? 'radar-sweep-spin' : undefined}>
+            <line
+              x1={0}
+              y1={0}
+              x2={0}
+              y2={-(pipR * 0.72)}
+              stroke={radarActive ? '#fff' : color}
+              strokeWidth={pipR * 0.13}
+              strokeLinecap="round"
+              opacity={0.9}
+            />
+          </g>
         </g>
       )}
       {/* v0.8 veterancy: rank pips — small chevrons along the bottom edge,

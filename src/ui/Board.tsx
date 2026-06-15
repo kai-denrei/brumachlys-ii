@@ -172,6 +172,20 @@ export type BoardProps = {
   /** v0.8 Task 2.4: claim-intent markers — one per unit with an armed capture
    * order; shown in the ghost layer (above grain, below units). */
   captureIntentMarks?: readonly CaptureIntentMark[];
+  /** v0.9 radar: tap the bottom-left radar pip on an own unit to toggle the
+   * distance-measurement overlay on/off. Toggling: if the same unitId is
+   * already active it clears; a different id switches to the new unit.
+   * Only fired for own-faction units (Board gates it). */
+  onUnitRadarTap?: (unitId: string) => void;
+  /** v0.9 radar: when set, dims the board and renders shooting-range hop
+   * distances on all cells visible to the selected unit. */
+  rangeOverlay?: {
+    unitId: string;
+    /** The radar unit's cell (center of the measurement). */
+    cell: CellId;
+    /** All cells in the unit's vision → BFS hop-distance from the unit's cell. */
+    distances: ReadonlyMap<CellId, number>;
+  } | null;
   onCellTap?: (cellId: CellId) => void;
   onUnitTap?: (unitId: string) => void;
   onGhostTap?: (unitId: string) => void;
@@ -318,6 +332,8 @@ export function Board({
   stancePopover = null,
   captureToggle = null,
   captureIntentMarks,
+  onUnitRadarTap,
+  rangeOverlay = null,
   onCellTap,
   onUnitTap,
   onGhostTap,
@@ -967,6 +983,14 @@ export function Board({
             if (!cell) return null;
             const [x, y] = toScreen(cell.center);
             const slot = staggerByUnit.get(unit.id);
+            // v0.9 radar: only pass onRadar for own player units in interactive
+            // planning (not during replay/silhouette/minimal previews). Measuring
+            // an enemy's vision would leak hidden information.
+            const showRadar =
+              onUnitRadarTap !== undefined &&
+              pulseEligible &&
+              replayFx === null &&
+              unit.faction === PLAYER_FACTION;
             return (
               <UnitRenderer
                 key={unit.id}
@@ -987,10 +1011,82 @@ export function Board({
                 recoilKey={replayFx?.key ?? 0}
                 unitTypeCost={unitTypes ? unitTypes[unit.type]?.cost : undefined}
                 onTap={tapGuard(onUnitTap)}
+                onRadar={showRadar ? () => onUnitRadarTap(unit.id) : undefined}
+                radarActive={rangeOverlay?.unitId === unit.id}
               />
             );
           })}
         </g>
+        {/* v0.9 radar overlay: dims the entire board and labels visible tiles
+            with BFS shooting-range hop distances. Rendered above units so the
+            numbers are always legible. The radar unit itself is re-highlighted
+            with a bright ring on top of the dim so it reads as the origin.
+            Tapping the dim (anywhere outside the active radar pip) exits. */}
+        {rangeOverlay && (() => {
+          const radarCell = board.cells.get(rangeOverlay.cell);
+          if (!radarCell) return null;
+          const [rcx, rcy] = toScreen(radarCell.center);
+          return (
+            <g className="radar-overlay" pointerEvents="auto">
+              {/* dim wash — covers the entire viewBox */}
+              <rect
+                x={bbox.x}
+                y={bbox.y}
+                width={bbox.width}
+                height={bbox.height}
+                fill="rgba(0,0,0,0.52)"
+                className="radar-dim"
+                onClick={() => onUnitRadarTap?.(rangeOverlay.unitId)}
+                style={{ cursor: 'pointer' }}
+              />
+              {/* highlight ring around the radar unit so it stays bright */}
+              <circle
+                cx={rcx}
+                cy={rcy}
+                r={tokenSize * 0.88}
+                fill="none"
+                stroke={factionColor(PLAYER_FACTION)}
+                strokeWidth={tokenSize * 0.1}
+                opacity={0.95}
+                pointerEvents="none"
+              />
+              {/* distance labels on each visible cell */}
+              {[...rangeOverlay.distances.entries()].map(([cellId, dist]) => {
+                const c = board.cells.get(cellId);
+                if (!c) return null;
+                const [cx, cy] = toScreen(c.center);
+                // Color-grade by distance: near=green, mid=amber, far=red/dim.
+                const distColor =
+                  dist === 0
+                    ? 'rgba(255,255,255,0.55)'
+                    : dist <= 2
+                      ? '#6ee080'
+                      : dist <= 4
+                        ? '#f5d174'
+                        : '#f08070';
+                return (
+                  <text
+                    key={cellId}
+                    x={cx}
+                    y={cy}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize={tokenSize * 0.44}
+                    fontWeight={700}
+                    fill={distColor}
+                    stroke="rgba(0,0,0,0.55)"
+                    strokeWidth={tokenSize * 0.045}
+                    paintOrder="stroke"
+                    pointerEvents="none"
+                    className="radar-dist-label"
+                  >
+                    {dist === 0 ? '•' : dist}
+                  </text>
+                );
+              })}
+            </g>
+          );
+        })()}
         {/* v0.7 Item 1: build pips ABOVE units — always tappable over an
             occupant token. Planning only (buildPips is unset during replay). */}
         {buildPips && buildPips.length > 0 && (
