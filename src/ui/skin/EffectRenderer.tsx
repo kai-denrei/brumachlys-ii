@@ -683,6 +683,22 @@ export function CaptureIntentMarkers({
               opacity={0.55}
               className="capture-intent-ring"
             />
+            {/* Capture-in-progress sweep arc: a short dashed arc that rotates
+                around the base to convey an ongoing claim attempt during
+                planning. Uses a short stroke-dasharray so only ~1/3 of the
+                circle is visible at once, spinning via CSS. */}
+            <circle
+              cx={cx}
+              cy={cy}
+              r={tokenSize * 0.62}
+              fill="none"
+              stroke={color}
+              strokeWidth={tokenSize * 0.09}
+              strokeDasharray={`${tokenSize * 1.3} ${tokenSize * 2.6}`}
+              strokeLinecap="round"
+              opacity={0.75}
+              className="capture-intent-sweep"
+            />
             {/* Flag pole */}
             <line
               x1={poleX}

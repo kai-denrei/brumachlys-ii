@@ -1102,8 +1102,11 @@ function CaptureToggle({
   tapGuard: <T>(h: ((arg: T) => void) | undefined) => ((arg: T) => void) | undefined;
 }) {
   const r = tokenSize * 0.44;
-  // Position below the token (opposite side from the stance popover which is above)
-  const y = anchor[1] + tokenSize * 1.55;
+  // Position ABOVE the base center so the pill reads as sitting on top of the
+  // base art and the capturing unit token (which stands on the same cell).
+  // The stance popover (when both show) goes further above at 1.55×; this sits
+  // at 1.1× which clears the token body without floating too far away.
+  const y = anchor[1] - tokenSize * 1.1;
   const x = anchor[0];
   const pillW = r * 3.2;
   const pillH = r * 1.1;

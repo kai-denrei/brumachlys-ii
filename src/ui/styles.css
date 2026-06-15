@@ -632,14 +632,15 @@ body {
   cursor: default;
 }
 
-/* --- v0.8 Task 2.4: capture toggle (SVG, anchored below selected token) --- */
+/* --- v0.8 Task 2.4 / v0.9: capture toggle (SVG, anchored ABOVE base) ------ */
 
 .capture-toggle {
   cursor: pointer;
 }
 
-/* --- v0.8 Task 2.4: claim-intent markers (planning ghost layer) ----------- */
+/* --- v0.8 Task 2.4 / v0.9: claim-intent markers (planning ghost layer) ---- */
 
+/* Pulsing ring: opacity breath signals armed intent. */
 .capture-intent-ring {
   animation: capture-intent-pulse 1.4s ease-in-out infinite;
 }
@@ -647,6 +648,34 @@ body {
 @keyframes capture-intent-pulse {
   0%, 100% { opacity: 0.55; }
   50%       { opacity: 0.2; }
+}
+
+/* Sweeping arc: a short dashed stroke that spins around the base, reading as
+   "capture in progress". Distinct from the replay CaptureFx sweep (which uses
+   .fx-capture-sweep on a radial fill). 2.4 s per revolution — deliberate and
+   calm next to the louder replay animations. */
+.capture-intent-sweep {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: capture-intent-spin 2.4s linear infinite;
+}
+
+@keyframes capture-intent-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capture-intent-ring {
+    animation: none;
+    opacity: 0.55;
+  }
+
+  /* Sweep stops rotating; the static short arc remains visible so the
+     "in progress" cue still reads without any motion. */
+  .capture-intent-sweep {
+    animation: none;
+    opacity: 0.55;
+  }
 }
 
 /* --- P7: layer 2 — ghost orders (§9.3) ------------------------------------ */
