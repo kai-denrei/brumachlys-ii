@@ -11,6 +11,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import { TopBar } from '../../src/ui/TopBar';
 import { PipelineModal } from '../../src/ui/PipelineModal';
 import { PIPELINE, TEST_COUNT } from '../../src/ui/pipeline-data';
+import { SESSION_USAGE } from '../../src/ui/usage-data';
 
 const GH_BASE = 'https://github.com/kai-denrei/brumachlys-ii';
 
@@ -93,8 +94,10 @@ describe('PipelineModal', () => {
     const toggle = baseElement.querySelector('[data-testid="pipeline-usage-toggle"]') as HTMLButtonElement;
     fireEvent.click(toggle);
     const body = baseElement.querySelector('#pipeline-usage-body')!;
-    expect(body.textContent).toContain('40.08');
-    expect(body.textContent).toContain('2h 31m 17s');
+    // Assert against the live SESSION_USAGE snapshot — usage-data.ts is updated
+    // each session by design, so the test must not hardcode the figures.
+    expect(body.textContent).toContain(String(SESSION_USAGE.totalCost));
+    expect(body.textContent).toContain(SESSION_USAGE.apiDuration);
     // model names visible
     expect(body.textContent).toContain('claude-sonnet-4-6');
     expect(body.textContent).toContain('claude-opus-4-8');

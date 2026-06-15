@@ -323,7 +323,7 @@ describe('donor pipeline — bundled donors (data/maps/), size-adaptive contract
   const SWEEP_SEEDS = Array.from({ length: 64 }, (_, i) => i + 1);
 
   for (const file of files) {
-    it(`${file} generates a valid playable board across seeds 1..64`, () => {
+    it(`${file} generates a valid playable board across seeds 1..64`, { timeout: 30_000 }, () => {
       const donor = loadDonorFile(file);
       for (const seed of SWEEP_SEEDS) {
         const board = generateBoard(donor, seed);

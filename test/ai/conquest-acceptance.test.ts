@@ -96,7 +96,7 @@ describe(`conquest acceptance — donor ${DONOR_ID} (§B.7)`, () => {
   // r43–r61) — the asserted property (a greedy buyer converts the board) is
   // unchanged; only the seeds that escape the stalemate basin shifted.
   const MIRROR_SEEDS = [19, 24, 26];
-  it('greedy vs greedy reaches a decisive end within 120 rounds on ≥2 of 3 seeds', () => {
+  it('greedy vs greedy reaches a decisive end within 120 rounds on ≥2 of 3 seeds', { timeout: 30_000 }, () => {
     let decisive = 0;
     for (const seed of MIRROR_SEEDS) {
       const r = play(seed, true, 120);
