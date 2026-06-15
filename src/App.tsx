@@ -1048,12 +1048,19 @@ function BattleScreen() {
   const phaseChip = uiPhase === 'planning' ? 'planning' : uiPhase === 'over' ? 'over' : 'replay';
   const topRound = replayActive && replay ? replay.round : game.round;
 
-  // E3 credits HUD: planning = available − committed (static); replay = the
-  // frame's creditsAfter feed (income/spawn events tick it live).
+  // v0.9 HUD: per-turn income — player's owned bases × the board's per-base
+  // payout (conquest only; donor fallback 100). Shown beside the credits
+  // odometer during planning so the economy reads at a glance. Hidden during
+  // replay (the frame feed ticks the live credit value instead).
+  const perBaseCredits = board.economy?.perBaseCredits ?? 100;
+  const income = conquest ? ownedBaseCount(PLAYER_FACTION) * perBaseCredits : 0;
+
+  // E3 credits HUD: planning = available − committed (static) + per-turn income;
+  // replay = the frame's creditsAfter feed (income/spawn events tick it live).
   const creditsHud: CreditsHud | null = conquest
     ? frame
       ? { value: frame.credits ?? game.credits?.[PLAYER_FACTION] ?? 0 }
-      : { value: game.credits?.[PLAYER_FACTION] ?? 0, committed }
+      : { value: game.credits?.[PLAYER_FACTION] ?? 0, committed, income }
     : null;
 
   // E3 baseless grace warning (§B.5): the player's own countdown only —

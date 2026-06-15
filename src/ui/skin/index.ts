@@ -43,3 +43,5 @@ export type {
 } from './EffectRenderer';
 export { ReplayFx, ReplayTrails } from './ReplayFx';
 export type { ImpactMark, ReplayFxData, ReplayFxProps, TrailMark } from './ReplayFx';
+// v0.9 HUD: canvas split-flap round number + odometer credits (displays/).
+export { RoundFlap, CreditsOdometer } from './displays';

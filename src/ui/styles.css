@@ -77,6 +77,46 @@ body {
   letter-spacing: 0.04em;
   /* #1: full opacity — round number is a primary stat */
   opacity: 1;
+  /* v0.9 HUD: the split-flap canvas sits beside the "R" label, baseline-snug. */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+}
+
+.top-bar-round-r {
+  font-size: 0.7rem;
+  font-weight: 800;
+  opacity: 0.7;
+}
+
+/* v0.9 HUD: the canvas counters render block; vertical-align keeps them on the
+   bar's baseline row. The seeded-wear background is transparent, so the paper
+   shows through (no dark box in the light HUD). */
+.round-flap,
+.credits-odometer {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.round-flap-canvas,
+.credits-odometer-canvas {
+  display: block;
+}
+
+/* v0.9 HUD a11y: the canvas is aria-hidden; this carries the readable value for
+   screen readers + tests without affecting layout. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .phase-chip {
@@ -2199,12 +2239,31 @@ body {
   background: rgba(232, 128, 107, 0.12);
   border-radius: 999px;
   padding: 0.1rem 0.45rem;
+  /* v0.9 HUD: glyph · odometer canvas · per-turn income on one snug row. */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.credits-glyph {
+  font-size: 0.8rem;
+  line-height: 1;
 }
 
 .credits-committed {
   font-weight: 600;
   font-size: 0.62rem;
   opacity: 0.7;
+}
+
+/* v0.9 HUD: per-turn income — a small green-leaning "+N/turn" beside credits.
+   Distinct hue from the faction-a credits so it reads as income, not spend. */
+.credits-income {
+  font-weight: 700;
+  font-size: 0.64rem;
+  letter-spacing: 0.01em;
+  color: #4f8b54;
+  white-space: nowrap;
 }
 
 .baseless-warning {

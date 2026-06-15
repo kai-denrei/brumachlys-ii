@@ -3,10 +3,13 @@ import { createPortal } from 'react-dom';
 import { PipelineModal } from './PipelineModal';
 import { RulesModal } from './RulesModal';
 import { VersionBadge } from './VersionBadge';
+import { CreditsOdometer, RoundFlap } from './skin';
 
 /** E3 conquest credits HUD. Planning: available minus committed buys
- * ("◈ 250 − 150 committed"); replay: the frame's creditsAfter feed ticks it. */
-export type CreditsHud = { value: number; committed?: number };
+ * ("◈ 250 − 150 committed"); replay: the frame's creditsAfter feed ticks it.
+ * v0.9: `income` is the per-turn credit gain (owned bases × perBaseCredits),
+ * shown beside the odometer during planning ("+200/turn"). */
+export type CreditsHud = { value: number; committed?: number; income?: number };
 
 export function TopBar({
   round,
@@ -50,11 +53,26 @@ export function TopBar({
         <span className="top-bar-pipeline-glyph">⌬</span>
       </button>
       <span className="top-bar-status">
-        {round !== null && <span className="top-bar-round">R{round}</span>}
+        {round !== null && (
+          <span className="top-bar-round">
+            <span className="top-bar-round-r" aria-hidden="true">
+              R
+            </span>
+            {/* RoundFlap carries its own visually-hidden "round N" label. */}
+            <RoundFlap value={round} />
+          </span>
+        )}
         {credits && (
           <span className="credits-hud" data-testid="credits-hud">
-            ◈ {credits.value}
-            {credits.committed ? (
+            <span className="credits-glyph" aria-hidden="true">
+              ◈
+            </span>
+            <CreditsOdometer value={credits.value} />
+            {credits.income ? (
+              <span className="credits-income" aria-label={`plus ${credits.income} per turn`}>
+                +{credits.income}/turn
+              </span>
+            ) : credits.committed ? (
               <span className="credits-committed"> − {credits.committed} committed</span>
             ) : null}
           </span>
