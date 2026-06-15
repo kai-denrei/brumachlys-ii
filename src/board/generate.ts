@@ -47,8 +47,9 @@ export function poissonRadiusFor(targetCells: number): number {
  *   generation order.
  * - polygon = incident quad centroids, CCW.
  * - Adjacency: two cells are neighbors iff their primary vertices share a quad
- *   edge (derived from the quad list — same edges the half-edge structure
- *   carries). neighbors sorted ascending for determinism.
+ *   EDGE *or* a quad DIAGONAL (corner-sharing cells are distance 1 too, v0.9).
+ *   Derived from the quad list — same edges the half-edge structure carries.
+ *   neighbors sorted ascending for determinism.
  * - All terrain 'plains' (P1); P2 overwrites terrain and deletes cells AFTER
  *   extraction so ids stay stable.
  */
@@ -69,6 +70,18 @@ export function extractCells(mesh: Mesh): Map<CellId, Cell> {
       const b = q[((i + 1) % 4) as 0 | 1 | 2 | 3];
       const ca = idByVertex.get(a);
       const cb = idByVertex.get(b);
+      if (ca === undefined || cb === undefined || ca === cb) continue;
+      neighborSets[ca]!.add(cb);
+      neighborSets[cb]!.add(ca);
+    }
+  }
+
+  // v0.9: corner-sharing cells are distance 1 too — link each quad's two
+  // diagonals (v0–v2, v1–v3), same idByVertex guard as the edge pass.
+  for (const q of mesh.quads) {
+    for (let i = 0; i < 2; i++) {
+      const a = q[i as 0 | 1], b = q[(i + 2) as 2 | 3];
+      const ca = idByVertex.get(a), cb = idByVertex.get(b);
       if (ca === undefined || cb === undefined || ca === cb) continue;
       neighborSets[ca]!.add(cb);
       neighborSets[cb]!.add(ca);
