@@ -52,6 +52,7 @@ import {
   ProposalGhost,
   ReplayFx,
   ReplayTrails,
+  SpriteRedFilter,
   StanceIcon,
   UnitRenderer,
   VisionEdge,
@@ -60,6 +61,7 @@ import {
   type BuyGhostMark,
   type CaptureIntentMark,
   type GhostOrder,
+  type Motion,
   type ProposalGhostMark,
   type Pt,
   type ReplayFxData,
@@ -846,6 +848,8 @@ export function Board({
   const planningOrders = useAppStore((s) =>
     s.screen === 'battle' && s.uiPhase === 'planning' ? s.orders : null,
   );
+  // PoC "anim" toggle: ON ⇒ infantry render as animated sprites on the board.
+  const spritesOn = useAppStore((s) => s.spritesOn);
   const pulseEligible =
     interactive && !silhouette && replayFx === null && planningOrders !== null;
   const orderedIds = useMemo(
@@ -894,6 +898,39 @@ export function Board({
     return out;
   }, [pulseEligible, planningOrders, unitById, board, toScreen, tokenSize]);
 
+  // PoC sprites: per-unit MOTION for the animated infantry. 'fire' while the
+  // unit is a visible attacker this replay frame (its cell is an arc source, or
+  // it is a named impact attacker); 'move' while its cell changes between
+  // frames; else idle. Empty during planning (every unit idles).
+  const prevCellsRef = useRef<Map<string, CellId>>(new Map());
+  const motionByUnit = useMemo(() => {
+    const m = new Map<string, Motion>();
+    const fx = replayFx?.fx;
+    if (fx) {
+      const cellUnit = new Map<CellId, string>();
+      for (const u of unitById.values()) cellUnit.set(u.cell, u.id);
+      for (const a of fx.arcs) {
+        const id = cellUnit.get(a.from);
+        if (id) m.set(id, 'fire');
+      }
+      for (const im of fx.impacts ?? []) if (im.attackerId) m.set(im.attackerId, 'fire');
+      const prev = prevCellsRef.current;
+      for (const u of unitById.values()) {
+        if (m.get(u.id) === 'fire') continue;
+        const pc = prev.get(u.id);
+        if (pc !== undefined && pc !== u.cell) m.set(u.id, 'move');
+      }
+    }
+    return m;
+  }, [replayFx, unitById]);
+
+  // Remember this frame's cells so the NEXT frame can detect movement by diff.
+  useEffect(() => {
+    const next = new Map<string, CellId>();
+    for (const u of unitById.values()) next.set(u.id, u.cell);
+    prevCellsRef.current = next;
+  }, [unitById]);
+
   const reachable = highlights?.reachable;
   const reachAlpha = (id: CellId): number | null => {
     if (!reachable) return null;
@@ -933,6 +970,7 @@ export function Board({
     >
       <defs>
         <GrainFilterDef />
+        <SpriteRedFilter />
       </defs>
       <g transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}>
         <g className="board-cells">
@@ -1152,6 +1190,8 @@ export function Board({
                 onTap={tapGuard(onUnitTap)}
                 onRadar={showRadar ? () => onUnitRadarTap(unit.id) : undefined}
                 radarActive={rangeOverlay?.unitId === unit.id}
+                sprite={spritesOn}
+                motion={motionByUnit.get(unit.id) ?? 'idle'}
               />
             );
           })}

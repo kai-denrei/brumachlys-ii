@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useAppStore } from '../state/store';
 import { PipelineModal } from './PipelineModal';
 import { RulesModal } from './RulesModal';
 import { VersionBadge } from './VersionBadge';
@@ -23,6 +24,9 @@ export function TopBar({
   const [rulesOpen, setRulesOpen] = useState(false);
   // v0.5.1: the dev pipeline behind a "⌬" — same pattern, same portal.
   const [pipelineOpen, setPipelineOpen] = useState(false);
+  // PoC "anim" toggle: animated infantry sprites on the board vs flat glyphs.
+  const spritesOn = useAppStore((s) => s.spritesOn);
+  const toggleSprites = useAppStore((s) => s.toggleSprites);
 
   return (
     <header className="top-bar">
@@ -47,8 +51,17 @@ export function TopBar({
       >
         <span className="top-bar-pipeline-glyph">⌬</span>
       </button>
-      {/* Phase chip stays in the bar — game phase at a glance. */}
+      {/* Phase chip + the PoC "anim" sprite toggle, right side. */}
       <span className="top-bar-status">
+        <button
+          className={`top-bar-anim${spritesOn ? ' top-bar-anim-on' : ''}`}
+          onClick={toggleSprites}
+          aria-pressed={spritesOn}
+          aria-label={`animated sprites ${spritesOn ? 'on' : 'off'}`}
+          title="toggle animated unit sprites"
+        >
+          anim
+        </button>
         <span className={`phase-chip phase-chip-${phase}`}>{phase}</span>
       </span>
       {/* portal: .top-bar's backdrop-filter would otherwise become the

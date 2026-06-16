@@ -38,7 +38,10 @@ function makeBoard(): BoardGraph {
 }
 
 function unit(id: string, faction: 0 | 1, cell: CellId): UnitInstance {
-  return { id, type: 'infantry', faction, cell, count: 10, stance: 'aggressive', attackedFrom: [] };
+  // 'ranger' (a squircle unit) not 'infantry': infantry now renders as an
+  // animated sprite with no `.unit-body`, which one assertion here checks the
+  // idle halo sits behind. The pulse behavior itself is unit-type-agnostic.
+  return { id, type: 'ranger', faction, cell, count: 10, stance: 'aggressive', attackedFrom: [] };
 }
 
 const board = makeBoard();

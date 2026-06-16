@@ -12,6 +12,8 @@
 import { memo } from 'react';
 import type { UnitInstance } from '../../core/types';
 import { UnitGlyph } from './icons';
+import { UnitSprite } from './UnitSprite';
+import type { Motion } from './sprites/sprite-data';
 import { darken, factionColor } from './palette';
 
 export type UnitRendererProps = {
@@ -60,6 +62,12 @@ export type UnitRendererProps = {
   onRadar?: () => void;
   /** v0.9 radar: when true the radar pip renders as ACTIVE (inverted fill). */
   radarActive?: boolean;
+  /** PoC: render infantry as an animated sprite (the "anim" toggle, board only).
+   *  Off ⇒ the flat glyph. Default off so non-board sites stay glyphs. */
+  sprite?: boolean;
+  /** PoC: what the unit is doing right now — drives the sprite clip family
+   *  (idle ambient / moving / firing). Ignored unless `sprite` is on. */
+  motion?: Motion;
 };
 
 export const UnitRenderer = memo(function UnitRenderer({
@@ -79,6 +87,8 @@ export const UnitRenderer = memo(function UnitRenderer({
   onTap,
   onRadar,
   radarActive = false,
+  sprite = false,
+  motion = 'idle',
 }: UnitRendererProps) {
   const color = factionColor(unit.faction);
   const h = size / 2;
@@ -91,6 +101,12 @@ export const UnitRenderer = memo(function UnitRenderer({
   const dash = stance === 'hold-fire' ? `${size * 0.12} ${size * 0.09}` : undefined;
 
   const pipR = size * 0.21;
+
+  // PoC ("anim" toggle): infantry renders as an animated sprite instead of the
+  // flat squircle + glyph. Off by default (non-board sites stay glyphs; the
+  // board passes the store flag). Minimal contexts (timeline chips, demoted
+  // corner tokens) keep the cheap glyph — a per-frame sprite there is wasteful.
+  const useSprite = sprite && unit.type === 'infantry' && !minimal;
 
   const body = (
     <>
@@ -128,34 +144,40 @@ export const UnitRenderer = memo(function UnitRenderer({
           />
         </g>
       )}
-      <rect
-        className="unit-body"
-        x={-h}
-        y={-h}
-        width={size}
-        height={size}
-        rx={rx}
-        fill={color}
-        stroke={stroke}
-        strokeWidth={strokeW}
-        strokeDasharray={dash}
-      />
-      {stance === 'defensive' && (
-        <rect
-          className="unit-stroke-inner"
-          x={-h + strokeW * 1.9}
-          y={-h + strokeW * 1.9}
-          width={size - strokeW * 3.8}
-          height={size - strokeW * 3.8}
-          rx={rx * 0.72}
-          fill="none"
-          stroke={stroke}
-          strokeWidth={strokeW * 0.75}
-        />
+      {useSprite ? (
+        <UnitSprite unitId={unit.id} faction={unit.faction} size={size} motion={motion} />
+      ) : (
+        <>
+          <rect
+            className="unit-body"
+            x={-h}
+            y={-h}
+            width={size}
+            height={size}
+            rx={rx}
+            fill={color}
+            stroke={stroke}
+            strokeWidth={strokeW}
+            strokeDasharray={dash}
+          />
+          {stance === 'defensive' && (
+            <rect
+              className="unit-stroke-inner"
+              x={-h + strokeW * 1.9}
+              y={-h + strokeW * 1.9}
+              width={size - strokeW * 3.8}
+              height={size - strokeW * 3.8}
+              rx={rx * 0.72}
+              fill="none"
+              stroke={stroke}
+              strokeWidth={strokeW * 0.75}
+            />
+          )}
+          <g transform={`translate(${-h} ${-h}) scale(${size / 100})`} pointerEvents="none">
+            <UnitGlyph type={unit.type} />
+          </g>
+        </>
       )}
-      <g transform={`translate(${-h} ${-h}) scale(${size / 100})`} pointerEvents="none">
-        <UnitGlyph type={unit.type} />
-      </g>
       {!minimal && (
         <g className="unit-count" transform={`translate(${h * 0.78} ${h * 0.78})`} pointerEvents="none">
           <circle r={pipR} fill="#fff" stroke={darken(color, 0.18)} strokeWidth={pipR * 0.14} />

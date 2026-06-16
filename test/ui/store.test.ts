@@ -14,6 +14,7 @@ describe('app store', () => {
       donorId: '53316',
       seed: 7,
       donorDefaultsApplied: new Set(),
+      spritesOn: true,
       // E3: the store defaults to conquest; these suites pin the v1 skirmish
       // game (mirror armies, no bases) — conquest plumbing has its own suite.
       mode: 'skirmish',
@@ -74,6 +75,14 @@ describe('app store', () => {
     expect(s.game).toBeNull();
     expect(s.replay).toBeNull();
     expect(s.uiPhase).toBe('planning');
+  });
+
+  it('toggleSprites flips the "anim" flag (default on)', () => {
+    expect(useAppStore.getState().spritesOn).toBe(true);
+    useAppStore.getState().toggleSprites();
+    expect(useAppStore.getState().spritesOn).toBe(false);
+    useAppStore.getState().toggleSprites();
+    expect(useAppStore.getState().spritesOn).toBe(true);
   });
 
   it('seed controls: setSeed truncates, randomizeSeed changes the seed', () => {
