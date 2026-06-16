@@ -52,6 +52,7 @@ import {
   ProposalGhost,
   ReplayFx,
   ReplayTrails,
+  SpriteRedFilter,
   StanceIcon,
   UnitRenderer,
   VisionEdge,
@@ -60,6 +61,7 @@ import {
   type BuyGhostMark,
   type CaptureIntentMark,
   type GhostOrder,
+  type Motion,
   type ProposalGhostMark,
   type Pt,
   type ReplayFxData,
@@ -302,6 +304,108 @@ export function staggerLayout(
     out.set(id, { dx: Math.cos(t) * r, dy: Math.sin(t) * r, scale: 0.8 });
   });
   return out;
+}
+
+// --- once a move is decided: tuck the start-cell token into a corner ---------
+// A unit whose MOVE order is queued shrinks to a quarter and seats itself in the
+// polygon corner that best faces its first step. Two payoffs: the cell CENTER
+// clears (so an occupied base stays tappable — build a fresh unit on it without
+// the occupant swallowing the tap), and the planning board reads at a glance —
+// full-size centered tokens still need an order, small corner tokens are already
+// moving. The symmetric counterpart of the idle pulse (which marks the UN-ordered
+// units); the two are mutually exclusive per unit.
+
+/** Demoted token edge length as a fraction of a full token ("1/4th the size"). */
+export const DEMOTE_SCALE = 0.25;
+
+export type DemoteSlot = { x: number; y: number; scale: number };
+
+/** Mean of the ring's vertices — strictly interior for these (star-)convex dual
+ * cells, unlike `cell.center` (the raw lattice vertex, which can sit OUTSIDE the
+ * polygon on boundary cells). The placement origin, so the token never starts
+ * from an exterior point. */
+function polygonCentroid(poly: readonly Pt[]): Pt {
+  let x = 0;
+  let y = 0;
+  for (const p of poly) {
+    x += p[0];
+    y += p[1];
+  }
+  return [x / poly.length, y / poly.length];
+}
+
+function distToSegment(p: Pt, a: Pt, b: Pt): number {
+  const abx = b[0] - a[0];
+  const aby = b[1] - a[1];
+  const len2 = abx * abx + aby * aby || 1e-12;
+  let t = ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p[0] - (a[0] + abx * t), p[1] - (a[1] + aby * t));
+}
+
+/** Distance from `p` to the nearest polygon EDGE. */
+function distToEdges(p: Pt, poly: readonly Pt[]): number {
+  let min = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const d = distToSegment(p, poly[i]!, poly[(i + 1) % poly.length]!);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+/** Pure (exported for tests): screen-space placement of an ordered unit's
+ * demoted token. `polygon`/`nextStep` are already projected to screen coords.
+ * Picks the polygon vertex whose bearing from the CENTROID best matches the step
+ * direction, then seats the token as far toward that vertex as it can while
+ * keeping its full (square) extent clear of every edge — so it sits IN the
+ * corner yet never spills into a neighbour cell. The token is a square, so the
+ * clearance protects its corner reach (half-extent ×√2), not just a radial
+ * inset; a sharp cell corner would otherwise let a flat side poke through. A
+ * cell too tight for the token, or a degenerate step, falls back to the
+ * centroid. */
+export function demoteSlot(
+  polygon: readonly Pt[],
+  nextStep: Pt,
+  tokenSize: number,
+  scale: number = DEMOTE_SCALE,
+): DemoteSlot {
+  if (polygon.length === 0) return { x: nextStep[0], y: nextStep[1], scale };
+  const c = polygonCentroid(polygon);
+  const dx = nextStep[0] - c[0];
+  const dy = nextStep[1] - c[1];
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return { x: c[0], y: c[1], scale };
+  const dirX = dx / len;
+  const dirY = dy / len;
+  // Corner whose bearing from the centroid best matches the step direction.
+  let best = polygon[0]!;
+  let bestDot = -Infinity;
+  for (const v of polygon) {
+    const vx = v[0] - c[0];
+    const vy = v[1] - c[1];
+    const vlen = Math.hypot(vx, vy);
+    if (vlen < 1e-6) continue;
+    const dot = (vx * dirX + vy * dirY) / vlen; // cos∠(vertex bearing, step)
+    if (dot > bestDot) {
+      bestDot = dot;
+      best = v;
+    }
+  }
+  // Bisect along centroid→vertex for the farthest seat whose square still clears
+  // every edge. If even the centroid is tighter than the clearance (token bigger
+  // than the cell), centre it.
+  const clearance = ((tokenSize * scale) / 2) * Math.SQRT2 + tokenSize * 0.06;
+  const at = (t: number): Pt => [c[0] + (best[0] - c[0]) * t, c[1] + (best[1] - c[1]) * t];
+  if (distToEdges(c, polygon) < clearance) return { x: c[0], y: c[1], scale };
+  let lo = 0;
+  let hi = 1;
+  for (let k = 0; k < 24; k++) {
+    const mid = (lo + hi) / 2;
+    if (distToEdges(at(mid), polygon) >= clearance) lo = mid;
+    else hi = mid;
+  }
+  const seat = at(lo);
+  return { x: seat[0], y: seat[1], scale };
 }
 
 const STANCES: readonly Stance[] = ['aggressive', 'defensive', 'hold-fire'];
@@ -744,6 +848,8 @@ export function Board({
   const planningOrders = useAppStore((s) =>
     s.screen === 'battle' && s.uiPhase === 'planning' ? s.orders : null,
   );
+  // PoC "anim" toggle: ON ⇒ infantry render as animated sprites on the board.
+  const spritesOn = useAppStore((s) => s.spritesOn);
   const pulseEligible =
     interactive && !silhouette && replayFx === null && planningOrders !== null;
   const orderedIds = useMemo(
@@ -768,6 +874,63 @@ export function Board({
     }
     return out;
   }, [unitById, tokenSize]);
+
+  // Once a move is DECIDED, demote that unit's start-cell token into the corner
+  // facing its first step (see demoteSlot). Own units only, interactive planning
+  // only (same gate as the idle pulse). Keyed off a real queued MOVE — a pending
+  // proposal isn't in `orders` yet, so it never demotes mid-confirm. The selected
+  // unit is handled at render time (kept full-size so it can be re-commanded).
+  const demoteByUnit = useMemo(() => {
+    const out = new Map<string, DemoteSlot>();
+    if (!pulseEligible || !planningOrders) return out;
+    for (const unit of unitById.values()) {
+      if (unit.faction !== PLAYER_FACTION) continue;
+      const path = planningOrders[unit.id]?.move?.path;
+      if (!path || path.length === 0) continue;
+      const startCell = board.cells.get(unit.cell);
+      const nextCell = board.cells.get(path[0]!);
+      if (!startCell || !nextCell) continue;
+      out.set(
+        unit.id,
+        demoteSlot(startCell.polygon.map(toScreen), toScreen(nextCell.center), tokenSize),
+      );
+    }
+    return out;
+  }, [pulseEligible, planningOrders, unitById, board, toScreen, tokenSize]);
+
+  // PoC sprites: per-unit MOTION for the animated infantry. 'fire' while the
+  // unit is a visible attacker this replay frame (its cell is an arc source, or
+  // it is a named impact attacker); 'move' while its cell changes between
+  // frames; else idle. Empty during planning (every unit idles).
+  const prevCellsRef = useRef<Map<string, CellId>>(new Map());
+  const motionByUnit = useMemo(() => {
+    const m = new Map<string, Motion>();
+    const fx = replayFx?.fx;
+    if (fx) {
+      const cellUnit = new Map<CellId, string>();
+      for (const u of unitById.values()) cellUnit.set(u.cell, u.id);
+      for (const a of fx.arcs) {
+        const id = cellUnit.get(a.from);
+        if (id) m.set(id, 'fire');
+      }
+      for (const im of fx.impacts ?? []) if (im.attackerId) m.set(im.attackerId, 'fire');
+      const prev = prevCellsRef.current;
+      for (const u of unitById.values()) {
+        if (m.get(u.id) === 'fire') continue;
+        const pc = prev.get(u.id);
+        if (pc !== undefined && pc !== u.cell) m.set(u.id, 'move');
+      }
+    }
+    return m;
+  }, [replayFx, unitById]);
+
+  // Remember this frame's cells so the NEXT frame can detect movement by diff.
+  useEffect(() => {
+    const next = new Map<string, CellId>();
+    for (const u of unitById.values()) next.set(u.id, u.cell);
+    prevCellsRef.current = next;
+  }, [unitById]);
+
   const reachable = highlights?.reachable;
   const reachAlpha = (id: CellId): number | null => {
     if (!reachable) return null;
@@ -807,6 +970,7 @@ export function Board({
     >
       <defs>
         <GrainFilterDef />
+        <SpriteRedFilter />
       </defs>
       <g transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}>
         <g className="board-cells">
@@ -983,6 +1147,14 @@ export function Board({
             if (!cell) return null;
             const [x, y] = toScreen(cell.center);
             const slot = staggerByUnit.get(unit.id);
+            // Move decided → tuck into the corner at 1/4 size. Exempt only the
+            // unit being ACTIVELY proposed (mid propose-then-confirm): it stays
+            // full/centered while you command it, then demotes the instant the
+            // move is confirmed. Selection alone is NOT exempt — it persists past
+            // commit (commitPendingMove keeps selectedUnitId), so exempting it
+            // would hide the demote until you happened to tap away.
+            const demote =
+              proposal?.unit.id === unit.id ? undefined : demoteByUnit.get(unit.id);
             // v0.9 radar: only pass onRadar for own player units in interactive
             // planning (not during replay/silhouette/minimal previews). Measuring
             // an enemy's vision would leak hidden information.
@@ -995,10 +1167,15 @@ export function Board({
               <UnitRenderer
                 key={unit.id}
                 unit={unit}
-                x={x + (slot?.dx ?? 0)}
-                y={y + (slot?.dy ?? 0)}
+                x={demote ? demote.x : x + (slot?.dx ?? 0)}
+                y={demote ? demote.y : y + (slot?.dy ?? 0)}
                 size={tokenSize}
-                scale={slot?.scale}
+                scale={demote ? demote.scale : slot?.scale}
+                // A demoted token is a glyph-only marker ("moving, that way"):
+                // minimal drops the count/rank/XP sub-pips and the radar control,
+                // which are illegible — and the radar an un-hittable dead target —
+                // at quarter scale. Selecting the unit restores the full token.
+                minimal={demote !== undefined}
                 selected={unit.id === selectedUnitId}
                 // v0.9 active-unit halo: only on the selected own unit, only in
                 // interactive planning (never replay/silhouette/preview).
@@ -1013,6 +1190,8 @@ export function Board({
                 onTap={tapGuard(onUnitTap)}
                 onRadar={showRadar ? () => onUnitRadarTap(unit.id) : undefined}
                 radarActive={rangeOverlay?.unitId === unit.id}
+                sprite={spritesOn}
+                motion={motionByUnit.get(unit.id) ?? 'idle'}
               />
             );
           })}

@@ -103,7 +103,7 @@ describe('Board', () => {
 
   it('renders unit tokens with correct faction colors at their cells', () => {
     const units = [
-      makeUnit({ id: 'a', faction: 0, cell: 0 }),
+      makeUnit({ id: 'a', faction: 0, cell: 0, type: 'ranger' }),
       makeUnit({ id: 'b', faction: 1, cell: 3, type: 'tank' }),
     ];
     const { container } = render(<Board board={makeBoard()} units={units} />);

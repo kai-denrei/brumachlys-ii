@@ -18,6 +18,8 @@ export { CellRenderer, CELL_STROKE_WIDTH, CAMP_DESATURATION } from './CellRender
 export type { CellRendererProps } from './CellRenderer';
 export { UnitRenderer } from './UnitRenderer';
 export type { UnitRendererProps } from './UnitRenderer';
+export { UnitSprite, SpriteRedFilter } from './UnitSprite';
+export type { Motion } from './sprites/sprite-data';
 export { UnitGlyph, UNIT_ICON_KEYS } from './icons';
 export { GrainFilterDef, GrainOverlay, GRAIN_FILTER_ID, GRAIN_OPACITY } from './GrainFilter';
 export {

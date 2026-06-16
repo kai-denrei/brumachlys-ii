@@ -70,6 +70,25 @@ body {
   gap: 0.35rem;
 }
 
+/* PoC "anim" sprite toggle — a minimalist tag; filled coral when ON. */
+.top-bar-anim {
+  font: 700 0.62rem/1 ui-monospace, 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.1em;
+  text-transform: lowercase;
+  color: #8c8676;
+  background: transparent;
+  border: 1px solid rgba(74, 68, 58, 0.28);
+  border-radius: 0.4rem;
+  padding: 0.16rem 0.42rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.top-bar-anim-on {
+  color: #fff;
+  background: #e8806b; /* factionA coral — reads as "live" */
+  border-color: transparent;
+}
+
 .top-bar-round {
   font-weight: 800;
   font-variant-numeric: tabular-nums;

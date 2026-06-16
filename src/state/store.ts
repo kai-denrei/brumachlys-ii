@@ -346,6 +346,9 @@ export type AppState = {
   /** v0.7 Item 4: the selected opponent archetype key (start screen). Persisted
    *  into the battle on startBattle; commit() instantiates its planner. */
   archetypeKey: string;
+  /** PoC toggle ("anim" tag, top bar): ON → animated infantry sprites on the
+   *  board, OFF → the flat glyph icons. */
+  spritesOn: boolean;
   /** Generated battle board (null until startBattle). game.board === board. */
   board: Board | null;
 
@@ -394,6 +397,8 @@ export type AppState = {
   setRoundLimit: (limit: number | null) => void;
   /** v0.7 Item 4: start-screen opponent archetype select. */
   setArchetype: (key: string) => void;
+  /** PoC: toggle animated infantry sprites vs flat glyph icons. */
+  toggleSprites: () => void;
   startBattle: () => void;
   exitBattle: () => void;
 
@@ -463,6 +468,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   mode: 'conquest',
   roundLimit: null,
   archetypeKey: defaultArchetypeKey(),
+  spritesOn: true,
   board: null,
 
   game: null,
@@ -500,6 +506,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setMode: (mode) => set({ mode }),
   setRoundLimit: (roundLimit) => set({ roundLimit }),
   setArchetype: (archetypeKey) => set({ archetypeKey }),
+  toggleSprites: () => set((s) => ({ spritesOn: !s.spritesOn })),
 
   startBattle: () => {
     const { donorId, seed, mode, roundLimit } = get();
