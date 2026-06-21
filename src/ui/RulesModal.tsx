@@ -5,13 +5,14 @@
 // and deliberately hyphen free (en dashes for ranges only) — tested.
 
 import { useMemo } from 'react';
-import type { CellId, Vec2 } from '../board/types';
+import type { CellId } from '../board/types';
 import type { TerrainKey } from '../board/types';
 import { generateUniformBoard, graphDistance as bfsDistance } from '../board';
 import type { UnitInstance, UnitType } from '../core/types';
 import { IMPASSABLE } from '../core/pathing';
 import { loadUnits } from '../io/data-loader';
 import { UnitRenderer } from './skin';
+import { projectBoard } from './skin/board-projection';
 
 // ---------------------------------------------------------------------------
 // Real-board hop-distance example (generated once at module load, never again).
@@ -50,38 +51,9 @@ const EXAMPLE_DISTANCES: ReadonlyMap<CellId, number> = (() => {
   return out;
 })();
 
-/** Project board cells into a 240×200 viewBox (same as the hex schematic). */
-function projectCells(): {
-  pts: Map<CellId, [number, number][]>;
-  toSvg: (p: Vec2) => [number, number];
-} {
-  const cells = [...exampleBoard.cells.values()];
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const c of cells) {
-    for (const [x, y] of c.polygon) {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    }
-  }
-  const PAD_SVG = 6;
-  const W = 240 - PAD_SVG * 2, H = 200 - PAD_SVG * 2;
-  const spanX = maxX - minX || 1, spanY = maxY - minY || 1;
-  const s = Math.min(W / spanX, H / spanY);
-  const offX = PAD_SVG + (W - spanX * s) / 2;
-  const offY = PAD_SVG + (H - spanY * s) / 2;
-  // Board is y-up; SVG is y-down — flip y.
-  const toSvg = (p: Vec2): [number, number] => [
-    offX + (p[0] - minX) * s,
-    offY + (maxY - p[1]) * s,
-  ];
-  const pts = new Map<CellId, [number, number][]>();
-  for (const c of cells) pts.set(c.id, c.polygon.map(toSvg));
-  return { pts, toSvg };
-}
-
-const { pts: EXAMPLE_POLYS, toSvg: exampleToSvg } = projectCells();
+// Project the example board into a 240×200 viewBox (same as the hex schematic),
+// using the shared projectBoard (defaults reproduce the prior local projection).
+const { pts: EXAMPLE_POLYS, toSvg: exampleToSvg } = projectBoard(exampleBoard);
 
 /** Screen-space center of a cell (average of its projected polygon vertices). */
 function cellCenter(id: CellId): [number, number] {
