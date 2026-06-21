@@ -159,8 +159,30 @@ export type ReplayFrame = {
   floaters: Floater[];
   /** Brawl clash burst cells. */
   bursts: CellId[];
-  /** Units fading out this frame (snapshot at death). */
+  /** Units fading out this frame (snapshot at death). R6: the dissolve no longer
+   *  rides the kill frame — it is DEFERRED to the dedicated SETTLE beat, so this
+   *  is non-empty ONLY on the `settle` frame (all the round's doomed units fall
+   *  together there, including brawl/crossfire mutual deaths). */
   kills: UnitInstance[];
+  /** R6 (DEFERRED DISSOLVE): units in the DOOMED visual HOLD this frame —
+   *  snapshots (count already 0) of units killed during the combat waves that
+   *  have NOT yet dissolved. They render greyed toward grey with a small smoke
+   *  wisp / flicker / hairline-crack and a DEATH GLYPH replacing the count badge
+   *  (never a "0"). A doomed unit persists (held) through every remaining wave
+   *  frame after its death, then dissolves once — in the SETTLE beat (`kills`).
+   *  Posthumous is OFF in this model: this is purely the deferred visual FALL,
+   *  not a deferred action — a doomed unit never acts. Empty on non-combat /
+   *  pre-death / post-SETTLE frames. */
+  doomed?: UnitInstance[];
+  /** R6 (SETTLE): this is the dedicated SETTLE beat appended after the combat
+   *  waves — the first time the script carries a real SETTLE frame. ALL the
+   *  round's doomed units DISSOLVE here (collapse + fade, the existing DeathFx
+   *  motion), the spotlight is released so the board RESATURATES as a visible
+   *  beat (fixing the R2 caveat where a combat-final round only resaturated at
+   *  the planning transition), and the income/upkeep LEDGER ticks play AFTER it.
+   *  Its duration is wired from REPLAY_PHASE_DURATIONS.SETTLE. Absent on every
+   *  other frame; a combat-less round carries no SETTLE beat. */
+  settle?: boolean;
   /** E3 conquest: units materializing this frame (Phase E spawns the player
    *  may see). The unit is withheld from `units` on its spawn frame so the
    *  fx layer alone draws it (fade/scale in); it joins `units` next frame. */
@@ -414,6 +436,18 @@ export function buildReplay(
   // v0.6: units removed by capture-consumption — already accounted for as a
   // claim; a (defensive) stray kill event for one of them must stay silent.
   const consumedIds = new Set<string>();
+
+  // R6 (DEFERRED DISSOLVE): the round's shown casualties, snapshotted at death
+  // with the combat (wave) frame index on which they fell. The dissolve no
+  // longer rides this frame — instead each casualty enters a DOOMED hold from
+  // here through the last wave frame, and ALL of them dissolve together on the
+  // appended SETTLE beat. Captured-consumed units are NOT here (they claim, not
+  // die) and brawl mutual deaths share their brawl frame index (they fall
+  // together in SETTLE). Pure: derived from the same shown kills as before.
+  const doomedDeaths: { unit: UnitInstance; deathFrame: number }[] = [];
+  const recordDoomed = (kills: readonly UnitInstance[], frameIdx: number): void => {
+    for (const k of kills) doomedDeaths.push({ unit: { ...k, attackedFrom: [] }, deathFrame: frameIdx });
+  };
 
   const nameOf = (type: string | null): string =>
     type === null ? '?' : (unitTypes[type]?.name ?? type);
@@ -1016,14 +1050,21 @@ export function buildReplay(
           ...emptyFx(),
           arcs: b.arcs,
           floaters: b.floaters,
-          kills: waveKills,
+          // R6: the dissolve is DEFERRED to SETTLE — this beat shows the lethal
+          // blow but the victim does not fall here. It is recorded as DOOMED and
+          // dissolves on the appended SETTLE beat. (No `kills` on a wave frame.)
+          kills: [],
           focus: [...focus],
           wave: w,
           band: beatBand,
           projectiles,
           shake: shakeMagnitude(beatDamage, beatBand),
         });
+        // R6: this beat's casualties enter the DOOMED hold from THIS frame.
+        recordDoomed(waveKills, frames.length - 1);
         for (const line of b.logLines) log.push({ atFrame: frames.length - 1, segs: line });
+        // The casualty log lines still fire on the death frame (the player is
+        // told who died when the lethal blow lands — only the visual fall waits).
         logKills(waveKills, frames.length - 1);
       };
       // classify a shown strike as artillery purely for the frame's finer band
@@ -1135,7 +1176,10 @@ export function buildReplay(
       }
       const kills = consumeKills(j, vis, shownVictims);
       j = kills.next;
-      fx.kills = kills.shown;
+      // R6: a brawl casualty does NOT dissolve on its clash frame — it enters
+      // the DOOMED hold and falls in SETTLE. Brawl/crossfire MUTUAL deaths share
+      // this one frame, so they fall TOGETHER on the SETTLE beat. (No `kills`.)
+      fx.kills = [];
       if (shown) {
         // R2 spotlight: a shown brawl's participants (both factions, same cell)
         // are combatants. The strikes already carry both ends.
@@ -1167,6 +1211,9 @@ export function buildReplay(
           projectiles: brawlProjectiles,
           shake: shakeMagnitude(brawlDamage, 'melee'),
         });
+        // R6: brawl casualties enter the DOOMED hold from this clash frame and
+        // fall together in SETTLE (mutual annihilation reads as both at once).
+        recordDoomed(kills.shown, frames.length - 1);
         if (hi && lo) {
           const segs: LogSeg[] = [
             { t: 'brawl: ' },
@@ -1178,7 +1225,9 @@ export function buildReplay(
           if (ev.lowerInitBreakdown) segs.push({ t: ` / counter −${ev.lowerInitDamageDealt}` });
           log.push({ atFrame: frames.length - 1, segs });
         }
-        logKills(fx.kills, frames.length - 1);
+        // R6: log lines still fire on the death frame (visual fall waits, the
+        // announcement does not) — `fx.kills` is now empty, so use kills.shown.
+        logKills(kills.shown, frames.length - 1);
       }
       i = j;
       continue;
@@ -1427,7 +1476,28 @@ export function buildReplay(
   // impacts." Each combat frame owns exactly one slot pushed immediately before
   // it, so within a run the frame subarray and the slot subarray share a
   // permutation; floater.slot and log.atFrame are remapped to match.
-  regroupCombatWaves(frames, slots, log);
+  regroupCombatWaves(frames, slots, log, doomedDeaths);
+
+  // R6 (DEFERRED DISSOLVE + real SETTLE frame) — the deferral post-pass. The
+  // resolution walk computed every casualty exactly as before (summary.kills,
+  // damage, fog are untouched); here we only move the visible FALL to SETTLE:
+  //
+  //  A. DOOMED HOLD — each casualty rides `doomed` (a snapshot) from its death
+  //     frame through the round's LAST wave frame, so it stays visibly on the
+  //     board (greyed + a death glyph, never a "0") instead of vanishing at the
+  //     kill frame. Posthumous is OFF: this is the deferred FALL, not an action.
+  //  B. SETTLE BEAT — one dedicated SETTLE frame is appended right after the
+  //     last wave frame, carrying ALL the casualties in `kills` so they dissolve
+  //     TOGETHER (brawl/crossfire mutual deaths included). Its duration is wired
+  //     from REPLAY_PHASE_DURATIONS.SETTLE.
+  //  C. RESATURATE — the SETTLE frame is the first post-wave frame, so spotlightAt
+  //     releases on it: the board returns to full colour as a visible beat
+  //     (fixes the R2 caveat where a combat-final round only resaturated at the
+  //     planning transition).
+  //  D. LEDGER LAST — income/upkeep frames were emitted by the walk AFTER combat
+  //     (Phase E), so inserting SETTLE right after the last wave frame keeps the
+  //     ledger ticks after the board has settled.
+  insertSettleBeat(frames, log, doomedDeaths, phases.SETTLE.duration);
 
   return {
     slots,
@@ -1438,6 +1508,73 @@ export function buildReplay(
     phases,
     combatants: { cells: combatantCells, units: combatantUnits },
   };
+}
+
+/** R6 (PURE): defer every shown casualty's dissolve to a dedicated SETTLE beat.
+ *  Mutates the frame list IN PLACE (still pure over its inputs — it derives only
+ *  from the already-computed frames + casualty snapshots, no resolved value):
+ *
+ *   1. Find the round's last wave (combat) frame. No wave frame ⇒ no witnessed
+ *      combat ⇒ nothing to settle: leave the script untouched (no SETTLE beat).
+ *   2. DOOMED HOLD: add each casualty's snapshot to `doomed` on every wave frame
+ *      from its death frame through the last wave frame (it persists held).
+ *   3. SETTLE BEAT: splice one SETTLE frame in right after the last wave frame,
+ *      carrying ALL casualties in `kills` (they dissolve together). It clones the
+ *      last wave frame's fog/units/board picture (the post-combat state) but
+ *      drops the combat FX + wave tag and is flagged `settle`; spotlightAt
+ *      releases on it (resaturation). Frames AFTER it (ledger, etc.) shift right.
+ */
+function insertSettleBeat(
+  frames: ReplayFrame[],
+  log: ReplayLogEntry[],
+  doomedDeaths: readonly { unit: UnitInstance; deathFrame: number }[],
+  settleDuration: number,
+): void {
+  let lastWave = -1;
+  for (let i = 0; i < frames.length; i++) if (frames[i]!.wave !== undefined) lastWave = i;
+  if (lastWave < 0) return; // no witnessed combat → no SETTLE beat
+
+  // DOOMED HOLD: each casualty holds (greyed + glyph) from its death frame
+  // through the last wave frame. Only wave frames carry the hold (non-combat
+  // frames between waves don't occur within a contiguous combat run).
+  for (const { unit, deathFrame } of doomedDeaths) {
+    for (let i = Math.max(0, deathFrame); i <= lastWave; i++) {
+      const f = frames[i]!;
+      if (f.wave === undefined) continue;
+      (f.doomed ??= []).push({ ...unit, attackedFrom: [] });
+    }
+  }
+
+  // SETTLE BEAT: clone the post-combat board picture from the last wave frame,
+  // strip the combat FX + wave tag, and carry every casualty as a dissolve.
+  const base = frames[lastWave]!;
+  const settle: ReplayFrame = {
+    duration: settleDuration,
+    slot: -1, // a transition/bookkeeping beat, not a timeline action
+    units: base.units,
+    fog: base.fog,
+    discovered: base.discovered,
+    ignite: [],
+    arcs: [],
+    floaters: [],
+    bursts: [],
+    // ALL the round's casualties fall TOGETHER here (mutual deaths included).
+    kills: doomedDeaths.map((d) => ({ ...d.unit, attackedFrom: [] })),
+    spawns: [],
+    captures: [],
+    promotions: [],
+    signs: [],
+    trails: [],
+    focus: [],
+    settle: true,
+    ...(base.bases ? { bases: base.bases } : {}),
+    ...(base.credits !== undefined ? { credits: base.credits } : {}),
+  };
+  frames.splice(lastWave + 1, 0, settle);
+  // The splice shifts every frame after the insertion point right by one — any
+  // log line bound to such a frame (the post-combat ledger / capture / promotion
+  // lines) must follow it so it still fires on the right beat.
+  for (const entry of log) if (entry.atFrame > lastWave) entry.atFrame += 1;
 }
 
 /** R2 (SPOTLIGHT): is the combat spotlight engaged at this playback cursor?
@@ -1538,6 +1675,9 @@ function regroupCombatWaves(
   frames: ReplayFrame[],
   slots: TimelineSlot[],
   log: ReplayLogEntry[],
+  /** R6: doomed-death frame references to remap through the same permutation
+   *  (a casualty's death frame must follow its beat after the wave reorder). */
+  doomedDeaths: { unit: UnitInstance; deathFrame: number }[] = [],
 ): void {
   const isCombat = (f: ReplayFrame): boolean => f.wave !== undefined;
   // frame index → new frame index, identity until a run is permuted.
@@ -1594,6 +1734,8 @@ function regroupCombatWaves(
     for (const fl of fr.floaters) fl.slot = slotMap[fl.slot] ?? fl.slot;
   }
   for (const entry of log) entry.atFrame = frameMap[entry.atFrame] ?? entry.atFrame;
+  // R6: a casualty's death frame moves with its beat under the reorder.
+  for (const d of doomedDeaths) d.deathFrame = frameMap[d.deathFrame] ?? d.deathFrame;
 }
 
 /** R4 (PURE): turn a beat's SHOWN strikes into attack-motion primitives. One

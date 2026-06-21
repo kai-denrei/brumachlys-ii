@@ -74,13 +74,24 @@ describe('replay builder — grouping', () => {
     ];
     const script = build(units, events);
     expect(script.slots.length).toBe(1); // one timeline slot for the whole exchange
-    expect(script.frames.length).toBe(2); // establish + ONE volley frame
+    // R6 RE-BASELINE: establish + ONE volley frame + the appended SETTLE beat.
+    // The exchange still groups as ONE visual tick (one slot, one volley frame);
+    // what changed is the dissolve is DEFERRED to a dedicated SETTLE beat.
+    expect(script.frames.length).toBe(3);
     const frame = script.frames[1]!;
     expect(frame.arcs.length).toBe(2); // both halves flash together
     expect(frame.floaters.map((f) => f.text).sort()).toEqual(['−4', '−5']);
-    expect(frame.kills.map((u) => u.id)).toEqual(['re']);
-    expect(frame.units.some((u) => u.id === 're')).toBe(false); // dead
+    // R6: the victim does NOT dissolve on the volley frame — it is DOOMED here
+    // (greyed + glyph) and dissolves later, in SETTLE.
+    expect(frame.kills).toEqual([]);
+    expect(frame.doomed?.map((u) => u.id)).toEqual(['re']);
+    expect(frame.units.some((u) => u.id === 're')).toBe(false); // dead → not living
+    // R6: the dissolve lands on the SETTLE beat (the last frame here).
+    const settle = script.frames[2]!;
+    expect(settle.settle).toBe(true);
+    expect(settle.kills.map((u) => u.id)).toEqual(['re']);
     expect(script.slots[0]!.strikes.map((s) => s.kind)).toEqual(['attack', 'counter']);
+    // OUTCOMES UNCHANGED: casualty accounting + damage are exactly as before.
     expect(script.summary.kills).toEqual([{ id: 're', type: 'ranger', faction: 1 }]);
     expect(script.summary.damageDealt).toEqual([5, 4]);
   });

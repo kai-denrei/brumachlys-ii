@@ -3720,6 +3720,83 @@ body {
   }
 }
 
+/* R6 (DEFERRED DISSOLVE): the DOOMED hold — a unit killed during the combat
+   waves does NOT dissolve at its kill frame. It holds greyed in place with a
+   faint flicker + a drifting smoke wisp, a hairline crack across the face, and
+   a ✕ death glyph where the count badge was (never a "0"). The dissolve plays
+   later, on the SETTLE beat (.fx-death). prefers-reduced-motion drops the
+   flicker/drift below → a static grey token + glyph (the read survives). */
+.fx-doomed-token,
+.fx-doomed-crack,
+.fx-doomed-wisp,
+.fx-doomed-badge {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* a slow, low-amplitude flicker on the doomed token — "destroyed, holding" */
+.fx-doomed-token {
+  animation: fx-doomed-flicker 1.1s ease-in-out infinite;
+}
+
+@keyframes fx-doomed-flicker {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 0.92;
+  }
+}
+
+/* the hairline crack draws on, then holds */
+.fx-doomed-crack {
+  animation: fx-doomed-crack 0.34s ease-out both;
+}
+
+@keyframes fx-doomed-crack {
+  0% {
+    opacity: 0;
+    stroke-dashoffset: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+
+/* the smoke wisp drifts up and breathes */
+.fx-doomed-wisp {
+  animation: fx-doomed-wisp 1.6s ease-in-out infinite;
+}
+
+@keyframes fx-doomed-wisp {
+  0% {
+    opacity: 0.7;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0.35;
+    transform: translateY(-12%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* reduced-motion: doomed = static grey + glyph (no flicker / no drift). */
+  .fx-doomed-token,
+  .fx-doomed-crack,
+  .fx-doomed-wisp {
+    animation: none;
+  }
+
+  .fx-doomed-token {
+    opacity: 0.78;
+  }
+
+  .fx-doomed-crack {
+    opacity: 0.6;
+  }
+}
+
 /* capture = pulse → deliberate paint-fill claim → flag raising + shimmer.
    v0.8 strengthened: the sweep is a solid stain, not a ghost; the flag waves
    as it plants; the consumed unit dissolves into the mast tip with sparks.

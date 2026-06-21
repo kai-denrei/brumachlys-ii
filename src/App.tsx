@@ -1268,6 +1268,7 @@ function BattleScreen() {
                 floaters: fxFloaters,
                 bursts: frame.bursts,
                 kills: frame.kills,
+                doomed: frame.doomed,
                 spawns: frame.spawns,
                 captures: frame.captures,
                 impacts: fxImpacts,

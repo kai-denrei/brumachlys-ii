@@ -30,8 +30,9 @@ import type { Board, CellId } from '../../board/types';
 import type { FactionId, UnitInstance } from '../../core/types';
 import type { Projectile } from '../../state/replay-timing';
 import type { FloaterCategory } from '../../state/replay';
-import { darken, factionColor } from './palette';
+import { darken, desaturate, factionColor } from './palette';
 import { UnitRenderer } from './UnitRenderer';
+import { UnitGlyph } from './icons';
 import { roundedPolygonPath, type Pt } from './rounded';
 
 /** v0.6 Ask 7 — one shown strike whose defender SURVIVES the frame (deaths
@@ -69,7 +70,17 @@ export type ReplayFxData = {
     linger?: boolean;
   }[];
   bursts: CellId[];
+  /** R6: units DISSOLVING this frame (the deferred fall). The builder now only
+   *  fills this on the SETTLE beat — every wave casualty falls together there. */
   kills: UnitInstance[];
+  /** R6 (DEFERRED DISSOLVE): units in the DOOMED hold this frame — killed during
+   *  the combat waves but not yet dissolved. Each renders as a greyed token with
+   *  a small smoke wisp / flicker / hairline-crack and a DEATH GLYPH replacing
+   *  the count badge (never a "0"). This is the deferred visual FALL only —
+   *  posthumous is OFF, a doomed unit never acts. The dissolve plays later, in
+   *  SETTLE (`kills`). Optional: most frames send none; reduced-motion in CSS
+   *  drops the flicker, leaving a static grey token + glyph. */
+  doomed?: UnitInstance[];
   /** E3 conquest: units materializing this frame (Phase E spawns) — token
    *  fades/scales in (.fx-spawn-pop). Optional: skirmish never sends any. */
   spawns?: UnitInstance[];
@@ -497,6 +508,103 @@ function MistImpact({ at, tokenSize }: { at: Pt; tokenSize: number }) {
     <g className="fx-impact" transform={`translate(${at[0]} ${at[1]})`} pointerEvents="none">
       <circle className="fx-impact-ring" r={tokenSize * 0.55} fill="none" stroke="#fff" strokeWidth={tokenSize * 0.08} />
       <circle className="fx-impact-ring fx-impact-ring-2" r={tokenSize * 0.55} fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth={tokenSize * 0.05} />
+    </g>
+  );
+}
+
+// --- R6 (DEFERRED DISSOLVE): the DOOMED hold ---------------------------------
+// A unit killed during the combat waves does NOT dissolve at its kill frame: it
+// holds here, greyed toward grey with a small smoke wisp + a hairline-crack /
+// flicker, and a DEATH GLYPH (✕) REPLACING the count badge — never a "0", which
+// is the exact thing that reads as "a corpse still standing at 0 HP." The token
+// stays in place through the remaining wave frames; the actual dissolve (DeathFx)
+// plays once, later, on the SETTLE beat. Posthumous is OFF in this model — this
+// is purely the deferred visual FALL, not a deferred action.
+//
+// The glyph + crack geometry is deterministic (fixed coordinates, no randomness).
+// prefers-reduced-motion (CSS) drops the flicker/wisp drift, leaving a static
+// grey token + glyph — the read survives, outcomes never change.
+
+const DOOMED_DESATURATION = 0.85; // toward grey, but a faint tint remains
+
+function DoomedFx({
+  unit,
+  at,
+  tokenSize,
+}: {
+  unit: UnitInstance;
+  at: Pt;
+  tokenSize: number;
+}) {
+  const grey = desaturate(factionColor(unit.faction), DOOMED_DESATURATION);
+  const h = tokenSize / 2;
+  const rx = tokenSize * 0.3;
+  const strokeW = tokenSize * 0.06;
+  return (
+    <g
+      className="fx-doomed"
+      transform={`translate(${at[0]} ${at[1]})`}
+      pointerEvents="none"
+      data-doomed-id={unit.id}
+    >
+      {/* the held token, desaturated toward grey. Minimal + glyph-only: NO count
+          pip (a "0" must never show); the death glyph below replaces it. */}
+      <g className="fx-doomed-token">
+        <rect
+          className="unit-body unit-token"
+          x={-h}
+          y={-h}
+          width={tokenSize}
+          height={tokenSize}
+          rx={rx}
+          fill={grey}
+          stroke="#fff"
+          strokeWidth={strokeW}
+          opacity={0.7}
+        />
+        <g transform={`translate(${-h} ${-h}) scale(${tokenSize / 100})`}>
+          <UnitGlyph type={unit.type} />
+        </g>
+      </g>
+      {/* hairline-crack across the token face — a deterministic fracture line. */}
+      <polyline
+        className="fx-doomed-crack"
+        points={`${-h * 0.5},${-h * 0.55} ${-h * 0.05},${-h * 0.05} ${h * 0.3},${h * 0.15} ${h * 0.55},${h * 0.6}`}
+        fill="none"
+        stroke="#2a2620"
+        strokeWidth={tokenSize * 0.05}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={0.6}
+      />
+      {/* a small smoke wisp rising off the doomed token. */}
+      <g className="fx-doomed-wisp">
+        {[0, 1, 2].map((k) => (
+          <circle
+            key={k}
+            cx={(k - 1) * tokenSize * 0.16}
+            cy={-h * 0.4 - k * tokenSize * 0.12}
+            r={tokenSize * (0.12 - k * 0.018)}
+            fill="#8d8675"
+            opacity={0.5 - k * 0.12}
+          />
+        ))}
+      </g>
+      {/* DEATH GLYPH replacing the count badge (✕), in the count-pip corner. */}
+      <g className="fx-doomed-badge" transform={`translate(${h * 0.78} ${h * 0.78})`}>
+        <circle r={tokenSize * 0.21} fill="#fff" stroke={darken(grey, 0.18)} strokeWidth={tokenSize * 0.03} />
+        <text
+          className="fx-doomed-glyph"
+          y={tokenSize * 0.012}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={tokenSize * 0.3}
+          fontWeight={700}
+          fill="#9c2f1d"
+        >
+          ✕
+        </text>
+      </g>
     </g>
   );
 }
@@ -1021,6 +1129,14 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
             />
           </g>
         );
+      })}
+      {/* R6 (DEFERRED DISSOLVE): units in the DOOMED hold — greyed token + death
+          glyph (never a "0"), no dissolve. They persist through the wave frames
+          and fall later, in the SETTLE beat (fx.kills). */}
+      {(fx.doomed ?? []).map((unit) => {
+        const at = center(board, unit.cell, toScreen);
+        if (!at) return null;
+        return <DoomedFx key={`d${unit.id}`} unit={unit} at={at} tokenSize={tokenSize} />;
       })}
       {fx.kills.map((unit) => {
         const at = center(board, unit.cell, toScreen);
