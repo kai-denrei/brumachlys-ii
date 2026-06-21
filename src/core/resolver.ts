@@ -84,6 +84,7 @@ import type {
   UnitInstance,
   UnitType,
 } from './types';
+import { upkeepRateOf, unitUpkeep } from './economy';
 
 /** §2.8 — both factions alive at the end of this round number ⇒ draw.
  *  SKIRMISH ONLY: conquest uses GameState.roundLimit (null = no limit). */
@@ -659,12 +660,25 @@ export function resolveRound(
       return n;
     };
 
-    // Income accrues per base owned at this moment (post-capture).
+    // Income accrues per base owned at this moment (post-capture), then upkeep
+    // is drawn on the faction's LIVING units (clamped at zero — never negative).
+    // New recruits spawn AFTER this loop, so they pay no upkeep this round.
+    const upkeepRate = upkeepRateOf(board);
     for (const faction of [0, 1] as const) {
       const owned = ownedBases(faction);
-      const amount = owned * perBase;
-      credits[faction] += amount;
-      events.push({ type: 'income', faction, bases: owned, amount, creditsAfter: credits[faction] });
+      const income = owned * perBase;
+      credits[faction] += income;
+      events.push({ type: 'income', faction, bases: owned, amount: income, creditsAfter: credits[faction] });
+
+      const living = alive().filter((u) => u.faction === faction);
+      let due = 0;
+      for (const u of living) {
+        const ut = unitTypes[u.type];
+        if (ut) due += unitUpkeep(ut, u.count, upkeepRate);
+      }
+      const paid = Math.min(credits[faction], due);
+      credits[faction] -= paid;
+      events.push({ type: 'upkeep', faction, units: living.length, amount: paid, creditsAfter: credits[faction] });
     }
 
     // Buy resolution. Sanitize mirrors the order sanitize above: unknown unit
