@@ -9,7 +9,7 @@
 // actorType null (rendered as a "?" chip) and its strikes carry null attacker
 // fields; nothing here can resurrect a hidden position.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { FactionId, GameOutcome, UnitInstance, UnitType } from '../core/types';
 import { loadUnits } from '../io/data-loader';
 import type { RoundSummary, Strike, TimelineSlot } from '../state/replay';
@@ -46,16 +46,32 @@ function chipUnit(slot: TimelineSlot): UnitInstance | null {
 export function ReplayDock({
   slots,
   activeSlot,
+  frameIdx,
+  frameCount,
+  elapsedMs,
+  totalMs,
   speed,
   paused,
   done,
   onSpeed,
   onTogglePause,
   onSlotTap,
+  onSeekFrame,
+  onSeekTime,
+  onScrubStart,
   onRecenter,
 }: {
   slots: readonly TimelineSlot[];
   activeSlot: number;
+  /** R7 (SEEK / SCRUB): the playback cursor (current frame index). */
+  frameIdx: number;
+  /** R7: total frames in the script — the scrubber's frame upper bound. */
+  frameCount: number;
+  /** R7: elapsed time (ms at 1×) at the current frame's start — the scrubber
+   *  thumb position when seeking by time. */
+  elapsedMs: number;
+  /** R7: the round's total run length (ms at 1×) — the scrubber's time bound. */
+  totalMs: number;
   speed: ReplaySpeed;
   paused: boolean;
   /** Playback finished — the strip stays browsable under the summary. */
@@ -63,11 +79,42 @@ export function ReplayDock({
   onSpeed: (s: ReplaySpeed) => void;
   onTogglePause: () => void;
   onSlotTap: (slot: number) => void;
+  /** R7 (SEEK): step the cursor to a specific FRAME (keyboard arrow keys — one
+   *  frame per arrow). Pure cursor move: no resolver re-run, no state mutation. */
+  onSeekFrame?: (idx: number) => void;
+  /** R7 (SEEK): map an elapsed TIME (ms) to a frame and move the cursor there —
+   *  the scrubber's drag path (continuous time → frame via cumulative durations).
+   *  Pure cursor move; agrees with the slot strip (the resolved frame's slot
+   *  becomes active). */
+  onSeekTime?: (ms: number) => void;
+  /** R7 (SCRUB): the user grabbed the scrubber — pauses playback so the dragged
+   *  frame holds (releasing leaves it paused; the play control resumes). */
+  onScrubStart?: () => void;
   /** Non-null while auto-follow is suspended by a manual pan (P9) — shows the
    *  recenter button that hands the camera back to the replay. */
   onRecenter?: (() => void) | null;
 }) {
   const stripRef = useRef<HTMLDivElement>(null);
+  const lastFrame = Math.max(0, frameCount - 1);
+  const scrubEnabled = !!onSeekTime && frameCount > 1 && totalMs > 0;
+
+  // R7: arrow keys step EXACTLY one frame (the natural granularity that aligns
+  // with the slot strip), overriding the slider's native time-step. Left/Down =
+  // previous frame, Right/Up = next. Home/End jump to the ends. Other keys fall
+  // through to the slider's default behavior.
+  function onScrubKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    onScrubStart?.();
+    const key = e.key;
+    let next: number | null = null;
+    if (key === 'ArrowLeft' || key === 'ArrowDown') next = frameIdx - 1;
+    else if (key === 'ArrowRight' || key === 'ArrowUp') next = frameIdx + 1;
+    else if (key === 'Home') next = 0;
+    else if (key === 'End') next = lastFrame;
+    if (next !== null) {
+      e.preventDefault();
+      onSeekFrame?.(next);
+    }
+  }
 
   // Keep the active slot in view as playback advances.
   useEffect(() => {
@@ -79,6 +126,33 @@ export function ReplayDock({
 
   return (
     <footer className="replay-dock" data-testid="replay-dock">
+      {/* R7 (SCRUBBER): a draggable timeline slider spanning the whole replay.
+          The thumb tracks elapsed TIME (ms at 1×); dragging maps that time to a
+          frame via the cumulative frame durations (onSeekTime), so the seek is a
+          pure cursor move — no resolver re-run, no state mutation — and the
+          resolved frame's slot becomes the active slot (scrubber + strip agree).
+          Grabbing it PAUSES playback so the dragged frame holds; the play control
+          resumes (releasing leaves it paused — the cleaner UX). Arrow keys step
+          EXACTLY one frame (onScrubKeyDown); an aria-label + aria-valuetext make
+          it screen-reader operable. */}
+      <input
+        type="range"
+        className="replay-scrub"
+        data-testid="replay-scrub"
+        min={0}
+        max={Math.max(1, Math.round(totalMs))}
+        step={1}
+        value={Math.min(Math.round(elapsedMs), Math.max(1, Math.round(totalMs)))}
+        disabled={!scrubEnabled}
+        aria-label="replay scrubber — seek through the round"
+        aria-valuetext={`frame ${Math.min(frameIdx, lastFrame) + 1} of ${frameCount}`}
+        // Pause the moment the user grabs the slider (mouse/touch), so the
+        // scrubbed frame holds rather than fighting the advance loop.
+        onPointerDown={onScrubStart}
+        onKeyDown={onScrubKeyDown}
+        onChange={(e) => onSeekTime?.(Number(e.target.value))}
+      />
+      <div className="replay-dock-row">
       <div className="timeline-strip" ref={stripRef}>
         {slots.length === 0 && <span className="timeline-empty">nothing stirred in the mist</span>}
         {slots.map((slot, k) => {
@@ -135,6 +209,7 @@ export function ReplayDock({
             {s === 'skip' ? '≫' : `${s}×`}
           </button>
         ))}
+      </div>
       </div>
     </footer>
   );

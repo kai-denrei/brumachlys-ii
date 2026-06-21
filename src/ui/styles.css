@@ -1460,9 +1460,11 @@ body {
 /* --- P8: replay dock — initiative timeline strip (§9.4) -------------------- */
 
 .replay-dock {
+  /* R7: a column — the scrubber spans the full width on top, the strip + speed
+     controls form the row below it. */
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.35rem;
   /* Same reserved height as .bottom-dock so swapping the two docks never
      resizes .board-area (and never recenters the SVG board). See the note by
      .bottom-dock. */
@@ -1475,6 +1477,67 @@ body {
      itself resize the board — and with the reserved height the swap is a pure
      content change inside a fixed box. */
   animation: dock-slide-up 0.22s ease-out; /* slides over the dock (§9.4) */
+}
+
+/* R7: the strip + speed-controls row that sits under the scrubber. */
+.replay-dock-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* R7 (SCRUBBER): the full-width seek slider. Paper/ink palette to match the
+   existing dock chrome; the thumb is a faction-A pip. */
+.replay-scrub {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.replay-scrub:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.replay-scrub::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(74, 68, 58, 0.22);
+}
+.replay-scrub::-moz-range-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(74, 68, 58, 0.22);
+}
+.replay-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--faction-a);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-scrub::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--faction-a);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-scrub:focus-visible {
+  outline: none;
+}
+.replay-scrub:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 128, 107, 0.4);
+}
+.replay-scrub:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 128, 107, 0.4);
 }
 
 @keyframes dock-slide-up {

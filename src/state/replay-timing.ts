@@ -136,6 +136,67 @@ export function bandWave(band: CombatBand): Wave {
   return band === 'melee' ? 'B' : 'A';
 }
 
+// --- R7 (SEEK / SCRUB transport) ---------------------------------------------
+// Playback is a PURE function of (resolvedTurn, t): the script is a flat list of
+// fixed-duration frames, so seeking is just moving the cursor — no resolver re-run,
+// no state mutation (source spec §3). These helpers map between an elapsed time
+// (ms at 1× speed) and a frame index via the cumulative frame durations, so a
+// scrubber/seek can land on any frame or any point in time deterministically.
+// PURE — they read only frame durations; they compute nothing about damage/fog.
+
+/** A frame-like value carrying just the field these helpers read. */
+type Timed = { duration: number };
+
+/** Total run length (ms at 1×) of a frame list — the sum of all durations.
+ *  0 for an empty list. PURE. */
+export function totalDuration(frames: readonly Timed[]): number {
+  let sum = 0;
+  for (const f of frames) sum += f.duration;
+  return sum;
+}
+
+/** Clamp a frame index into the valid cursor range [0, frames.length-1].
+ *  An empty list clamps to 0. PURE — the transport's single bounds authority so
+ *  seekToFrame and the slider can never address a non-existent frame. */
+export function clampFrame(idx: number, frameCount: number): number {
+  if (frameCount <= 0) return 0;
+  const i = Math.trunc(idx);
+  if (i < 0) return 0;
+  if (i > frameCount - 1) return frameCount - 1;
+  return i;
+}
+
+/** The elapsed time (ms at 1×) at which a given frame BEGINS — the running sum of
+ *  every earlier frame's duration. frameStartTime(_, 0) === 0. Out-of-range
+ *  indices clamp first. PURE — the inverse of frameAtTime at frame boundaries. */
+export function frameStartTime(frames: readonly Timed[], idx: number): number {
+  const i = clampFrame(idx, frames.length);
+  let t = 0;
+  for (let k = 0; k < i; k++) t += frames[k]!.duration;
+  return t;
+}
+
+/** Map an elapsed time (ms at 1×) to the frame index it falls within, by a running
+ *  sum over the cumulative frame durations. The frame that owns time `ms` is the
+ *  one whose [start, start+duration) window contains it; `ms` exactly on a frame
+ *  boundary belongs to the LATER frame (the one starting there), and `ms` at or
+ *  past the total run length pins to the last frame. Negative / NaN pins to 0.
+ *  PURE — the load-bearing seek-by-time mapping (source spec §3: seek(t) yields a
+ *  correct, stable frame for any t ∈ [0, total]). Linear scan; frame counts are
+ *  small (tens to low hundreds) so a binary search buys nothing here. */
+export function frameAtTime(frames: readonly Timed[], ms: number): number {
+  if (frames.length === 0) return 0;
+  if (!(ms > 0)) return 0; // negative, 0, or NaN → first frame
+  let acc = 0;
+  for (let i = 0; i < frames.length; i++) {
+    acc += frames[i]!.duration;
+    // strictly LESS than the cumulative end ⇒ this frame owns `ms`; a value on
+    // the boundary (=== acc) rolls to the next frame on the following iteration.
+    if (ms < acc) return i;
+  }
+  return frames.length - 1; // at / past the total → last frame
+}
+
 /**
  * Classify a combat event into a presentation range-band. PURE — derived from
  * the attacking unit's type and the strike geometry the resolver already
