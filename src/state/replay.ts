@@ -101,12 +101,25 @@ export type TimelineSlot = {
   strikes: Strike[];
 };
 
+/** R5: a damage floater's category, derived PURELY from the resolved event:
+ *  - 'kill'    — the lethal blow (the strike that brings the target to 0 count)
+ *  - 'counter' — a counter event OR a brawl-return strike (the answering blow)
+ *  - 'taken'   — any other (normal) damage
+ *  Drives the floater's colour (taken = INK, counter = GREY, kill = GOLD) and is
+ *  orthogonal to `mist` (fog) — a mist floater carries an honest category but the
+ *  renderer keeps its fog-grey treatment so the hidden attacker never leaks. The
+ *  fizzle / "no target" / "build failed" floaters carry no damage and default to
+ *  'taken' (they are styled as their own non-damage labels, not by category). */
+export type FloaterCategory = 'taken' | 'counter' | 'kill';
+
 export type Floater = {
   id: string;
   cell: CellId;
   text: string;
   /** Source withheld — render the impact marker, grey pill. */
   mist: boolean;
+  /** R5: category-colour bucket (see FloaterCategory). */
+  category: FloaterCategory;
   /** Timeline slot this floater belongs to (breakdown modal tap target). */
   slot: number;
 };
@@ -809,6 +822,7 @@ export function buildReplay(
               cell: lAtt.cell,
               text: 'no target',
               mist: false,
+              category: 'taken', // R5: a non-damage label, not category-coloured
               slot: slots.length, // patched at emit
             });
             combinedLogLines.push([
@@ -856,6 +870,9 @@ export function buildReplay(
               cell: aev.defenderCell,
               text: `−${aev.damage}`,
               mist,
+              // R5: a lethal opening strike (defender → 0) is a kill; otherwise
+              // it is normal damage taken.
+              category: aev.defenderCountAfter === 0 ? 'kill' : 'taken',
               slot: slots.length, // patched to the bucket's slot index at emit
             });
             summary.damageDealt[att.faction] += aev.damage;
@@ -902,6 +919,9 @@ export function buildReplay(
                   cell: ce.defenderCell,
                   text: `−${ce.damage}`,
                   mist: cMist,
+                  // R5: a counter that kills reads as a kill (gold) — kill
+                  // precedence over the counter category; otherwise 'counter'.
+                  category: ce.defenderCountAfter === 0 ? 'kill' : 'counter',
                   slot: slots.length,
                 });
                 summary.damageDealt[cAtt.faction] += ce.damage;
@@ -1085,6 +1105,9 @@ export function buildReplay(
             cell: ev.cell,
             text: `−${chain.cum[0]}`, // running brawl total (P9)
             mist: false,
+            // R5: the higher-init's blow — a kill if it dropped the lower-init's
+            // unit to 0, otherwise normal damage taken (it strikes first).
+            category: ev.lowerInitCountAfter === 0 ? 'kill' : 'taken',
             slot: slots.length,
           });
           if (ev.lowerInitBreakdown) {
@@ -1097,6 +1120,9 @@ export function buildReplay(
               cell: ev.cell,
               text: `−${chain.cum[1]}`, // running brawl total (P9)
               mist: false,
+              // R5: the lower-init's answering blow is a brawl-return — 'counter',
+              // unless it killed the higher-init's unit (kill precedence).
+              category: ev.higherInitCountAfter === 0 ? 'kill' : 'counter',
               slot: slots.length,
             });
           }
@@ -1328,7 +1354,7 @@ export function buildReplay(
         const slot = slots.length;
         slots.push({ kind: 'fizzle', actorType: ev.unitTypeKey, actorFaction: ev.faction, strikes: [] });
         const fx = emptyFx();
-        fx.floaters.push({ id: `f${slot}-0`, cell: ev.cell, text: 'build failed', mist: false, slot });
+        fx.floaters.push({ id: `f${slot}-0`, cell: ev.cell, text: 'build failed', mist: false, category: 'taken', slot });
         frames.push({
           duration: FIZZLE_MS,
           slot,

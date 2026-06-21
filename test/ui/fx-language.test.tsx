@@ -156,6 +156,75 @@ describe('destruction verb (crumble / shrink / smoke-puff)', () => {
   });
 });
 
+describe('damage-number categories (R5: colour by category, size ∝ magnitude)', () => {
+  // R5: a damage floater is coloured by its category — taken = INK, counter =
+  // GREY, kill = GOLD (var(--gold)) — and its number scales with the hit
+  // magnitude (bounded). A mist (fire-from-the-mist) floater keeps its fog-grey
+  // treatment regardless of category (fog honesty: the attacker never leaks).
+  const INK = '#4a443a';
+  const GREY = '#8d8675';
+  const GOLD = 'var(--gold)';
+  const MIST_FILL = '#5d5648';
+
+  const fl = (over: Partial<ReplayFxData['floaters'][number]> = {}) => ({
+    id: 'f0',
+    cell: 2,
+    text: '−5',
+    mist: false,
+    slot: 0,
+    category: 'taken' as const,
+    ...over,
+  });
+  const pillFill = (c: HTMLElement) =>
+    c.querySelector('.fx-floater-pill rect[rx]')!.getAttribute('fill');
+  const fontSize = (c: HTMLElement) =>
+    Number(c.querySelector('.fx-floater-pill text')!.getAttribute('font-size'));
+
+  it('a damage-taken floater is INK', () => {
+    const { container } = renderFx({ floaters: [fl({ category: 'taken' })] });
+    expect(pillFill(container)).toBe(INK);
+  });
+
+  it('a counter floater is GREY', () => {
+    const { container } = renderFx({ floaters: [fl({ category: 'counter' })] });
+    expect(pillFill(container)).toBe(GREY);
+  });
+
+  it('a kill floater is GOLD (var(--gold))', () => {
+    const { container } = renderFx({ floaters: [fl({ category: 'kill' })] });
+    expect(pillFill(container)).toBe(GOLD);
+  });
+
+  it('size scales with magnitude — a bigger hit gets a bigger number, bounded', () => {
+    const small = renderFx({ floaters: [fl({ text: '−1' })] });
+    const big = renderFx({ floaters: [fl({ text: '−12' })] });
+    const huge = renderFx({ floaters: [fl({ text: '−99' })] });
+    const sSmall = fontSize(small.container);
+    const sBig = fontSize(big.container);
+    const sHuge = fontSize(huge.container);
+    expect(sBig).toBeGreaterThan(sSmall); // magnitude drives size
+    // bounded: a huge hit never blows past a sane ceiling (≤ ~1.4× the base)
+    expect(sHuge).toBeLessThanOrEqual(sSmall * 1.6);
+    expect(sHuge).toBeGreaterThanOrEqual(sBig); // monotonic, then clamps
+  });
+
+  it('a category floater still rides the arc-rise + fade motion', () => {
+    const { container } = renderFx({ floaters: [fl({ category: 'kill' })] });
+    expect(container.querySelector('.fx-floater-rise')).not.toBeNull();
+  });
+
+  it('a MIST kill floater keeps fog-grey (fog honesty wins over kill-gold)', () => {
+    const { container } = renderFx({
+      floaters: [fl({ mist: true, category: 'kill' })],
+    });
+    // fog secrecy: the mist treatment is preserved — NOT gold.
+    expect(pillFill(container)).toBe(MIST_FILL);
+    expect(pillFill(container)).not.toBe(GOLD);
+    // and the impact ring (mist marker) is present, no source arc
+    expect(container.querySelector('.fx-impact')).not.toBeNull();
+  });
+});
+
 describe('forced-crossing sign ("path interrupted!", addendum §5)', () => {
   it('renders a transient sign label at the crossing cell', () => {
     const { container } = renderFx({ signs: [{ cell: 2, text: 'path interrupted!' }] });

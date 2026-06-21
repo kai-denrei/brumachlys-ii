@@ -29,6 +29,7 @@
 import type { Board, CellId } from '../../board/types';
 import type { FactionId, UnitInstance } from '../../core/types';
 import type { Projectile } from '../../state/replay-timing';
+import type { FloaterCategory } from '../../state/replay';
 import { darken, factionColor } from './palette';
 import { UnitRenderer } from './UnitRenderer';
 import { roundedPolygonPath, type Pt } from './rounded';
@@ -60,6 +61,10 @@ export type ReplayFxData = {
     cell: CellId;
     text: string;
     mist: boolean;
+    /** R5: damage-number category — taken = INK, counter = GREY, kill = GOLD.
+     *  Optional so older/synthetic callers default to 'taken' (ink). A mist
+     *  floater keeps its fog-grey treatment regardless (fog honesty). */
+    category?: FloaterCategory;
     slot: number;
     linger?: boolean;
   }[];
@@ -840,6 +845,55 @@ function CrossSign({ at, tokenSize, text }: { at: Pt; tokenSize: number; text: s
   );
 }
 
+// --- R5: category-coloured DAMAGE NUMBERS ------------------------------------
+// A damage floater is coloured by its CATEGORY (derived purely upstream in
+// state/replay.ts) and SIZED by the hit's magnitude:
+//   • taken   = INK   (#4a443a) pill, light text  — normal damage taken
+//   • counter = GREY  (#8d8675) pill, light text  — an answering counter blow
+//   • kill    = GOLD  (var(--gold)) pill, dark text — the lethal blow
+// PRECEDENCE (documented): FOG honesty is absolute — a mist (fire-from-the-mist)
+// floater keeps its existing fog-grey treatment REGARDLESS of category, so a
+// hidden attacker's lethal hit never gains a tell that a normal mist hit lacks.
+// For source-revealed floaters the order is kill > counter > taken (a counter
+// that kills reads as a kill — set upstream). The motion (arc-rise + fade) is
+// unchanged: the same .fx-floater-rise the pills already used.
+
+/** R5 (pure): pill fill + text colour for a damage floater. Mist wins (fog
+ *  honesty); otherwise colour by category. */
+function floaterColors(
+  mist: boolean,
+  category: FloaterCategory,
+): { fill: string; text: string; stroke: string } {
+  if (mist) {
+    // fog-grey, unchanged — the hidden attacker never leaks through a category.
+    return { fill: '#5d5648', text: '#f2eee3', stroke: 'rgba(255,255,255,0.55)' };
+  }
+  switch (category) {
+    case 'kill':
+      // GOLD pill, dark ink text — the lethal blow reads loudest.
+      return { fill: 'var(--gold)', text: '#4a443a', stroke: 'rgba(74,68,58,0.45)' };
+    case 'counter':
+      // GREY pill, light text — the answering blow.
+      return { fill: '#8d8675', text: '#f2eee3', stroke: 'rgba(74,68,58,0.35)' };
+    default:
+      // INK pill, light text — normal damage taken.
+      return { fill: '#4a443a', text: '#f2eee3', stroke: 'rgba(74,68,58,0.35)' };
+  }
+}
+
+/** R5 (pure): the font-size multiplier for a damage floater, scaling with the
+ *  hit magnitude (the number parsed from the pill text) and BOUNDED. A non-
+ *  numeric label ("no target", "build failed") stays at the base size. The ramp
+ *  is gentle (≈√magnitude) so a 1-damage tick and a 99-damage haymaker differ
+ *  clearly but the big number never overruns its pill / neighbours.
+ *    1 → 1.00×   ·   12 → ~1.30×   ·   99+ → 1.40× (the clamp ceiling). */
+export function floaterSizeScale(text: string): number {
+  const mag = Math.abs(parseInt(text.replace(/[^0-9-]/g, ''), 10));
+  if (!Number.isFinite(mag) || mag <= 1) return 1;
+  // √-ramp from 1×, +~0.115 per √step, clamped to 1.4× so it stays bounded.
+  return Math.min(1.4, 1 + (Math.sqrt(mag) - 1) * 0.115);
+}
+
 export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloaterTap }: ReplayFxProps) {
   // Stack same-cell floaters (brawl halves) side by side.
   const seenCells = new Map<CellId, number>();
@@ -882,12 +936,16 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
         if (!at) return null;
         const stack = seenCells.get(fl.cell) ?? 0;
         seenCells.set(fl.cell, stack + 1);
-        const w = Math.max(fl.text.length, 2) * tokenSize * 0.26 + tokenSize * 0.3;
-        const h = tokenSize * 0.52;
+        // R5: bigger hits get a bigger pill (bounded) so the number's weight
+        // tracks the damage. The pill geometry scales with the same factor so
+        // the larger glyph stays contained.
+        const scale = floaterSizeScale(fl.text);
+        const w = (Math.max(fl.text.length, 2) * tokenSize * 0.26 + tokenSize * 0.3) * scale;
+        const h = tokenSize * 0.52 * scale;
         const x = at[0] + (stack === 0 ? 0 : (stack % 2 === 1 ? 1 : -1) * w * 0.7);
         const y = at[1] - tokenSize * 0.95 - stack * h * 0.25;
-        const fill = fl.mist ? '#5d5648' : '#fff';
-        const text = fl.mist ? '#f2eee3' : '#9c2f1d';
+        const category: FloaterCategory = fl.category ?? 'taken';
+        const { fill, text, stroke } = floaterColors(fl.mist, category);
         return (
           <g
             key={fl.id}
@@ -920,7 +978,7 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
                   height={h}
                   rx={h / 2}
                   fill={fill}
-                  stroke={fl.mist ? 'rgba(255,255,255,0.55)' : 'rgba(74,68,58,0.35)'}
+                  stroke={stroke}
                   strokeWidth={tokenSize * 0.03}
                 />
                 <text

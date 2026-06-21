@@ -189,6 +189,167 @@ describe('replay builder — grouping', () => {
   });
 });
 
+describe('replay builder — damage-number categories (R5, pure)', () => {
+  // R5: each damage floater carries a CATEGORY derived purely from the event —
+  // a lethal blow (target → 0) is 'kill', a counter / brawl-return is 'counter',
+  // any other damage is 'taken'. The mist (fog) flag is orthogonal and kept.
+  it('a normal (non-lethal) attack damage floater is category "taken"', () => {
+    const units = [makeUnit('pi', 0, 2), makeUnit('er', 1, 3, 'ranger')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pi',
+        defenderId: 'er',
+        attackerCell: 2,
+        defenderCell: 3,
+        damage: 4,
+        bonusB: 0,
+        defenderCountAfter: 6, // survives → not a kill
+        counterFired: false,
+        breakdown: bd({ damage: 4 }),
+      },
+    ];
+    const script = build(units, events);
+    const fl = script.frames[1]!.floaters[0]!;
+    expect(fl.text).toBe('−4');
+    expect(fl.category).toBe('taken');
+  });
+
+  it('a lethal blow (defender → 0) floater is category "kill"', () => {
+    const units = [makeUnit('pi', 0, 2), makeUnit('er', 1, 3, 'ranger')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pi',
+        defenderId: 'er',
+        attackerCell: 2,
+        defenderCell: 3,
+        damage: 9,
+        bonusB: 0,
+        defenderCountAfter: 0, // killed
+        counterFired: false,
+        breakdown: bd({ damage: 9 }),
+      },
+      { type: 'kill', unitId: 'er', cell: 3, faction: 1 },
+    ];
+    const script = build(units, events);
+    const fl = script.frames[1]!.floaters[0]!;
+    expect(fl.text).toBe('−9');
+    expect(fl.category).toBe('kill');
+  });
+
+  it('a counter floater is category "counter" (the attack half stays "taken")', () => {
+    const units = [makeUnit('pi', 0, 2), makeUnit('re', 1, 3, 'ranger')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pi',
+        defenderId: 're',
+        attackerCell: 2,
+        defenderCell: 3,
+        damage: 5,
+        bonusB: 0,
+        defenderCountAfter: 6, // survives → the counter answers
+        counterFired: true,
+        breakdown: bd(),
+      },
+      {
+        type: 'counter',
+        attackerId: 're',
+        defenderId: 'pi',
+        attackerCell: 3,
+        defenderCell: 2,
+        damage: 4,
+        defenderCountAfter: 7,
+        breakdown: bd({ damage: 4 }),
+      },
+    ];
+    const script = build(units, events);
+    const byText = new Map(script.frames[1]!.floaters.map((f) => [f.text, f.category]));
+    expect(byText.get('−5')).toBe('taken'); // the opening attack
+    expect(byText.get('−4')).toBe('counter'); // the answering counter
+  });
+
+  it('a counter that KILLS is category "kill" (kill precedence over counter)', () => {
+    const units = [makeUnit('pi', 0, 2), makeUnit('re', 1, 3, 'ranger')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pi',
+        defenderId: 're',
+        attackerCell: 2,
+        defenderCell: 3,
+        damage: 5,
+        bonusB: 0,
+        defenderCountAfter: 6,
+        counterFired: true,
+        breakdown: bd(),
+      },
+      {
+        type: 'counter',
+        attackerId: 're',
+        defenderId: 'pi',
+        attackerCell: 3,
+        defenderCell: 2,
+        damage: 10,
+        defenderCountAfter: 0, // the counter is lethal
+        breakdown: bd({ damage: 10 }),
+      },
+      { type: 'kill', unitId: 'pi', cell: 2, faction: 0 },
+    ];
+    const script = build(units, events);
+    const byText = new Map(script.frames[1]!.floaters.map((f) => [f.text, f.category]));
+    expect(byText.get('−10')).toBe('kill');
+  });
+
+  it('brawl floaters: a brawl-return is "counter"; a lethal brawl half is "kill"', () => {
+    const units = [makeUnit('pt', 0, 2, 'tank'), makeUnit('ei', 1, 2, 'infantry')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'brawl-exchange',
+        cell: 2,
+        higherInitId: 'ei', // strikes first (brawl)
+        lowerInitId: 'pt', // strikes back (brawl-return)
+        higherInitDamageDealt: 9,
+        lowerInitDamageDealt: 5,
+        higherInitCountAfter: 5, // ei (lower-init's target) survives
+        lowerInitCountAfter: 0, // pt (the lower-init) dies → its target ei dealt lethal
+        higherInitBreakdown: bd({ damage: 9 }),
+        lowerInitBreakdown: bd(),
+      },
+      { type: 'kill', unitId: 'pt', cell: 2, faction: 0 },
+    ];
+    const script = build(units, events);
+    const cats = script.frames[1]!.floaters.map((f) => f.category).sort();
+    // The higher-init brawl half killed pt (lowerInitCountAfter 0) → 'kill';
+    // the lower-init's answering strike (brawl-return) → 'counter'.
+    expect(cats).toEqual(['counter', 'kill']);
+  });
+
+  it('a mist (fire-from-the-mist) damage floater keeps mist=true AND carries a category', () => {
+    // Player infantry at 0 (vision 2). Enemy artillery at 6 (fogged) fires at 0.
+    const units = [makeUnit('pi', 0, 0), makeUnit('aa', 1, 6, 'artillery')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'aa',
+        defenderId: 'pi',
+        attackerCell: 6,
+        defenderCell: 0,
+        damage: 3,
+        bonusB: 0,
+        defenderCountAfter: 7, // survives
+        counterFired: false,
+        breakdown: bd({ damage: 3 }),
+      },
+    ];
+    const script = build(units, events);
+    const fl = script.frames[1]!.floaters[0]!;
+    expect(fl.mist).toBe(true);
+    expect(fl.category).toBe('taken'); // category derived honestly; the renderer keeps mist-grey
+  });
+});
+
 describe('replay builder — camera focus (P9 auto-follow)', () => {
   it('the establishing frame leaves the camera alone', () => {
     const script = build([makeUnit('pi', 0, 2)], []);
