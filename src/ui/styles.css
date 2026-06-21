@@ -2775,6 +2775,249 @@ body {
   justify-content: flex-end;
 }
 
+/* --- Phase 4: BUILD economy dashboard modal (upkeep addendum §11) -----------
+   Full-screen scrollable sheet — same shell family as .rules-modal, the body
+   scrolls while the header pins. Mobile-first. */
+.build-dashboard {
+  background: #fbf9f2;
+  border-radius: 18px 18px 0 0;
+  margin-top: calc(env(safe-area-inset-top) + 0.6rem);
+  padding: 0.4rem 1rem calc(env(safe-area-inset-bottom) + 1rem);
+  box-shadow: 0 -6px 24px rgba(74, 68, 58, 0.2);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: sheet-up 0.18s ease-out;
+}
+
+.build-dash-credits {
+  font-weight: 700;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  margin-right: 0.6rem;
+}
+
+.build-dash-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding-bottom: 1rem;
+}
+
+/* A · economy summary — a compact tabular grid of the planning numbers. */
+.build-dash-econ {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.econ-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  background: rgba(74, 68, 58, 0.05);
+  border-radius: 10px;
+  padding: 0.4rem 0.5rem;
+}
+
+.econ-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.econ-value {
+  font-size: 0.84rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.econ-cell-net {
+  background: rgba(74, 68, 58, 0.09);
+}
+
+.econ-net-up {
+  color: #2d7a44;
+}
+
+.econ-net-down {
+  color: #b8472d;
+}
+
+/* B · mini-map — a small board overview, bases tinted by ownership. */
+.build-minimap-wrap {
+  margin-bottom: 1rem;
+}
+
+.build-minimap {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  background: #f6f3ea;
+  border-radius: 12px;
+  border: 1px solid rgba(74, 68, 58, 0.12);
+}
+
+.build-minimap-base polygon {
+  transition: filter 0.15s ease;
+}
+
+/* C · per-base production list — one section per owned base. */
+.build-base-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.build-dash-row {
+  background: #fff;
+  border: 1.5px solid rgba(74, 68, 58, 0.1);
+  border-radius: 12px;
+  padding: 0.55rem 0.6rem 0.6rem;
+}
+
+.build-dash-row-focused {
+  border-color: var(--faction-a);
+  box-shadow: 0 0 0 2px rgba(232, 128, 107, 0.25);
+}
+
+.build-dash-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.build-dash-row-label {
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+.build-dash-occ {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.build-dash-occ-icon {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.build-dash-occ-vacant {
+  opacity: 0.55;
+}
+
+.build-dash-occ-warn {
+  color: #b8472d;
+}
+
+.build-dash-queued {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(74, 68, 58, 0.05);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.build-dash-queued-name {
+  font-weight: 700;
+  font-size: 0.74rem;
+}
+
+.build-dash-queued-cost {
+  font-weight: 700;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  margin-right: auto;
+}
+
+/* D · army roster — counts + per-type upkeep, with a total footer. */
+.build-roster {
+  background: rgba(74, 68, 58, 0.04);
+  border-radius: 12px;
+  padding: 0.55rem 0.65rem 0.6rem;
+}
+
+.build-roster-h {
+  margin: 0 0 0.4rem;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.build-roster-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+
+.build-roster-icon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.build-roster-name {
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.build-roster-count {
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+.build-roster-upkeep {
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  min-width: 2.4rem;
+  text-align: right;
+}
+
+.build-roster-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 0.45rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(74, 68, 58, 0.12);
+}
+
+.build-roster-total-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.build-roster-total-value {
+  font-size: 0.82rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
 /* v0.7 Item 1: owned-base build pip (Board overlay, above units). */
 .build-pip {
   cursor: pointer;
