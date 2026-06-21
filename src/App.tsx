@@ -50,7 +50,7 @@ import type { ReplayFrame } from './state/replay';
 import { PLAYER_FACTION, useAppStore } from './state/store';
 import { Board, type CaptureToggleState, type StancePopoverState } from './ui/Board';
 import { BottomDock, type DockBuy } from './ui/BottomDock';
-import { BuildSheet } from './ui/BuildSheet';
+import { BuildDashboard } from './ui/BuildDashboard';
 import { CasualtyPanel } from './ui/CasualtyPanel';
 import { HudCluster } from './ui/HudCluster';
 import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/Replay';
@@ -73,9 +73,9 @@ const IGNITE_LINGER_MS = 500;
 type SheetState =
   | { kind: 'order'; unitId: string }
   | { kind: 'info'; cellId: CellId }
-  // E3 conquest: tap an owned base. v0.7 Item 3: `anchor` is the client-space
-  // point the user tapped — the compact build card pops up over it (clamped).
-  | { kind: 'build'; baseCell: CellId; anchor?: { x: number; y: number } }
+  // E3 conquest: the BUILD dashboard (full-screen economy modal). `focusBase`
+  // scrolls that base's row into view on open (null = economy overview).
+  | { kind: 'build'; focusBase: CellId | null }
   | null;
 
 function urlFlag(name: string): string | null {
@@ -725,14 +725,11 @@ function BattleScreen() {
       });
   }, [conquest, gameBases, buys]);
 
-  // v0.7 Item 3: the compact build card anchors to where the user tapped. We
-  // record the last pointer position over the board area (capture-phase, so it
-  // fires before the cell/pip onClick that opens the sheet) and pass it as the
-  // anchor. centerOn is dropped here — the card pops up AT the click, no pan.
-  const lastPointer = useRef<{ x: number; y: number } | null>(null);
-
-  function openBuildSheet(baseCell: CellId) {
-    setSheet({ kind: 'build', baseCell, anchor: lastPointer.current ?? undefined });
+  // Phase 5: every build entry point (B pip, buy ghost, dock chip, HUD credits
+  // row) opens the full-screen BuildDashboard. `focusBase` scrolls that base's
+  // row into view on open; null opens the economy overview.
+  function openBuildDashboard(focusBase: CellId | null = null) {
+    setSheet({ kind: 'build', focusBase });
   }
 
   // --- interactions -------------------------------------------------------------
@@ -843,10 +840,8 @@ function BattleScreen() {
 
   function onCellTap(cellId: CellId) {
     if (!selected) {
-      if (ownedBase(cellId)) {
-        setSheet({ kind: 'build', baseCell: cellId });
-        return;
-      }
+      // Phase 5: a raw base cell tap no longer opens build — the B pip (above
+      // the unit layer) owns that gesture. A bare cell tap shows the info sheet.
       openInfo(cellId); // Item 2: empty/any tile tap → info
       return;
     }
@@ -890,11 +885,12 @@ function BattleScreen() {
       selectUnit(friend.id);
       return;
     }
+    // Phase 5: an owned-base tap with a unit selected reverts to the info sheet
+    // (the B pip owns the build gesture now). Commit any pending proposal first
+    // so an explicit tap elsewhere never silently discards a set-up move.
     if (ownedBase(cellId)) {
-      // v0.9: opening a build sheet keeps any pending proposal alive? No — an
-      // explicit tap elsewhere should not silently discard it; commit it first.
       commitPendingMove();
-      setSheet({ kind: 'build', baseCell: cellId });
+      openInfo(cellId);
       return;
     }
     // v0.9: tap on an empty/unreachable cell — COMMIT any pending proposal
@@ -1191,12 +1187,7 @@ function BattleScreen() {
           </button>
         </div>
       )}
-      <main
-        className="board-area"
-        onPointerDownCapture={(e) => {
-          lastPointer.current = { x: e.clientX, y: e.clientY };
-        }}
-      >
+      <main className="board-area">
         {frame ? (
           <Board
             board={board}
@@ -1240,9 +1231,9 @@ function BattleScreen() {
             discovered={discovered}
             bases={boardBases}
             buyGhosts={buyGhosts}
-            onBuyGhostTap={openBuildSheet}
+            onBuyGhostTap={(baseCell) => openBuildDashboard(baseCell)}
             buildPips={buildPips}
-            onBuildTap={openBuildSheet}
+            onBuildTap={(baseCell) => openBuildDashboard(baseCell)}
             highlights={layer1}
             selectedUnitId={selected?.id ?? null}
             ghosts={ghosts}
@@ -1266,8 +1257,11 @@ function BattleScreen() {
       {/* v0.9 HUD: top-left column — Round + Credits cluster on top, casualty
           tally stacked immediately below. Fixed over the board, below modals. */}
       <div className="hud-column">
-        {/* onOpenBuild wired in Phase 5 (BuildDashboard) */}
-        <HudCluster round={topRound} credits={creditsHud} />
+        <HudCluster
+          round={topRound}
+          credits={creditsHud}
+          onOpenBuild={conquest && uiPhase === 'planning' ? () => openBuildDashboard(null) : undefined}
+        />
         <CasualtyPanel casualties={casualties} unitTypes={types} />
       </div>
       <SkirmishLog
@@ -1318,7 +1312,7 @@ function BattleScreen() {
             selectUnit(unitId);
             centerOn(unit.cell);
           }}
-          onBuyChipTap={openBuildSheet}
+          onBuyChipTap={(baseCell) => openBuildDashboard(baseCell)}
         />
       )}
       {breakdownSlot !== null && script?.slots[breakdownSlot] && (
@@ -1357,20 +1351,18 @@ function BattleScreen() {
         />
       )}
       {sheet?.kind === 'build' && !replayActive && conquest && (
-        <BuildSheet
-          baseCell={sheet.baseCell}
-          anchor={sheet.anchor}
+        <BuildDashboard
+          board={board}
+          bases={game.bases ?? {}}
+          units={game.units}
           unitTypes={types}
           credits={game.credits?.[PLAYER_FACTION] ?? 0}
-          committedElsewhere={
-            committed - (types[buys[sheet.baseCell]?.unitTypeKey ?? '']?.cost ?? 0)
-          }
-          queued={buys[sheet.baseCell]}
-          onQueue={(unitTypeKey) => {
-            const verdict = tryQueueBuy({ kind: 'buy', baseCell: sheet.baseCell, unitTypeKey });
-            if (verdict.ok) setSheet(null); // ghost + pill confirm on the board
-          }}
-          onRemove={() => removeBuyOrder(sheet.baseCell)}
+          income={income}
+          upkeepRate={upkeepRateOf(board)}
+          buys={buys}
+          focusBase={sheet.focusBase}
+          onQueue={(baseCell, unitTypeKey) => tryQueueBuy({ kind: 'buy', baseCell, unitTypeKey })}
+          onRemove={(baseCell) => removeBuyOrder(baseCell)}
           onClose={() => setSheet(null)}
         />
       )}

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // Phase 3 Task 3.2 — UnitPicker: the roster grid + affordability + focused
-// stat row lifted out of BuildSheet, with the card chrome/anchor/scrim dropped.
+// stat row lifted out of the retired build card, with the card chrome/anchor/
+// scrim dropped.
 // A plain block the parent lays out: roster sorted cost asc (ties initiative
 // desc), cells disabled when cost > available (unless queued), onPick on tap,
 // and a demoted i/a/r/v/p/h/m row that follows the focused (hovered) unit.

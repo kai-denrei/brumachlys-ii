@@ -1,5 +1,5 @@
-// UnitPicker — the reusable roster grid extracted from BuildSheet (Phase 3
-// Task 3.2). A plain block (no card chrome, anchor, scrim, or header) the
+// UnitPicker — the reusable roster grid extracted from the retired build card
+// (Phase 3 Task 3.2). A plain block (no card chrome, anchor, scrim, or header) the
 // parent lays out: the 4×2 .build-grid of unit cells (icon + name + cost),
 // affordability gating, a demoted .build-stat-row reflecting the focused unit,
 // and an optional remove action. Affordability is judged against `available`
