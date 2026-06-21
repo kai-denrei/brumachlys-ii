@@ -1381,6 +1381,72 @@ export function spotlightAt(
   return { active, combatants: script.combatants };
 }
 
+/** R3 (DILATION): the analog clock advances LESS THAN one full rotation across
+ *  the whole WAVE_A window (~0.9 turn). A barely-moving hand is the read: real
+ *  time has nearly stopped while shells arc and rounds crawl (addendum). */
+export const DILATION_HAND_TURNS = 0.9;
+/** R3: clock fade-in/out envelope at the WAVE_A edges (ms at 1× — addendum:
+ *  fade in over the first ~180 ms, fade out over the last ~180 ms). */
+export const DILATION_FADE_MS = 180;
+
+/** R3 (DILATION): is the playback cursor inside the round's WAVE_A
+ *  (ranged/artillery) window, and how far through it? PURE read of (script,
+ *  frameIdx) — mirrors spotlightAt; playback never mutates state and a given
+ *  frame is a stable function of (script, cursor).
+ *
+ *  The WAVE_A window is exactly the `wave === 'A'` combat frames (R1 already
+ *  regrouped a round so every WAVE_A frame precedes every WAVE_B frame). During
+ *  this window the board cools + vignettes and the analog dilation clock HUD is
+ *  present; everywhere else dilation is released (the clock is gone by INTERLUDE
+ *  / WAVE_B). The cue layers ON TOP of the R2 spotlight (it does not replace it).
+ *
+ *  Returns:
+ *   • `active`   — this frame is a WAVE_A frame (cool/vignette engaged, clock on).
+ *   • `progress` — 0..1 through the WAVE_A window by accumulated frame duration
+ *                  (0 at the window's first instant → 1 at its end). The clock
+ *                  hand and the fade envelope read from this. 0 when inactive.
+ *   • `turns`    — `progress × DILATION_HAND_TURNS` — the hand's rotation in
+ *                  turns; ALWAYS < 1 over the full window (the slow-sweep read).
+ *   • `fade`     — 0..1 opacity multiplier for the clock: rises over the first
+ *                  ~DILATION_FADE_MS of the window, holds at 1, falls over the
+ *                  last ~DILATION_FADE_MS. 0 when inactive (clock gone). */
+export function dilationAt(
+  script: Pick<ReplayScript, 'frames'>,
+  frameIdx: number,
+): { active: boolean; progress: number; turns: number; fade: number } {
+  const frames = script.frames;
+  const released = { active: false, progress: 0, turns: 0, fade: 0 };
+  const f = frames[frameIdx];
+  if (!f || f.wave !== 'A') return released;
+
+  // Total WAVE_A duration + this frame's start offset within the window. The
+  // window is the set of wave==='A' frames; after R1's regroup they are
+  // contiguous, but we sum over all 'A' frames so the read is order-robust.
+  let totalA = 0;
+  let startBefore = 0;
+  for (let i = 0; i < frames.length; i++) {
+    const fi = frames[i]!;
+    if (fi.wave !== 'A') continue;
+    if (i < frameIdx) startBefore += fi.duration;
+    totalA += fi.duration;
+  }
+  // The cursor sits on this frame for its full duration; read the MIDPOINT so a
+  // single-frame window lands at a sensible mid-sweep rather than at 0 or 1.
+  const mid = startBefore + f.duration / 2;
+  const progress = totalA > 0 ? Math.min(1, Math.max(0, mid / totalA)) : 0;
+  const turns = progress * DILATION_HAND_TURNS;
+
+  // Fade envelope: linear ramp up over the first DILATION_FADE_MS, ramp down
+  // over the last DILATION_FADE_MS, full in between. Degenerate short windows
+  // (totalA ≤ 2×fade) still yield a positive triangular fade.
+  const ramp = Math.min(DILATION_FADE_MS, totalA / 2);
+  const fadeIn = ramp > 0 ? Math.min(1, mid / ramp) : 1;
+  const fadeOut = ramp > 0 ? Math.min(1, (totalA - mid) / ramp) : 1;
+  const fade = Math.max(0, Math.min(fadeIn, fadeOut));
+
+  return { active: true, progress, turns, fade };
+}
+
 /** R1: stable-reorder combat frames so WAVE_A precedes WAVE_B within each
  *  contiguous combat-frame run, remapping all cross-references. PURE. */
 function regroupCombatWaves(

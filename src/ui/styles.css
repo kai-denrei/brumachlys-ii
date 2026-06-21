@@ -6,6 +6,9 @@
   --faction-a: #e8806b;
   --faction-b: #7b8bd9;
   --bar-bg: rgba(242, 238, 227, 0.92);
+  /* R3 (DILATION): the analog clock's single accent hand. A warm brass gold,
+     legible on the dark clock face; the WAVE A bullet-time accent. */
+  --gold: #d7a93a;
 }
 
 * {
@@ -279,6 +282,97 @@ body {
   .unit-token,
   .cell-spotlight-ring,
   .unit-spotlight-ring {
+    transition: none;
+  }
+}
+
+/* R3 (DILATION): WAVE A "bullet-time" cue. The board cools (a ~22% global
+   desaturation, source-spec DILATION_DESAT) and a subtle vignette closes —
+   layered OVER the board and on top of the R2 spotlight (it does not replace
+   it). Full-bleed, fixed, never intercepts input. Engages on WAVE A, releases
+   (unmounts) over the INTERLUDE back toward normal. The desaturation rides a
+   backdrop-filter so the actual board tints cool; the radial gradient is the
+   vignette closing in. */
+.dilation-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  /* cool desaturation of everything behind the layer */
+  backdrop-filter: saturate(0.78) brightness(0.97);
+  -webkit-backdrop-filter: saturate(0.78) brightness(0.97);
+  /* subtle vignette: clear center, cool-dark closing at the edges */
+  background: radial-gradient(
+    ellipse 90% 90% at 50% 46%,
+    rgba(40, 46, 64, 0) 52%,
+    rgba(28, 34, 52, 0.16) 82%,
+    rgba(20, 26, 44, 0.34) 100%
+  );
+  animation: dilation-cool-in 0.25s ease both;
+}
+
+@keyframes dilation-cool-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* R3 (DILATION): the analog dilation CLOCK — a small screen-anchored HUD face
+   in the upper-right of the action, present ONLY during WAVE A. Single gold
+   hand on a dark face, 12 ticks. It is HUD chrome, NEVER on a unit token and it
+   never reuses the unit-radar geometry. Opacity is driven inline by the fade
+   envelope (fade in at the wave's start, out at its end — gone by INTERLUDE);
+   the transition just softens the per-frame steps. */
+.dilation-clock {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 64px);
+  right: calc(env(safe-area-inset-right, 0px) + 14px);
+  z-index: 14;
+  pointer-events: none;
+  width: 56px;
+  height: 56px;
+  transition: opacity 0.18s linear;
+}
+
+.dilation-clock-face {
+  display: block;
+  filter: drop-shadow(0 1px 2px rgba(20, 24, 36, 0.4));
+}
+
+.dilation-clock-disc {
+  fill: #20242f;
+  stroke: rgba(215, 169, 58, 0.35);
+  stroke-width: 1.2;
+}
+
+.dilation-clock-tick {
+  stroke: rgba(236, 230, 214, 0.55);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+.dilation-clock-hand {
+  stroke: var(--gold);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.dilation-clock-hub {
+  fill: var(--gold);
+}
+
+/* Reduced motion: a static cool end-state — no cool-in fade-up, no hand-step
+   transition flash. The cue (cool board + a present clock) still reads; only
+   the animated glide is suppressed (spec R2/R3 reduced-motion contract). */
+@media (prefers-reduced-motion: reduce) {
+  .dilation-vignette {
+    animation: none;
+  }
+
+  .dilation-clock {
     transition: none;
   }
 }

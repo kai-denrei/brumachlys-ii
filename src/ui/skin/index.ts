@@ -51,5 +51,7 @@ export type {
 } from './EffectRenderer';
 export { ReplayFx, ReplayTrails } from './ReplayFx';
 export type { ImpactMark, ReplayFxData, ReplayFxProps, TrailMark } from './ReplayFx';
+// R3 (DILATION): WAVE A cooling vignette + the analog dilation clock HUD.
+export { DilationClock, DilationVignette, DILATION_CLOCK_TURNS } from './DilationOverlay';
 // v0.9 HUD: canvas split-flap round number + odometer credits (displays/).
 export { RoundFlap, CreditsOdometer } from './displays';

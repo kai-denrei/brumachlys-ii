@@ -47,7 +47,7 @@ import type { CellId } from './board/types';
 import { factionUpkeep, upkeepRateOf } from './core/economy';
 import { loadUnits } from './io/data-loader';
 import type { ReplayFrame } from './state/replay';
-import { spotlightAt } from './state/replay';
+import { dilationAt, spotlightAt } from './state/replay';
 import { PLAYER_FACTION, useAppStore } from './state/store';
 import { Board, type CaptureToggleState, type StancePopoverState } from './ui/Board';
 import { BottomDock, type DockBuy } from './ui/BottomDock';
@@ -62,6 +62,7 @@ import { StartScreen } from './ui/StartScreen';
 import { TopBar, type CreditsHud } from './ui/TopBar';
 import { TopCta } from './ui/TopCta';
 import type { BuildPipMark, BuyGhostMark, CaptureIntentMark, GhostOrder, ImpactMark, ProposalGhostMark, TrailMark } from './ui/skin';
+import { DilationClock, DilationVignette } from './ui/skin';
 import { resolvePlanDirective } from './state/store';
 
 /** v1.3 Tweak B: a finished trail lingers (fading) this long before removal —
@@ -1053,6 +1054,16 @@ function BattleScreen() {
   const spotlight =
     replayActive && script ? spotlightAt(script, frameIdx) : null;
 
+  // R3 (DILATION): a pure read of the script + cursor — engaged only on WAVE_A
+  // (ranged/artillery) frames, released over the INTERLUDE into WAVE_B. It cools
+  // + vignettes the board and shows the analog dilation CLOCK (a screen-anchored
+  // HUD overlay, NEVER on a unit / never radar geometry), layered ON TOP of the
+  // R2 spotlight. The clock's `fade` envelope fades it in/out at the wave edges;
+  // its single gold hand sweeps `turns` (< 1 rotation across the window). Absent
+  // outside replay (planning never dilates).
+  const dilation =
+    replayActive && script ? dilationAt(script, frameIdx) : null;
+
   const own = units.filter((u) => u.faction === PLAYER_FACTION);
   const orderedIds = orderedUnitIds(orders);
 
@@ -1266,6 +1277,23 @@ function BattleScreen() {
           />
         )}
       </main>
+      {/* R3 (DILATION): WAVE A cues — the board cools + a subtle vignette closes
+          (layered OVER the board and on top of the R2 spotlight), and the analog
+          dilation CLOCK appears, screen-anchored upper-right. Both are present
+          only during WAVE A (dilation.active), fade out by the INTERLUDE, and
+          are pure reads of the script + cursor. The clock is HUD chrome — never
+          drawn on a unit, never reusing radar geometry. */}
+      {dilation?.active && (
+        <>
+          <DilationVignette active progress={dilation.progress} />
+          <DilationClock
+            active
+            progress={dilation.progress}
+            turns={dilation.turns}
+            fade={dilation.fade}
+          />
+        </>
+      )}
       {/* v0.9 HUD: top-left column — Round + Credits cluster on top, casualty
           tally stacked immediately below. Fixed over the board, below modals. */}
       <div className="hud-column">
