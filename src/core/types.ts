@@ -162,6 +162,17 @@ export type ResolutionEvent =
     }
   | { type: 'kill'; unitId: string; cell: CellId; faction: FactionId }
   | { type: 'lost-target'; attackerId: string; targetCell: CellId }
+  | {
+      // Forced-crossing combat (addendum 2026-06-21 §5): the movement pre-pass
+      // detected that this mover's intended trail crosses an enemy mover's
+      // trail; both were halted on the shared interception `cell` (where the
+      // Phase A.5 brawl then resolves to the death). One event per interrupted
+      // mover. The replay shows a "path interrupted!" sign at `cell`.
+      type: 'path-interrupted';
+      unitId: string;
+      crossedWithId: string; // the enemy whose path it crossed
+      cell: CellId; // the interception cell (where the brawl runs)
+    }
   // ── E2 conquest events (addendum §B; skirmish never emits these). Every
   // one carries the acting faction so the replay feed can filter what each
   // side may see (buys are blind: enemy spawn/income/capture events surface
