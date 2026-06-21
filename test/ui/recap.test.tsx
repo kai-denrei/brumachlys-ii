@@ -11,6 +11,7 @@ import { cleanup, render } from '@testing-library/react';
 import type { CellId } from '../../src/board/types';
 import type { FactionId } from '../../src/core/types';
 import type { ReplayScript, Strike, TimelineSlot } from '../../src/state/replay';
+import { layoutPhases } from '../../src/state/replay-timing';
 import { EMPTY_RECAP, countWitnessedBrawls, useAppStore } from '../../src/state/store';
 import { GameOverBanner } from '../../src/ui/Replay';
 
@@ -55,6 +56,7 @@ function script(over: Partial<ReplayScript> = {}): ReplayScript {
     frames: [],
     log: [],
     discovered: new Set<CellId>(),
+    phases: layoutPhases(),
     summary: { kills: [], damageDealt: [0, 0], fizzles: 0 },
     ...over,
   };

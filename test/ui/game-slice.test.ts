@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Board, Cell, CellId, TerrainKey, Vec2 } from '../../src/board/types';
 import type { FactionId, GameState, UnitInstance } from '../../src/core/types';
 import { useAppStore } from '../../src/state/store';
+import { layoutPhases } from '../../src/state/replay-timing';
 
 function lineBoard(n: number, terrains: Partial<Record<number, TerrainKey>> = {}): Board {
   const cells = new Map<CellId, Cell>();
@@ -204,6 +205,7 @@ describe('casualty recap (v1.3 Tweak C)', () => {
           frames: [],
           log: [],
           discovered: new Set<CellId>(),
+          phases: layoutPhases(),
           summary: { kills: [{ id: 'x', type: 'tank', faction: 1 }], damageDealt: [9, 0], fizzles: 0 },
         },
       },

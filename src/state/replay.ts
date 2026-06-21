@@ -60,6 +60,15 @@ import type {
   UnitInstance,
   UnitType,
 } from '../core/types';
+import {
+  classifyBand,
+  bandWave,
+  layoutPhases,
+  type CombatBand,
+  type PhaseDurations,
+  type PhaseLayout,
+  type Wave,
+} from './replay-timing';
 
 export type StrikeKind = 'attack' | 'counter' | 'brawl' | 'brawl-return';
 
@@ -164,6 +173,16 @@ export type ReplayFrame = {
   /** E3 conquest only: the player's credits as of this frame (income and
    *  spawn events tick it via creditsAfter). Absent in skirmish. */
   credits?: number;
+  /** R1 (TEMPO BACKBONE): the presentation range-band WAVE this combat frame
+   *  plays in — 'A' for ranged/artillery (dilated), 'B' for melee/brawl
+   *  (quick). Absent on non-combat frames (move/capture/income/etc.). The
+   *  builder regroups combat frames so every WAVE_A frame precedes every
+   *  WAVE_B frame in a round (no melee impact before all ranged impacts). */
+  wave?: Wave;
+  /** R1: the finer range-band of this combat frame's leading strike
+   *  (artillery | ranged | melee), derived from existing data without changing
+   *  any resolved value. Absent on non-combat frames. */
+  band?: CombatBand;
 };
 
 export type RoundSummary = {
@@ -202,6 +221,11 @@ export type ReplayScript = {
   /** E1: the player's accumulated discovery at playback end (initial set ∪
    *  every frame's vision) — the store folds this into GameState.discovered. */
   discovered: ReadonlySet<CellId>;
+  /** R1 (TEMPO BACKBONE): the laid-out combat phase windows (SPOTLIGHT → HOLD
+   *  → WAVE_A → INTERLUDE → WAVE_B → SETTLE) for this round's playback. The
+   *  transport maps wave-tagged combat frames onto WAVE_A / WAVE_B; the 2:1
+   *  WAVE_A≈2×WAVE_B tempo contrast is the load-bearing cue. */
+  phases: PhaseLayout;
 };
 
 const MOVE_STEP_MS = 160;
@@ -240,7 +264,14 @@ export function buildReplay(
   /** E3: pass in conquest mode only — enables base vision, ownership frames,
    *  the credits feed, and the §B.4 blind-buy event filtering. */
   conquest?: ConquestReplayCtx,
+  /** R1 (TEMPO BACKBONE): override any phase-window duration (e.g. a global
+   *  fast-forward). Defaults to the source-spec §4 values; keep WAVE_A≈2×WAVE_B
+   *  if you retune. Affects only the exposed phase layout — frame durations are
+   *  the existing per-beat constants, divided by speed in the transport. */
+  timing?: Partial<PhaseDurations>,
 ): ReplayScript {
+  // R1: the laid-out combat phase windows for this round (presentation only).
+  const phases = layoutPhases(timing);
   // --- simulation state ------------------------------------------------------
   const sim = new Map<string, UnitInstance>(
     baseUnits.map((u) => [u.id, { ...u, attackedFrom: [] }]),
@@ -624,20 +655,45 @@ export function buildReplay(
       // them all at once. A run of ONLY lost-target events degrades to a lone
       // 'fizzle' beat, identical to the legacy standalone handler.
 
-      const combinedStrikes: Strike[] = [];
-      const combinedArcs: ReplayFrame['arcs'] = [];
-      const combinedFloaters: Floater[] = [];
-      const combinedLogLines: LogSeg[][] = [];
+      // R1 (TEMPO BACKBONE): a contiguous attack run may MIX range-bands
+      // (initiative order interleaves a ranged sniper and an adjacent melee
+      // strike). We bucket every shown strike/arc/floater/log line BY WAVE so
+      // the ranged/artillery impacts (WAVE_A) emit as one beat and the melee
+      // impacts (WAVE_B) as a separate, later beat — no melee impact ever plays
+      // before all ranged impacts. Bucketing changes no resolved value (damage,
+      // counts, kills, fog are applied to `sim` exactly as before); it only
+      // groups the *presentation* by band.
+      type WaveBucket = {
+        strikes: Strike[];
+        arcs: ReplayFrame['arcs'];
+        floaters: Floater[];
+        logLines: LogSeg[][];
+        firstAttSet: boolean;
+        firstAttType: string | null;
+        firstAttFaction: FactionId | null;
+        firstIsMist: boolean;
+      };
+      const mkBucket = (): WaveBucket => ({
+        strikes: [],
+        arcs: [],
+        floaters: [],
+        logLines: [],
+        firstAttSet: false,
+        firstAttType: null,
+        firstAttFaction: null,
+        firstIsMist: false,
+      });
+      const buckets: Record<Wave, WaveBucket> = { A: mkBucket(), B: mkBucket() };
+      // Fizzles (lost-target) have no band — fold them into WAVE_B so a melee
+      // beat carries them (or, for a fizzle-only run, the lone fizzle beat). A
+      // held-fire shot is a non-event; it never gates the ranged wave.
+      const combinedLogLines: LogSeg[][] = []; // fizzle-only log lines (no strike)
       const allShownVictims = new Set<string>();
-      // First visible attacker/type for the slot (used for slot glyph). The
-      // `firstAttSet` flag is the sentinel — NOT `firstAttType === null`, since
-      // a mist strike legitimately sets firstAttType to null and would
-      // otherwise let a later visible strike hijack the slot glyph (the first
-      // shown strike owns the chip, mist or not).
-      let firstAttSet = false;
-      let firstAttType: string | null = null;
-      let firstAttFaction: FactionId | null = null;
-      let firstIsMist = false;
+      // The first shown strike OF EACH WAVE owns that wave beat's slot glyph
+      // (mist or not). The per-bucket `firstAttSet` flag is the sentinel — NOT
+      // `firstAttType === null`, since a mist strike legitimately sets
+      // firstAttType to null and would otherwise let a later visible strike
+      // hijack the chip.
       // v0.8 pacing fix: an explicit attack whose target evaporated emits a
       // `lost-target` INTERLEAVED between real attacks (in initiative order).
       // Folding it into this run keeps the volley a single beat instead of
@@ -648,6 +704,7 @@ export function buildReplay(
       let shownFizzles = 0;
       let fizzleGlyphType: string | null = null;
       let fizzleGlyphFaction: FactionId | null = null;
+      const fizzleFloaters: Floater[] = [];
 
       // We'll scan forward to collect the full run of attacks (each may have a
       // counter + kills inline) plus any interleaved lost-target fizzles. The
@@ -663,19 +720,22 @@ export function buildReplay(
         if (events[j]!.type === 'lost-target') {
           // Fold the fizzle into the run without breaking the volley. Same
           // visibility rule as the standalone handler: shown when the player
-          // can see the attacker's cell (own units always).
+          // can see the attacker's cell (own units always). A held-fire shot
+          // has no band; it is collected separately and surfaces ONLY when the
+          // run carries no real strike (a lone fizzle beat) or rides the WAVE_B
+          // beat — it never gates the ranged wave.
           const le = events[j] as Extract<ResolutionEvent, { type: 'lost-target' }>;
           const lAtt = sim.get(le.attackerId);
           const lVis = vision();
           if (lAtt && seen(lAtt.faction, lAtt.cell, lVis)) {
             summary.fizzles += 1;
             shownFizzles += 1;
-            combinedFloaters.push({
-              id: `fcombat-${combinedFloaters.length}`,
+            fizzleFloaters.push({
+              id: `fcombat-fizz-${fizzleFloaters.length}`,
               cell: lAtt.cell,
               text: 'no target',
               mist: false,
-              slot: slots.length, // patched to the shared slot below
+              slot: slots.length, // patched at emit
             });
             combinedLogLines.push([
               { t: nameOf(lAtt.type), f: lAtt.faction },
@@ -702,18 +762,27 @@ export function buildReplay(
           const shown = att.faction === player || defenderSeen;
           const mist = shown && att.faction !== player && !attackerSeen;
 
+          // R1: the exchange's WAVE is set by the ATTACK's band (an attack and
+          // its counter form one beat — the counter, geometrically the same
+          // shot reversed, rides the same wave so the exchange reads cohesively
+          // as strike + answering crossfire). Band derives only from the
+          // attacker's type + the shot distance; no resolved value changes.
+          const band = classifyBand('attack', att, aev.attackerCell, aev.defenderCell, board, unitTypes);
+          const wave = bandWave(band);
+          const bucket = buckets[wave];
+
           if (shown) {
-            combinedStrikes.push(
+            bucket.strikes.push(
               makeStrike('attack', aev.attackerId, att, aev.attackerCell, aev.defenderId, def, aev.defenderCell, aev.damage, mist, aev.breakdown),
             );
             allShownVictims.add(aev.defenderId);
-            if (!mist) combinedArcs.push({ from: aev.attackerCell, to: aev.defenderCell, faction: att.faction });
-            combinedFloaters.push({
-              id: `fcombat-${combinedFloaters.length}`,
+            if (!mist) bucket.arcs.push({ from: aev.attackerCell, to: aev.defenderCell, faction: att.faction });
+            bucket.floaters.push({
+              id: `fcombat-${wave}-${bucket.floaters.length}`,
               cell: aev.defenderCell,
               text: `−${aev.damage}`,
               mist,
-              slot: slots.length, // will be updated to the shared slot index below
+              slot: slots.length, // patched to the bucket's slot index at emit
             });
             summary.damageDealt[att.faction] += aev.damage;
             strikeLine = mist
@@ -728,18 +797,18 @@ export function buildReplay(
                   { t: nameOf(def.type), f: def.faction },
                   { t: ` −${aev.damage}` },
                 ];
-            // Record the first visible attacker for the slot glyph (mist or
-            // not — the first shown strike owns the chip).
-            if (!firstAttSet) {
-              firstAttSet = true;
-              firstAttType = mist ? null : att.type;
-              firstAttFaction = mist ? null : att.faction;
-              firstIsMist = mist;
+            // The first shown strike of THIS wave owns the wave beat's chip
+            // (mist or not).
+            if (!bucket.firstAttSet) {
+              bucket.firstAttSet = true;
+              bucket.firstAttType = mist ? null : att.type;
+              bucket.firstAttFaction = mist ? null : att.faction;
+              bucket.firstIsMist = mist;
             }
           }
           def.count = aev.defenderCountAfter;
 
-          // Inline counter (same exchange).
+          // Inline counter (same exchange — rides the attack's wave bucket).
           if (aev.counterFired && innerJ < events.length && events[innerJ]!.type === 'counter') {
             const ce = events[innerJ] as Extract<ResolutionEvent, { type: 'counter' }>;
             const cAtt = sim.get(ce.attackerId);
@@ -749,13 +818,13 @@ export function buildReplay(
               const cShown = cAtt.faction === player || seen(cDef.faction, ce.defenderCell, vis);
               const cMist = cShown && cAtt.faction !== player && !cAttSeen;
               if (cShown) {
-                combinedStrikes.push(
+                bucket.strikes.push(
                   makeStrike('counter', ce.attackerId, cAtt, ce.attackerCell, ce.defenderId, cDef, ce.defenderCell, ce.damage, cMist, ce.breakdown),
                 );
                 allShownVictims.add(ce.defenderId);
-                if (!cMist) combinedArcs.push({ from: ce.attackerCell, to: ce.defenderCell, faction: cAtt.faction });
-                combinedFloaters.push({
-                  id: `fcombat-${combinedFloaters.length}`,
+                if (!cMist) bucket.arcs.push({ from: ce.attackerCell, to: ce.defenderCell, faction: cAtt.faction });
+                bucket.floaters.push({
+                  id: `fcombat-${wave}-${bucket.floaters.length}`,
                   cell: ce.defenderCell,
                   text: `−${ce.damage}`,
                   mist: cMist,
@@ -768,9 +837,9 @@ export function buildReplay(
             }
             innerJ++;
           }
-        }
 
-        if (strikeLine) combinedLogLines.push(strikeLine);
+          if (strikeLine) bucket.logLines.push(strikeLine);
+        }
 
         // Consume trailing kills for this exchange (they may affect fog for
         // subsequent attacks in the run — apply them now, but we'll render
@@ -786,10 +855,14 @@ export function buildReplay(
         j = innerJ;
       }
 
-      // Collect the dead shown victims for this run's kill frame. consumeKills
-      // already zeroed their counts and recorded them in summary.kills during
-      // the loop; we snapshot the (now count==0) units from sim here so all
-      // deaths in the run fade together in the single combined frame.
+      // Collect the dead shown victims for this run. consumeKills already
+      // zeroed their counts and recorded them in summary.kills during the loop;
+      // we snapshot the (now count==0) units from sim here. R1: a death is
+      // attached to the LATEST wave that struck the victim (B if any melee
+      // strike hit it, else A), so it fades WITH its band's beat and never
+      // surfaces a melee death before the ranged wave's impacts.
+      const strikeHits = (w: Wave, id: string): boolean =>
+        buckets[w].strikes.some((s) => s.defenderId === id);
       const combinedKills: UnitInstance[] = [];
       for (const id of allShownVictims) {
         const u = sim.get(id);
@@ -800,60 +873,92 @@ export function buildReplay(
           }
         }
       }
+      const killWave = (id: string): Wave => (strikeHits('B', id) ? 'B' : 'A');
 
-      if (combinedStrikes.length > 0 || combinedKills.length > 0 || shownFizzles > 0) {
-        // Fix floater slot references to the new shared slot index.
+      // R1: emit up to two combat beats — WAVE_A (ranged/artillery) FIRST, then
+      // WAVE_B (melee). Each is a self-contained beat (its own slot + frame)
+      // carrying only that wave's strikes/arcs/floaters/kills/log lines. This
+      // is the presentation regroup: damage, counts, kills, and fog were all
+      // applied to `sim` in resolution order above and are unchanged here.
+      const emitWaveBeat = (w: Wave): void => {
+        const b = buckets[w];
+        const waveKills = combinedKills.filter((k) => killWave(k.id) === w);
+        if (b.strikes.length === 0 && waveKills.length === 0) return;
         const slot = slots.length;
-        for (const fl of combinedFloaters) fl.slot = slot;
-
-        // Slot kind/glyph: a real strike (mist or not) owns the chip and makes
-        // this a 'volley'. A run with ONLY fizzles keeps the standalone-fizzle
-        // behavior — a 'fizzle' slot carrying the first shown fizzler's glyph.
-        const hasStrike = combinedStrikes.length > 0 || combinedKills.length > 0;
-        slots.push(
-          hasStrike
-            ? {
-                kind: 'volley',
-                actorType: firstIsMist ? null : firstAttType,
-                actorFaction: firstIsMist ? null : firstAttFaction,
-                strikes: combinedStrikes,
-              }
-            : {
-                kind: 'fizzle',
-                actorType: fizzleGlyphType,
-                actorFaction: fizzleGlyphFaction,
-                strikes: [],
-              },
-        );
-
-        // Camera: all attacker+defender cells of shown strikes + kills, plus
-        // any fizzle floater cell (so a fizzle-only run frames the fizzler,
-        // matching the standalone handler; harmless when strikes dominate).
+        for (const fl of b.floaters) fl.slot = slot;
+        slots.push({
+          kind: 'volley',
+          actorType: b.firstIsMist ? null : b.firstAttType,
+          actorFaction: b.firstIsMist ? null : b.firstAttFaction,
+          strikes: b.strikes,
+        });
         const focus = new Set<CellId>();
-        for (const s of combinedStrikes) {
+        for (const s of b.strikes) {
           if (s.attackerCell !== null) focus.add(s.attackerCell);
           focus.add(s.defenderCell);
         }
-        for (const k of combinedKills) focus.add(k.cell);
-        if (!hasStrike) for (const fl of combinedFloaters) focus.add(fl.cell);
-
+        for (const k of waveKills) focus.add(k.cell);
         const visAfter = vision(); // deaths shrink player vision
         frames.push({
-          // A real strike anywhere in the run makes this a full volley beat; a
-          // fizzle-only run keeps the shorter standalone-fizzle duration.
-          duration: hasStrike ? VOLLEY_MS : FIZZLE_MS,
+          duration: VOLLEY_MS,
           slot,
           units: renderUnits(visAfter),
           ...fogFields(visAfter),
           ...emptyFx(),
-          arcs: combinedArcs,
-          floaters: combinedFloaters,
-          kills: combinedKills,
+          arcs: b.arcs,
+          floaters: b.floaters,
+          kills: waveKills,
+          focus: [...focus],
+          wave: w,
+          band: w === 'A'
+            ? (b.strikes.some((s) => classifiedArtillery(s)) ? 'artillery' : 'ranged')
+            : 'melee',
+        });
+        for (const line of b.logLines) log.push({ atFrame: frames.length - 1, segs: line });
+        logKills(waveKills, frames.length - 1);
+      };
+      // classify a shown strike as artillery purely for the frame's finer band
+      // tag (presentation only; mist strikes withhold the attacker, so they
+      // read as 'ranged' — the indirect-fire band is a cosmetic refinement).
+      function classifiedArtillery(s: Strike): boolean {
+        if (s.attackerType === null) return false;
+        return (unitTypes[s.attackerType]?.minRange ?? 1) >= 2;
+      }
+
+      emitWaveBeat('A');
+      emitWaveBeat('B');
+
+      // A fizzle-only run (no real strike anywhere) keeps the legacy lone
+      // 'fizzle' beat — a held-fire shot with its own short beat + floater.
+      const anyStrike = buckets.A.strikes.length > 0 || buckets.B.strikes.length > 0 || combinedKills.length > 0;
+      if (!anyStrike && shownFizzles > 0) {
+        const slot = slots.length;
+        for (const fl of fizzleFloaters) fl.slot = slot;
+        slots.push({
+          kind: 'fizzle',
+          actorType: fizzleGlyphType,
+          actorFaction: fizzleGlyphFaction,
+          strikes: [],
+        });
+        const focus = new Set<CellId>();
+        for (const fl of fizzleFloaters) focus.add(fl.cell);
+        const visAfter = vision();
+        frames.push({
+          duration: FIZZLE_MS,
+          slot,
+          units: renderUnits(visAfter),
+          ...fogFields(visAfter),
+          ...emptyFx(),
+          floaters: fizzleFloaters,
           focus: [...focus],
         });
-
         for (const line of combinedLogLines) log.push({ atFrame: frames.length - 1, segs: line });
-        logKills(combinedKills, frames.length - 1);
+      } else if (shownFizzles > 0) {
+        // A held-fire shot alongside real strikes: keep its log line(s) (the
+        // player is told the shot was held) attached to the last combat frame
+        // of this run. No extra floater beat — the floater belonged to the
+        // standalone fizzle case; here the strikes carry the visuals.
+        for (const line of combinedLogLines) log.push({ atFrame: lastFrame(), segs: line });
       }
 
       i = j;
@@ -932,6 +1037,9 @@ export function buildReplay(
           ...fogFields(visAfter),
           ...fx,
           focus: [ev.cell],
+          // R1: a brawl is same-cell mutual combat — always WAVE_B (melee).
+          wave: 'B',
+          band: 'melee',
         });
         if (hi && lo) {
           const segs: LogSeg[] = [
@@ -1183,7 +1291,83 @@ export function buildReplay(
     i++;
   }
 
-  return { slots, frames, summary, log, discovered: disc };
+  // R1 (TEMPO BACKBONE) — wave regroup post-pass. Within each maximal
+  // contiguous run of combat frames (frames tagged with a `wave`), stable-sort
+  // so every WAVE_A (ranged/artillery) frame precedes every WAVE_B (melee/
+  // brawl) frame. This is a PRESENTATION reorder of already-built frames: the
+  // resolution walk above ran in event order (so damage, counts, kills, fog,
+  // and log content are computed exactly as before); only the play ORDER of a
+  // round's combat beats changes, satisfying "no melee impact before all ranged
+  // impacts." Each combat frame owns exactly one slot pushed immediately before
+  // it, so within a run the frame subarray and the slot subarray share a
+  // permutation; floater.slot and log.atFrame are remapped to match.
+  regroupCombatWaves(frames, slots, log);
+
+  return { slots, frames, summary, log, discovered: disc, phases };
+}
+
+/** R1: stable-reorder combat frames so WAVE_A precedes WAVE_B within each
+ *  contiguous combat-frame run, remapping all cross-references. PURE. */
+function regroupCombatWaves(
+  frames: ReplayFrame[],
+  slots: TimelineSlot[],
+  log: ReplayLogEntry[],
+): void {
+  const isCombat = (f: ReplayFrame): boolean => f.wave !== undefined;
+  // frame index → new frame index, identity until a run is permuted.
+  const frameMap = frames.map((_, i) => i);
+  // slot index → new slot index.
+  const slotMap = slots.map((_, i) => i);
+
+  let r = 0;
+  while (r < frames.length) {
+    if (!isCombat(frames[r]!)) {
+      r++;
+      continue;
+    }
+    // [r, e) is a maximal contiguous combat-frame run.
+    let e = r;
+    while (e < frames.length && isCombat(frames[e]!)) e++;
+    const run = frames.slice(r, e);
+    // Already in order? (all A then all B) → skip, keeps a no-op stable.
+    const firstB = run.findIndex((f) => f.wave === 'B');
+    const needs = firstB !== -1 && run.slice(firstB).some((f) => f.wave === 'A');
+    if (needs) {
+      // The slots for this run are contiguous, starting at the first frame's
+      // slot index (frames+slots were pushed in lockstep, no foreign slot
+      // interleaves a combat run).
+      const slotStart = frames[r]!.slot;
+      // Stable partition: WAVE_A frames first, then WAVE_B, original order kept.
+      const order = run
+        .map((f, k) => ({ f, k }))
+        .sort((x, y) => {
+          const wx = x.f.wave === 'A' ? 0 : 1;
+          const wy = y.f.wave === 'A' ? 0 : 1;
+          return wx !== wy ? wx - wy : x.k - y.k;
+        });
+      // Reordered slot subarray follows the same permutation.
+      const slotRun = slots.slice(slotStart, slotStart + run.length);
+      const newSlots = order.map((o) => slotRun[o.k]!);
+      for (let k = 0; k < run.length; k++) {
+        const src = order[k]!;
+        const newFrameIdx = r + k;
+        const newSlotIdx = slotStart + k;
+        frameMap[r + src.k] = newFrameIdx;
+        slotMap[slotStart + src.k] = newSlotIdx;
+        frames[newFrameIdx] = src.f;
+        slots[newSlotIdx] = newSlots[k]!;
+        // Re-point the frame at its (unchanged-value, re-indexed) slot.
+        src.f.slot = newSlotIdx;
+      }
+    }
+    r = e;
+  }
+
+  // Remap cross-references through the permutations.
+  for (const fr of frames) {
+    for (const fl of fr.floaters) fl.slot = slotMap[fl.slot] ?? fl.slot;
+  }
+  for (const entry of log) entry.atFrame = frameMap[entry.atFrame] ?? entry.atFrame;
 }
 
 function makeStrike(
