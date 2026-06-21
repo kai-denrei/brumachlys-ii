@@ -28,7 +28,10 @@ function unit(over: Partial<UnitInstance> = {}): UnitInstance {
   };
 }
 
-function renderToken(u: UnitInstance, opts: { sprite?: boolean; minimal?: boolean; motion?: Motion } = {}) {
+function renderToken(
+  u: UnitInstance,
+  opts: { sprite?: boolean; minimal?: boolean; motion?: Motion; facing?: 1 | -1 } = {},
+) {
   return render(
     <svg>
       <UnitRenderer
@@ -39,6 +42,7 @@ function renderToken(u: UnitInstance, opts: { sprite?: boolean; minimal?: boolea
         sprite={opts.sprite ?? true}
         minimal={opts.minimal ?? false}
         motion={opts.motion ?? 'idle'}
+        facing={opts.facing ?? 1}
       />
     </svg>,
   );
@@ -76,6 +80,13 @@ describe('UnitSprite (infantry)', () => {
     expect(['standShoot', 'sitShoot', 'lieShoot']).toContain(
       clipOf(renderToken(unit(), { motion: 'fire' }).container),
     );
+  });
+
+  it('facing -1 mirrors the sprite (scale -1); facing 1 is native right', () => {
+    const left = renderToken(unit(), { facing: -1 }).container.querySelector('.unit-sprite')!;
+    expect(left.getAttribute('transform') ?? '').toContain('scale(-1');
+    const right = renderToken(unit(), { facing: 1 }).container.querySelector('.unit-sprite')!;
+    expect(right.getAttribute('transform') ?? '').not.toContain('scale(-1');
   });
 
   it('minimal infantry keeps the cheap glyph (chips / demoted tokens)', () => {
@@ -144,5 +155,27 @@ describe('infantry sprite motion (Board, from the replay frame)', () => {
       <Board board={makeBoard()} units={[unit({ id: 'a', faction: 0, cell: 0 })]} />,
     );
     expect(['idle', 'sitting', 'sittingRecharge']).toContain(clipFor(container, 'a'));
+  });
+
+  it('at rest, FACES the nearest enemy — mirrors when the enemy is to the left', () => {
+    useAppStore.setState({ uiPhase: 'planning' });
+    const facingOf = (c: HTMLElement) =>
+      c.querySelector('[data-unit-id="a"] .unit-sprite')?.getAttribute('transform') ?? '';
+    // own at cell 1 (right), enemy at cell 0 (left) → own faces LEFT
+    const left = render(
+      <Board
+        board={makeBoard()}
+        units={[unit({ id: 'a', faction: 0, cell: 1 }), unit({ id: 'e', faction: 1, cell: 0, type: 'tank' })]}
+      />,
+    );
+    expect(facingOf(left.container)).toContain('scale(-1');
+    // own at cell 0 (left), enemy at cell 1 (right) → own faces native right
+    const right = render(
+      <Board
+        board={makeBoard()}
+        units={[unit({ id: 'a', faction: 0, cell: 0 }), unit({ id: 'e', faction: 1, cell: 1, type: 'tank' })]}
+      />,
+    );
+    expect(facingOf(right.container)).not.toContain('scale(-1');
   });
 });

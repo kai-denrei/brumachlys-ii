@@ -899,31 +899,78 @@ export function Board({
     return out;
   }, [pulseEligible, planningOrders, unitById, board, toScreen, tokenSize]);
 
-  // PoC sprites: per-unit MOTION for the animated infantry. 'fire' while the
-  // unit is a visible attacker this replay frame (its cell is an arc source, or
-  // it is a named impact attacker); 'move' while its cell changes between
-  // frames; else idle. Empty during planning (every unit idles).
+  // PoC sprites: per-(infantry-)unit MOTION + FACING.
+  //  motion: 'fire' while a visible attacker this frame (cell is an arc source /
+  //  a named impact attacker), 'move' while its cell changes between frames,
+  //  else idle (planning idles).
+  //  facing: which way the soldier points — toward its fire TARGET, its MOVE
+  //  direction, or (at rest) the nearest visible ENEMY, falling back to the
+  //  enemy's home anchor. 1 = the sprite's native right, -1 = mirrored to face
+  //  left. Screen-x only (toScreen flips y, not x), so this tracks the board.
   const prevCellsRef = useRef<Map<string, CellId>>(new Map());
-  const motionByUnit = useMemo(() => {
-    const m = new Map<string, Motion>();
+  const spriteByUnit = useMemo(() => {
+    const out = new Map<string, { motion: Motion; facing: 1 | -1 }>();
     const fx = replayFx?.fx;
+    const fireTarget = new Map<string, CellId>(); // attacker id → the cell it shoots
     if (fx) {
       const cellUnit = new Map<CellId, string>();
       for (const u of unitById.values()) cellUnit.set(u.cell, u.id);
       for (const a of fx.arcs) {
         const id = cellUnit.get(a.from);
-        if (id) m.set(id, 'fire');
+        if (id && !fireTarget.has(id)) fireTarget.set(id, a.to);
       }
-      for (const im of fx.impacts ?? []) if (im.attackerId) m.set(im.attackerId, 'fire');
-      const prev = prevCellsRef.current;
-      for (const u of unitById.values()) {
-        if (m.get(u.id) === 'fire') continue;
-        const pc = prev.get(u.id);
-        if (pc !== undefined && pc !== u.cell) m.set(u.id, 'move');
+      for (const im of fx.impacts ?? []) {
+        if (im.attackerId && !fireTarget.has(im.attackerId)) fireTarget.set(im.attackerId, im.defenderCell);
       }
     }
-    return m;
-  }, [replayFx, unitById]);
+    const prev = prevCellsRef.current;
+    const enemyAnchorX = (f: FactionId): number | null => {
+      const a = board.placementAnchors;
+      if (!a) return null;
+      const c = board.cells.get(a[f === 0 ? 1 : 0]);
+      return c ? toScreen(c.center)[0] : null;
+    };
+    for (const u of unitById.values()) {
+      if (u.type !== 'infantry') continue; // only the sprite consumes this
+      const ucell = board.cells.get(u.cell);
+      if (!ucell) continue;
+      const [ux, uy] = toScreen(ucell.center);
+      let motion: Motion = 'idle';
+      let dir = 0; // screen-x toward whatever the soldier should face
+      const tgt = fireTarget.get(u.id);
+      if (tgt !== undefined) {
+        motion = 'fire';
+        const tc = board.cells.get(tgt);
+        if (tc) dir = toScreen(tc.center)[0] - ux;
+      } else if (fx) {
+        const pc = prev.get(u.id);
+        if (pc !== undefined && pc !== u.cell) {
+          motion = 'move';
+          const pcc = board.cells.get(pc);
+          if (pcc) dir = ux - toScreen(pcc.center)[0];
+        }
+      }
+      if (dir === 0) {
+        // at rest / directionless: face the nearest visible enemy, else home
+        let best = Infinity;
+        let bx: number | null = null;
+        for (const e of unitById.values()) {
+          if (e.faction === u.faction) continue;
+          const ec = board.cells.get(e.cell);
+          if (!ec) continue;
+          const [ex, ey] = toScreen(ec.center);
+          const d = (ex - ux) ** 2 + (ey - uy) ** 2;
+          if (d < best) {
+            best = d;
+            bx = ex;
+          }
+        }
+        dir = (bx ?? enemyAnchorX(u.faction) ?? ux + 1) - ux;
+      }
+      out.set(u.id, { motion, facing: dir < 0 ? -1 : 1 });
+    }
+    return out;
+  }, [replayFx, unitById, board, toScreen]);
 
   // Remember this frame's cells so the NEXT frame can detect movement by diff.
   useEffect(() => {
@@ -1192,7 +1239,8 @@ export function Board({
                 onRadar={showRadar ? () => onUnitRadarTap(unit.id) : undefined}
                 radarActive={rangeOverlay?.unitId === unit.id}
                 sprite={spritesOn}
-                motion={motionByUnit.get(unit.id) ?? 'idle'}
+                motion={spriteByUnit.get(unit.id)?.motion ?? 'idle'}
+                facing={spriteByUnit.get(unit.id)?.facing ?? 1}
               />
             );
           })}

@@ -68,6 +68,9 @@ export type UnitRendererProps = {
   /** PoC: what the unit is doing right now — drives the sprite clip family
    *  (idle ambient / moving / firing). Ignored unless `sprite` is on. */
   motion?: Motion;
+  /** PoC: which way the sprite faces — 1 = native right, -1 = mirrored to face
+   *  left (toward the enemy). Ignored unless `sprite` is on. */
+  facing?: 1 | -1;
 };
 
 export const UnitRenderer = memo(function UnitRenderer({
@@ -89,6 +92,7 @@ export const UnitRenderer = memo(function UnitRenderer({
   radarActive = false,
   sprite = false,
   motion = 'idle',
+  facing = 1,
 }: UnitRendererProps) {
   const color = factionColor(unit.faction);
   const h = size / 2;
@@ -145,7 +149,7 @@ export const UnitRenderer = memo(function UnitRenderer({
         </g>
       )}
       {useSprite ? (
-        <UnitSprite unitId={unit.id} faction={unit.faction} size={size} motion={motion} />
+        <UnitSprite unitId={unit.id} faction={unit.faction} size={size} motion={motion} facing={facing} />
       ) : (
         <>
           <rect
