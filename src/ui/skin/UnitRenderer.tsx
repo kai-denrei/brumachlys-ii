@@ -14,7 +14,8 @@ import type { UnitInstance } from '../../core/types';
 import { UnitGlyph } from './icons';
 import { UnitSprite } from './UnitSprite';
 import type { Motion } from './sprites/sprite-data';
-import { darken, factionColor } from './palette';
+import { darken, desaturate, factionColor } from './palette';
+import { SPOTLIGHT_DESATURATION, SPOTLIGHT_DIM_OPACITY } from './CellRenderer';
 
 export type UnitRendererProps = {
   unit: UnitInstance;
@@ -71,6 +72,15 @@ export type UnitRendererProps = {
   /** PoC: which way the sprite faces — 1 = native right, -1 = mirrored to face
    *  left (toward the enemy). Ignored unless `sprite` is on. */
   facing?: 1 | -1;
+  /** R2 (SPOTLIGHT): combat-spotlight treatment during replay.
+   *   • 'dim' — an idle (non-combatant) unit: desaturate its faction colour
+   *     toward grey (reusing the memory-tier desaturation) and drop to ~0.32
+   *     alpha, so it recedes behind the lit combat.
+   *   • 'lit' — a combatant unit: full colour + a soft highlight ring.
+   *   null/absent — no spotlight (planning, post-SETTLE, non-combat rounds).
+   *  The radar badges are untouched by this treatment (a demoted/minimal token
+   *  carries no radar; full tokens keep their pips at full strength). */
+  spotlight?: 'dim' | 'lit' | null;
 };
 
 export const UnitRenderer = memo(function UnitRenderer({
@@ -93,8 +103,16 @@ export const UnitRenderer = memo(function UnitRenderer({
   sprite = false,
   motion = 'idle',
   facing = 1,
+  spotlight = null,
 }: UnitRendererProps) {
-  const color = factionColor(unit.faction);
+  // R2 (SPOTLIGHT): an idle unit desaturates its faction colour toward grey
+  // (reusing the memory-tier `desaturate` mechanism — no new colour pipeline)
+  // and the whole token recedes to ~0.32 alpha (group opacity below). A
+  // combatant unit ('lit') keeps full colour and gains a highlight ring.
+  const color =
+    spotlight === 'dim'
+      ? desaturate(factionColor(unit.faction), SPOTLIGHT_DESATURATION)
+      : factionColor(unit.faction);
   const h = size / 2;
   const rx = size * 0.3; // squircle corner
   const strokeW = size * 0.06;
@@ -145,6 +163,21 @@ export const UnitRenderer = memo(function UnitRenderer({
             fill="none"
             stroke={color}
             strokeWidth={size * 0.07}
+          />
+        </g>
+      )}
+      {/* R2 (SPOTLIGHT): a combatant unit gains a soft white highlight ring so
+          the eye reads it as the focus of the round's combat. Behind the token
+          body, never taps. Static (CSS reduced-motion safe). */}
+      {spotlight === 'lit' && (
+        <g className="unit-spotlight" pointerEvents="none" aria-hidden="true">
+          <circle
+            className="unit-spotlight-ring"
+            r={size * 0.78}
+            fill="none"
+            stroke="#fff"
+            strokeWidth={size * 0.08}
+            opacity={0.78}
           />
         </g>
       )}
@@ -346,10 +379,15 @@ export const UnitRenderer = memo(function UnitRenderer({
 
   return (
     <g
-      className={`unit-token unit-faction-${unit.faction}${selected ? ' unit-selected' : ''}`}
+      className={`unit-token unit-faction-${unit.faction}${selected ? ' unit-selected' : ''}${spotlight === 'dim' ? ' unit-spotlight-dim' : ''}${spotlight === 'lit' ? ' unit-spotlight-lit' : ''}`}
       data-unit-id={unit.id}
       data-unit-type={unit.type}
+      data-spotlight={spotlight ?? undefined}
       transform={`translate(${x} ${y})${scale !== 1 ? ` scale(${scale})` : ''}${selected ? ` translate(0 ${-size * 0.14})` : ''}`}
+      // R2 (SPOTLIGHT): an idle unit recedes to ~0.32 alpha while the spotlight
+      // is engaged. The class drives the CSS transition / reduced-motion static
+      // dim; the faction colour is already desaturated above.
+      opacity={spotlight === 'dim' ? SPOTLIGHT_DIM_OPACITY : undefined}
       onClick={onTap ? () => onTap(unit.id) : undefined}
     >
       {recoil ? (

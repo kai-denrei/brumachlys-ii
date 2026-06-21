@@ -47,6 +47,7 @@ import type { CellId } from './board/types';
 import { factionUpkeep, upkeepRateOf } from './core/economy';
 import { loadUnits } from './io/data-loader';
 import type { ReplayFrame } from './state/replay';
+import { spotlightAt } from './state/replay';
 import { PLAYER_FACTION, useAppStore } from './state/store';
 import { Board, type CaptureToggleState, type StancePopoverState } from './ui/Board';
 import { BottomDock, type DockBuy } from './ui/BottomDock';
@@ -1044,6 +1045,14 @@ function BattleScreen() {
       }));
   })();
 
+  // R2 (SPOTLIGHT): a pure read of the script + cursor — engaged through the
+  // combat portion (replay start → last wave frame), released in SETTLE / at
+  // replay end. One spotlight for the whole turn (computed once per round; the
+  // `active` flag just gates whether the dim is drawn at THIS frame). Absent
+  // outside replay/summary (planning never dims).
+  const spotlight =
+    replayActive && script ? spotlightAt(script, frameIdx) : null;
+
   const own = units.filter((u) => u.faction === PLAYER_FACTION);
   const orderedIds = orderedUnitIds(orders);
 
@@ -1212,6 +1221,7 @@ function BattleScreen() {
               },
             }}
             trails={trails}
+            spotlight={spotlight}
             onFloaterTap={(slot) => {
               // E3: spawn-failed floaters point at strike-less slots — no math
               // to show, so don't open an empty breakdown modal.

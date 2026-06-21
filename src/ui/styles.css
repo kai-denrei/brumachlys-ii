@@ -253,6 +253,34 @@ body {
 
 .cell {
   cursor: pointer;
+  /* R2 (SPOTLIGHT): the desaturate/dim engages and releases by transitioning
+     this group opacity — the planning→replay dim glides in, the SETTLE
+     resaturation glides back out. ~0.35 s matches the SPOTLIGHT phase feel. */
+  transition: opacity 0.35s ease;
+}
+
+/* R2 (SPOTLIGHT): a combatant tile's soft highlight ring — drawn over the
+   dimmed field so the eye lands on the combat. Static; the colour/desaturation
+   is handled by the renderer (reusing the memory-tier desaturate). */
+.cell-spotlight-ring {
+  transition: opacity 0.35s ease;
+}
+
+/* R2 (SPOTLIGHT): combatant unit highlight ring (static, reduced-motion safe). */
+.unit-spotlight-ring {
+  transition: opacity 0.35s ease;
+}
+
+/* R2 (SPOTLIGHT): reduced motion — keep the dim as a STATIC end-state (no
+   harsh transition flash). The dim itself (non-combatants recede, combatants
+   ringed) is fine to show; only the animated glide is suppressed. */
+@media (prefers-reduced-motion: reduce) {
+  .cell,
+  .unit-token,
+  .cell-spotlight-ring,
+  .unit-spotlight-ring {
+    transition: none;
+  }
 }
 
 /* E1 discovery fog: dark → live soft ignite (~0.4 s). The cover path is
@@ -272,8 +300,9 @@ body {
 
 .unit-token {
   cursor: pointer;
-  /* P8 replay hook: resolved moves animate by transitioning this transform. */
-  transition: transform 0.25s ease;
+  /* P8 replay hook: resolved moves animate by transitioning this transform.
+     R2 (SPOTLIGHT): the dim/resaturate also glides this group's opacity. */
+  transition: transform 0.25s ease, opacity 0.35s ease;
 }
 
 .unit-count text {

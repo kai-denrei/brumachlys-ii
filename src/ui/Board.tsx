@@ -153,6 +153,16 @@ export type BoardProps = {
   /** v1.3 Tweak B: movement origin trails — persistent layer (fades via CSS,
    * so NOT part of the per-frame-remounted replayFx group). */
   trails?: readonly TrailMark[];
+  /** R2 (SPOTLIGHT): the combat spotlight for THIS replay frame. When `active`,
+   * non-combatant tiles + idle units desaturate/dim and combatant tiles/units
+   * get a highlight ring. `combatants` is the round's witnessed set (computed
+   * ONCE per turn, not per wave). Null/absent or `active: false` = no dim
+   * (planning, post-SETTLE resaturation, non-combat rounds). The radar badges
+   * on tokens are untouched. */
+  spotlight?: {
+    active: boolean;
+    combatants: { cells: ReadonlySet<CellId>; units: ReadonlySet<string> };
+  } | null;
   /** Tap a floating damage number → breakdown modal for its slot (§9.4). */
   onFloaterTap?: (slot: number) => void;
   /** Pan so this cell is centered whenever `token` changes. */
@@ -430,6 +440,7 @@ export function Board({
   onProposalConfirm,
   replayFx = null,
   trails,
+  spotlight = null,
   focus = null,
   follow = null,
   onUserPan,
@@ -991,6 +1002,24 @@ export function Board({
     return (reachable as ReadonlySet<CellId>).has(id) ? 0.32 : null;
   };
 
+  // R2 (SPOTLIGHT): per-cell / per-unit treatment for the active spotlight.
+  // `lit` = a combatant (full colour + ring); `dim` = a non-combatant (recede);
+  // null = no spotlight engaged this frame (planning / post-SETTLE / no combat),
+  // so nothing is touched. Pure reads of the frame's spotlight payload.
+  const spotlightActive = spotlight?.active === true;
+  const cellSpotlight = (id: CellId): 'dim' | 'lit' | null => {
+    if (!spotlightActive) return null;
+    return spotlight!.combatants.cells.has(id) ? 'lit' : 'dim';
+  };
+  const unitSpotlight = (u: UnitInstance): 'dim' | 'lit' | null => {
+    if (!spotlightActive) return null;
+    // A combatant unit OR a unit standing on a combatant cell stays lit (an
+    // attacker token on its firing tile, a defender on the struck tile).
+    return spotlight!.combatants.units.has(u.id) || spotlight!.combatants.cells.has(u.cell)
+      ? 'lit'
+      : 'dim';
+  };
+
   const selectedUnit = selectedUnitId !== null ? unitById.get(selectedUnitId) : undefined;
   const selectedCell = selectedUnit ? board.cells.get(selectedUnit.cell) : undefined;
 
@@ -1049,6 +1078,7 @@ export function Board({
                   cell.terrain === 'base' &&
                   (bases[cell.id] ?? null) === null
                 }
+                spotlight={cellSpotlight(cell.id)}
                 onTap={tapGuard(onCellTap)}
               />
             );
@@ -1241,6 +1271,7 @@ export function Board({
                 sprite={spritesOn}
                 motion={spriteByUnit.get(unit.id)?.motion ?? 'idle'}
                 facing={spriteByUnit.get(unit.id)?.facing ?? 1}
+                spotlight={unitSpotlight(unit)}
               />
             );
           })}

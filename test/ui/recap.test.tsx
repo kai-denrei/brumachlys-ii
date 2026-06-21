@@ -57,6 +57,7 @@ function script(over: Partial<ReplayScript> = {}): ReplayScript {
     log: [],
     discovered: new Set<CellId>(),
     phases: layoutPhases(),
+    combatants: { cells: new Set<CellId>(), units: new Set<string>() },
     summary: { kills: [], damageDealt: [0, 0], fizzles: 0 },
     ...over,
   };

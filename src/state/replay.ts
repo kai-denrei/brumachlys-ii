@@ -212,6 +212,21 @@ export type ReplayLogEntry = {
   segs: LogSeg[];
 };
 
+/** R2 (SPOTLIGHT): the round's combatant set — the cells and unit ids the
+ *  player WITNESSES taking part in this round's combat (attackers, defenders,
+ *  brawl participants). Fog-respecting: only strikes the script actually shows
+ *  contribute, and a mist strike (attacker withheld) surfaces only its DEFENDER
+ *  cell/id — the firing position never leaks. During replay the spotlight keeps
+ *  these full-colour + ringed while every non-combatant tile/unit desaturates
+ *  and dims; SETTLE/end resaturates. Computed ONCE per round (one spotlight for
+ *  the whole turn, never re-spotlit per wave). PURE — no resolved value. */
+export type Combatants = {
+  /** Cells involved in shown combat (attacker + defender cells, brawl cells). */
+  cells: ReadonlySet<CellId>;
+  /** Unit ids involved in shown combat (attackers, defenders, brawlers). */
+  units: ReadonlySet<string>;
+};
+
 export type ReplayScript = {
   slots: TimelineSlot[];
   frames: ReplayFrame[];
@@ -226,6 +241,10 @@ export type ReplayScript = {
    *  transport maps wave-tagged combat frames onto WAVE_A / WAVE_B; the 2:1
    *  WAVE_A≈2×WAVE_B tempo contrast is the load-bearing cue. */
   phases: PhaseLayout;
+  /** R2 (SPOTLIGHT): the round's witnessed combatant set (see Combatants). One
+   *  pass for the whole turn — the spotlight engages on replay start and
+   *  resaturates in SETTLE / at replay end. */
+  combatants: Combatants;
 };
 
 const MOVE_STEP_MS = 160;
@@ -324,6 +343,23 @@ export function buildReplay(
   const frames: ReplayFrame[] = [];
   const summary: RoundSummary = { kills: [], damageDealt: [0, 0], fizzles: 0 };
   const log: ReplayLogEntry[] = [];
+  // R2 (SPOTLIGHT): the round's witnessed combatant set — accumulated from the
+  // SAME fog-filtered shown strikes that drive the frames, so it can never leak
+  // an unseen unit or a mist attacker's firing cell. A `Strike` already withholds
+  // the attacker (id/cell null) when fired from the mist, so feeding the strike
+  // list in is fog-honest by construction. Folded onto the script at return.
+  const combatantCells = new Set<CellId>();
+  const combatantUnits = new Set<string>();
+  /** Record both ends of a shown strike. Mist attacker fields are null and are
+   *  skipped — only the witnessed defender (and any non-withheld attacker) join. */
+  const addStrikeCombatants = (strikes: readonly Strike[]): void => {
+    for (const s of strikes) {
+      if (s.attackerId !== null) combatantUnits.add(s.attackerId);
+      if (s.attackerCell !== null) combatantCells.add(s.attackerCell);
+      combatantUnits.add(s.defenderId);
+      combatantCells.add(s.defenderCell);
+    }
+  };
   // v0.6: units removed by capture-consumption — already accounted for as a
   // claim; a (defensive) stray kill event for one of them must stay silent.
   const consumedIds = new Set<string>();
@@ -884,6 +920,8 @@ export function buildReplay(
         const b = buckets[w];
         const waveKills = combinedKills.filter((k) => killWave(k.id) === w);
         if (b.strikes.length === 0 && waveKills.length === 0) return;
+        // R2 spotlight: this wave's shown strikes name combatant cells/units.
+        addStrikeCombatants(b.strikes);
         const slot = slots.length;
         for (const fl of b.floaters) fl.slot = slot;
         slots.push({
@@ -1022,6 +1060,9 @@ export function buildReplay(
       j = kills.next;
       fx.kills = kills.shown;
       if (shown) {
+        // R2 spotlight: a shown brawl's participants (both factions, same cell)
+        // are combatants. The strikes already carry both ends.
+        addStrikeCombatants(strikes);
         const slot = slots.length;
         slots.push({
           kind: 'brawl',
@@ -1303,7 +1344,41 @@ export function buildReplay(
   // permutation; floater.slot and log.atFrame are remapped to match.
   regroupCombatWaves(frames, slots, log);
 
-  return { slots, frames, summary, log, discovered: disc, phases };
+  return {
+    slots,
+    frames,
+    summary,
+    log,
+    discovered: disc,
+    phases,
+    combatants: { cells: combatantCells, units: combatantUnits },
+  };
+}
+
+/** R2 (SPOTLIGHT): is the combat spotlight engaged at this playback cursor?
+ *  PURE read of the script + frame index — playback never mutates state, and a
+ *  given frame is a stable function of (script, cursor).
+ *
+ *  The spotlight is ONE pass for the whole turn: it engages as the
+ *  planning→replay transition (replay start, frame 0) and RESATURATES in the
+ *  SETTLE phase — i.e. once playback has passed the round's LAST combat
+ *  (wave-tagged) frame. Concretely it is active for every frame up to and
+ *  including the last `wave`-tagged frame, released for every frame after it.
+ *  A round with no witnessed combat never dims (no combat frames ⇒ no spotlight).
+ *
+ *  Returns `active` plus the round's `combatants` so the Board has both in one
+ *  read; `combatants` is always the script's set (it is the spotlight subject
+ *  whether or not the dim is currently engaged). */
+export function spotlightAt(
+  script: Pick<ReplayScript, 'frames' | 'combatants'>,
+  frameIdx: number,
+): { active: boolean; combatants: Combatants } {
+  let lastCombat = -1;
+  for (let i = 0; i < script.frames.length; i++) {
+    if (script.frames[i]!.wave !== undefined) lastCombat = i;
+  }
+  const active = lastCombat >= 0 && frameIdx <= lastCombat;
+  return { active, combatants: script.combatants };
 }
 
 /** R1: stable-reorder combat frames so WAVE_A precedes WAVE_B within each

@@ -206,6 +206,7 @@ describe('casualty recap (v1.3 Tweak C)', () => {
           log: [],
           discovered: new Set<CellId>(),
           phases: layoutPhases(),
+          combatants: { cells: new Set<CellId>(), units: new Set<string>() },
           summary: { kills: [{ id: 'x', type: 'tank', faction: 1 }], damageDealt: [9, 0], fizzles: 0 },
         },
       },

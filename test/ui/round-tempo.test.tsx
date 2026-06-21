@@ -79,6 +79,7 @@ function minScript(
     log: [],
     discovered: new Set<CellId>(),
     phases: layoutPhases(),
+    combatants: { cells: new Set<CellId>(), units: new Set<string>() },
     summary: {
       kills: [],
       damageDealt: [0, 0],

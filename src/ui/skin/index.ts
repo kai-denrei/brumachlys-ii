@@ -14,7 +14,13 @@ export {
 } from './palette';
 export { roundedPolygonPath, ringCentroid, ringRadius } from './rounded';
 export type { Pt } from './rounded';
-export { CellRenderer, CELL_STROKE_WIDTH, CAMP_DESATURATION } from './CellRenderer';
+export {
+  CellRenderer,
+  CELL_STROKE_WIDTH,
+  CAMP_DESATURATION,
+  SPOTLIGHT_DIM_OPACITY,
+  SPOTLIGHT_DESATURATION,
+} from './CellRenderer';
 export type { CellRendererProps } from './CellRenderer';
 export { UnitRenderer } from './UnitRenderer';
 export type { UnitRendererProps } from './UnitRenderer';
