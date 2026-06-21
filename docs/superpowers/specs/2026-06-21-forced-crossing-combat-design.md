@@ -114,6 +114,14 @@ the ensuing brawl uses the existing `brawl-exchange`/`kill` FX. Fog: the sign an
 brawl surface under the existing fog-feed rules (a crossing in the dark is not
 shown to a player who cannot see the cell).
 
+**Precedence narrowing (implemented):** the event is for *transit* crossings
+(pass-by / swap). When two enemies' paths instead **end on the same cell** (a
+same-destination charge collision), the existing **charge** rule already drives
+both into that cell and brawls them — that case is resolved by §4 precedence and
+emits **no** separate `path-interrupted` sign (the charge/brawl FX already tell
+the story). So a `path-interrupted` event fires only when at least one crosser is
+halted *short of its own destination* by the crossing.
+
 ## 6. Ramifications (explicit)
 
 - **Skirmish changes.** Because the rule is all-modes, the tuned skirmish game
