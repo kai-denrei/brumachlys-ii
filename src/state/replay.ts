@@ -984,6 +984,34 @@ export function buildReplay(
       continue;
     }
 
+    if (ev.type === 'upkeep') {
+      // Own upkeep only: the HUD ticks down, the log notes it. Enemy upkeep has
+      // no witnessable cell — enemy credits stay secret (mirrors income).
+      if (cq && ev.faction === player) {
+        cq.credits = ev.creditsAfter;
+        if (ev.amount > 0) {
+          const vis = vision();
+          frames.push({
+            duration: INCOME_MS,
+            slot: -1,
+            units: renderUnits(vis),
+            ...fogFields(vis),
+            ...emptyFx(),
+          });
+          log.push({
+            atFrame: frames.length - 1,
+            segs: [
+              { t: 'upkeep ' },
+              { t: `−${ev.amount}`, f: player },
+              { t: ` · ◈ ${ev.creditsAfter}` },
+            ],
+          });
+        }
+      }
+      i++;
+      continue;
+    }
+
     if (ev.type === 'spawn') {
       const visBefore = vision();
       const own = ev.faction === player;
