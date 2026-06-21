@@ -44,6 +44,7 @@ import { occupantVacates, type OrderKind } from './core/orders';
 import type { FactionId, Stance, UnitInstance } from './core/types';
 import { cellsWithin, cellsWithinD, graphDistance } from './board/geometry';
 import type { CellId } from './board/types';
+import { factionUpkeep, upkeepRateOf } from './core/economy';
 import { loadUnits } from './io/data-loader';
 import type { ReplayFrame } from './state/replay';
 import { PLAYER_FACTION, useAppStore } from './state/store';
@@ -1091,12 +1092,20 @@ function BattleScreen() {
   const perBaseCredits = board.economy?.perBaseCredits ?? 100;
   const income = conquest ? ownedBaseCount(PLAYER_FACTION) * perBaseCredits : 0;
 
+  // v0.9 upkeep (addendum §5): projected per-turn upkeep over the player's
+  // living units, and the net (income − upkeep) shown beside the odometer so a
+  // buy that bleeds is visible before commit.
+  const upkeep = conquest
+    ? factionUpkeep(Object.values(game.units), PLAYER_FACTION, types, upkeepRateOf(board))
+    : 0;
+  const net = income - upkeep;
+
   // E3 credits HUD: planning = available − committed (static) + per-turn income;
   // replay = the frame's creditsAfter feed (income/spawn events tick it live).
   const creditsHud: CreditsHud | null = conquest
     ? frame
       ? { value: frame.credits ?? game.credits?.[PLAYER_FACTION] ?? 0 }
-      : { value: game.credits?.[PLAYER_FACTION] ?? 0, committed, income }
+      : { value: game.credits?.[PLAYER_FACTION] ?? 0, committed, income, upkeep, net }
     : null;
 
   // E3 baseless grace warning (§B.5): the player's own countdown only —
@@ -1257,6 +1266,7 @@ function BattleScreen() {
       {/* v0.9 HUD: top-left column — Round + Credits cluster on top, casualty
           tally stacked immediately below. Fixed over the board, below modals. */}
       <div className="hud-column">
+        {/* onOpenBuild wired in Phase 5 (BuildDashboard) */}
         <HudCluster round={topRound} credits={creditsHud} />
         <CasualtyPanel casualties={casualties} unitTypes={types} />
       </div>

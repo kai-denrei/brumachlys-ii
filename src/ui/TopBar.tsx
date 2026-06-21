@@ -9,7 +9,14 @@ import { VersionBadge } from './VersionBadge';
  * ("◈ 250 − 150 committed"); replay: the frame's creditsAfter feed ticks it.
  * v0.9: `income` is the per-turn credit gain (owned bases × perBaseCredits),
  * shown beside the odometer during planning ("+200/turn"). */
-export type CreditsHud = { value: number; committed?: number; income?: number };
+export type CreditsHud = {
+  value: number;
+  committed?: number;
+  income?: number;
+  /** Conquest planning: per-turn upkeep and net (income − upkeep). */
+  upkeep?: number;
+  net?: number;
+};
 
 export function TopBar({
   phase,

@@ -2433,6 +2433,22 @@ body {
   white-space: nowrap;
 }
 
+/* v0.9 upkeep (addendum §5): net/turn (income − upkeep) headline + a faint
+   (+income −upkeep) breakdown. The credits row becomes a button once a tap
+   opens the build dashboard (wired Phase 5). */
+.credits-hud[role='button'] {
+  cursor: pointer;
+}
+
+.credits-net {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.credits-net-detail {
+  opacity: 0.7;
+}
+
 .baseless-warning {
   background: rgba(156, 47, 29, 0.92);
   color: #fff;
