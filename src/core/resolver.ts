@@ -68,7 +68,7 @@
 import type { Board, CellId, TerrainKey } from '../board/types';
 import { graphDistance } from '../board/geometry';
 import { initTieKey } from './rng';
-import { IMPASSABLE, enemyFrictionAt } from './pathing';
+import { IMPASSABLE, enemyFrictionAt, firstSharedCell } from './pathing';
 import { gangUpBreakdown, makeAttackedFromEntry } from './combat/gangup';
 import type { GangUpBreakdown } from './combat/gangup';
 import type { AttackContext, Combatant, ResolutionModel } from './combat/model';
@@ -269,6 +269,7 @@ export function resolveRound(
           if (ua.faction === ub.faction) continue; // friendlies never fight (§4)
           // ms is sorted by cmpUnits, so ua is the higher-init unit of the pair.
           const hiTrail = trails.get(ua.id)!;
+          const loTrail = trails.get(ub.id)!;
           const loSet = trailSets.get(ub.id)!;
           // Interception cell = FIRST shared cell in the higher-init trail (§3.3),
           // but a unit's own ORIGIN is preferred LAST: a crossing is a meeting in
@@ -279,20 +280,20 @@ export function resolveRound(
           // shared cell that is NOT either unit's origin; fall back to the first
           // shared cell only if every shared cell is an origin (degenerate). A
           // mover's origin is hiTrail[0] / loTrail[0] (index 0 of its trail).
-          const loTrail = trails.get(ub.id)!;
+          // The plain first-shared-cell (origin-blind) is the shared
+          // firstSharedCell helper; the origin-skipping scan below specializes it.
           const hiOrigin = hiTrail[0]!;
           const loOrigin = loTrail[0]!;
+          const originFallback = firstSharedCell(hiTrail, loTrail);
+          if (originFallback === null) continue; // disjoint trails — no crossing
           let cell: CellId | null = null;
-          let originFallback: CellId | null = null;
           for (const c of hiTrail) {
             if (!loSet.has(c)) continue;
-            if (originFallback === null) originFallback = c;
             if (c === hiOrigin || c === loOrigin) continue;
             cell = c;
             break;
           }
           if (cell === null) cell = originFallback;
-          if (cell === null) continue;
           pairs.push({ hi: ua, lo: ub, cell });
         }
       }

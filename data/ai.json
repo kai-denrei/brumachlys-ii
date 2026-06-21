@@ -5,7 +5,9 @@
     "terrainArmorBonus": 0.3,
     "advance": 0.3,
     "focusFire": 0.5,
-    "threatConcentration": 0.5
+    "threatConcentration": 0.5,
+    "crossingSeek": 1.0,
+    "crossingAvoid": 4.0
   },
   "conquest": {
     "captureBonus": 10.0,

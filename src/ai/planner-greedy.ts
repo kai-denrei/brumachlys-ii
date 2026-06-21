@@ -74,7 +74,14 @@ import aiJson from '../../data/ai.json';
 import type { CellId, TerrainKey } from '../board/types';
 import { attackDamage, battleExchange } from '../core/combat/weewar';
 import type { Order } from '../core/orders';
-import { enemyFrictionAt, findPath, movementCostsFor, reachableCells } from '../core/pathing';
+import {
+  enemyFrictionAt,
+  findPath,
+  firstSharedCell,
+  movementCostsFor,
+  pathsShareCell,
+  reachableCells,
+} from '../core/pathing';
 import { ROUND_LIMIT } from '../core/resolver';
 import { fnv1a32, initTieKey } from '../core/rng';
 import type { Rng } from '../core/rng';
@@ -94,6 +101,20 @@ export type GreedyWeights = {
    *  candidate covered by k enemies does not eat k full attacks. taken =
    *  maxThreat + threatConcentration·(sum − max). 1 = raw spec sum. */
   threatConcentration: number;
+  /** Forced-crossing awareness (addendum 2026-06-22 §2). A small SEEK bonus
+   *  added to a move whose intended path is estimated to cross a visible
+   *  enemy's likely path on a cell where the simulated brawl is FAVOURABLE
+   *  (we survive, they die) — the planner steers INTO a winning forced clash.
+   *  Conservative: the brawl is an approximation of enemy intent. */
+  crossingSeek: number;
+  /** Forced-crossing awareness (addendum 2026-06-22 §2). A large AVOID penalty
+   *  subtracted from a move whose intended path is estimated to cross a visible
+   *  enemy's likely path on a cell where the simulated brawl is LETHAL to us
+   *  (we die) — effectively rerouting or holding. Larger than crossingSeek: a
+   *  losing forced brawl is a unit lost for the rest of the game. Mutual/
+   *  attrition crossings (both take losses, neither annihilated) get a minor
+   *  fraction of this penalty. */
+  crossingAvoid: number;
 };
 
 export const DEFAULT_GREEDY_WEIGHTS: GreedyWeights = aiJson.greedy;
@@ -282,6 +303,15 @@ function simulateBrawl(
  *  limit cycle (advance in fog → see 5 enemies → retreat → fog → repeat). */
 const PHANTOM_THREAT = 5;
 
+/** How many top-scored MOVE candidates the forced-crossing re-rank examines
+ *  (addendum 2026-06-22 §2/§3). Each examined candidate costs one findPath to
+ *  compute its intended path; bounding to the leaders keeps the planner inside
+ *  its ~0.5 ms median / <2 ms max budget while still letting a lethal crossing
+ *  demote the current best below a held / rerouted alternative. Candidates
+ *  outside the leader set cannot win even crossing-blind, so skipping their
+ *  (costly) path computation never changes the outcome. */
+const CROSSING_LEADERS = 6;
+
 type EnemyInfo = {
   unit: UnitInstance;
   type: UnitType;
@@ -295,6 +325,14 @@ type EnemyInfo = {
   threatened: Set<CellId>;
   /** Memo: expected damage onto the unit being planned, by defender terrain. */
   takenByTerrain: Map<TerrainKey, number>;
+  /** Crossing-awareness (addendum 2026-06-22 §2): the enemy's ESTIMATED likely
+   *  trail this round — its shortest path toward its nearest visible target
+   *  (an own unit), capped at its movement budget, as [enemyCell, ...steps].
+   *  Includes the stay-put trail [enemyCell] (always present as element 0). An
+   *  APPROXIMATION of enemy intent (factions plan independently — we do not
+   *  know the enemy's real orders), computed once per round and shared across
+   *  all own candidates. */
+  estTrail: CellId[];
 };
 
 export function createGreedyPlanner(
@@ -334,7 +372,8 @@ export function createGreedyPlanner(
         const et = unitTypes[e.type];
         if (!et) continue;
         const distFrom = bfsHops(board, e.cell);
-        const reach = reachableCells(board, movementCostsFor(et), e.cell, et.movement);
+        const enemyCosts = movementCostsFor(et);
+        const reach = reachableCells(board, enemyCosts, e.cell, et.movement);
         const firing = [e.cell, ...[...reach.keys()].sort((a, b) => a - b)];
         const nowZone = new Set<CellId>();
         const threatened = new Set<CellId>();
@@ -345,6 +384,35 @@ export function createGreedyPlanner(
             if (f === e.cell) nowZone.add(cell);
           }
         }
+        // ── Estimated enemy trail this round (crossing-awareness §2) ────────
+        // HEURISTIC (documented approximation of enemy intent): the enemy moves
+        // along the shortest movement-cost path toward its nearest OWN-unit
+        // target, capped at its own movement budget. We do not know the enemy's
+        // real orders (factions plan independently); this is a cheap, fog-honest
+        // estimate (we know where our own units stand). The stay-put trail is
+        // always element 0 ([enemyCell]) — an enemy that holds still still
+        // "crosses" anyone walking onto its cell. Computed ONCE per round per
+        // enemy (not per own candidate) to stay within the planner budget.
+        const estTrail: CellId[] = [e.cell];
+        let bestTargetCell = -1;
+        let bestTargetHops = Infinity;
+        for (const v of view.own) {
+          const h = distFrom.get(v.cell);
+          if (h === undefined) continue;
+          if (h < bestTargetHops || (h === bestTargetHops && v.cell < bestTargetCell)) {
+            bestTargetHops = h;
+            bestTargetCell = v.cell;
+          }
+        }
+        if (bestTargetCell >= 0 && bestTargetCell !== e.cell) {
+          // Enemy charges its target's cell (a §2.5 charge is a valid move
+          // destination); allow stopping/passing through anywhere, so the
+          // estimate is a plain shortest reachable approach trimmed to budget.
+          const pr = findPath(board, enemyCosts, e.cell, bestTargetCell, {
+            budget: et.movement,
+          });
+          if (pr && pr.path.length > 0) estTrail.push(...pr.path);
+        }
         enemyInfos.push({
           unit: e,
           type: et,
@@ -352,6 +420,7 @@ export function createGreedyPlanner(
           nowZone,
           threatened,
           takenByTerrain: new Map(),
+          estTrail,
         });
       }
 
@@ -942,7 +1011,52 @@ export function createGreedyPlanner(
           /** Brawl: our expected count AFTER the exchange (0 = we die). */
           chargeOurEnd: number;
         };
-        let best: Pick | null = null;
+        // Collect EVERY scored candidate so the crossing post-pass (§2.4) can
+        // re-rank the top contenders after adjusting for forced clashes. The
+        // base score below is crossing-blind; the adjustment is applied to a
+        // bounded set of leaders afterwards (own-path findPath is too costly to
+        // run for every reachable cell — the budget note in §3).
+        const picks: Pick[] = [];
+
+        // Crossing-awareness adjustment (addendum 2026-06-22 §2) for a MOVE to
+        // `cell`: compute this unit's intended path (the same findPath the emit
+        // step uses), and for each visible enemy whose ESTIMATED trail shares a
+        // cell with it, simulate the forced brawl at the first shared cell's
+        // terrain. Favourable (they die, we live) → +crossingSeek; lethal to us
+        // → −crossingAvoid; mutual/attrition → −crossingAvoid/4 (a minor nudge).
+        // Returns 0 when no enemy is visible or no crossing is estimated.
+        const crossingAdjustOf = (ownPath: readonly CellId[]): number => {
+          if (ownPath.length === 0 || enemyInfos.length === 0) return 0;
+          // Our intended TRAIL is [origin, ...ownPath] — the origin cell counts
+          // (an enemy ending its move on our start cell is a clash there too).
+          const ownTrail = [u.cell, ...ownPath];
+          let adjust = 0;
+          for (const ei of enemyInfos) {
+            if (remainingCount(ei.unit) <= 0) continue; // already planned dead
+            if (!pathsShareCell(ownTrail, ei.estTrail)) continue;
+            const shared = firstSharedCell(ownTrail, ei.estTrail);
+            if (shared === null) continue;
+            const terrain = board.cells.get(shared)!.terrain;
+            const sim = simulateBrawl(
+              { count: u.count, type: ut },
+              { count: ei.unit.count, type: ei.type },
+              terrain,
+            );
+            if (sim.ourEnd <= 0) {
+              // We die in the forced brawl — the heaviest penalty (a lost unit
+              // for the rest of the game). Reroute/hold instead.
+              adjust -= w.crossingAvoid;
+            } else if (sim.theirEnd <= 0) {
+              // We survive, they die — a free kill on the way. Seek it.
+              adjust += w.crossingSeek;
+            } else {
+              // Both bleed, neither annihilated — a minor deterrent (we'd
+              // rather not be halted mid-march for an inconclusive scrap).
+              adjust -= w.crossingAvoid / 4;
+            }
+          }
+          return adjust;
+        };
 
         for (const cell of candidates) {
           const terrain = board.cells.get(cell)!.terrain;
@@ -1022,23 +1136,17 @@ export function createGreedyPlanner(
               advWeight * advBoost * advanceAt(cell) +
               cqBonusAt(cell, sim.ourEnd > 0);
             const tie = fnv1a32(`${u.id}:${cell}:${round}`);
-            if (
-              !best ||
-              score > best.score ||
-              (score === best.score && (tie < best.tie || (tie === best.tie && cell < best.cell)))
-            ) {
-              best = {
-                cell,
-                score,
-                target: null,
-                dealt: 0,
-                taken,
-                tie,
-                charge: targetEi,
-                chargeDamage,
-                chargeOurEnd: sim.ourEnd,
-              };
-            }
+            picks.push({
+              cell,
+              score,
+              target: null,
+              dealt: 0,
+              taken,
+              tie,
+              charge: targetEi,
+              chargeDamage,
+              chargeOurEnd: sim.ourEnd,
+            });
             continue;
           }
 
@@ -1176,36 +1284,88 @@ export function createGreedyPlanner(
             cqBonusAt(cell, true);
           const tie = fnv1a32(`${u.id}:${cell}:${round}`);
 
-          if (
-            !best ||
-            score > best.score ||
-            (score === best.score && (tie < best.tie || (tie === best.tie && cell < best.cell)))
-          ) {
-            best = {
-              cell,
-              score,
-              target: chosenAtt?.ei ?? null,
-              dealt: chosenAtt?.dealt ?? 0,
-              taken,
-              tie,
-              charge: null,
-              chargeDamage: 0,
-              chargeOurEnd: 0, // not a charge; field unused
-            };
-          }
+          picks.push({
+            cell,
+            score,
+            target: chosenAtt?.ei ?? null,
+            dealt: chosenAtt?.dealt ?? 0,
+            taken,
+            tie,
+            charge: null,
+            chargeDamage: 0,
+            chargeOurEnd: 0, // not a charge; field unused
+          });
         }
 
+        if (picks.length === 0) continue; // unreachable: stay-put always exists
+
+        // Deterministic ordering of candidates by base score (desc), then the
+        // same FNV / cell tie-break the inline comparison used — so the leader
+        // set the crossing post-pass examines is itself order-stable.
+        const cmpPick = (a: Pick, b: Pick): number => {
+          if (a.score !== b.score) return b.score - a.score;
+          if (a.tie !== b.tie) return a.tie - b.tie;
+          return a.cell - b.cell;
+        };
+        picks.sort(cmpPick);
+
+        // ── Crossing-awareness re-rank (addendum 2026-06-22 §2.4) ───────────
+        // Apply the forced-crossing adjustment to the leading MOVE candidates
+        // and re-rank. Only the top CROSSING_LEADERS contenders are examined —
+        // computing each one's intended path is a findPath, too costly for
+        // every reachable cell (§3 budget). A losing crossing on the current
+        // best can thus demote it below a held / rerouted alternative; a
+        // winning crossing can promote a candidate that merely brushes an
+        // enemy. Charges (own brawl already simulated) and stay-put (no path)
+        // are crossing-neutral. The own path computed here is REUSED at emit
+        // time so the move is not pathed twice.
+        const pathOf = new Map<CellId, CellId[]>();
+        let best: Pick | null = null;
+        let bestAdj = -Infinity;
+        for (let i = 0; i < picks.length; i++) {
+          const p = picks[i]!;
+          let adjusted = p.score;
+          // Only the leaders get the (costly) crossing examination; the rest
+          // keep their base score — they cannot win even crossing-blind.
+          if (i < CROSSING_LEADERS && p.charge === null && p.cell !== u.cell) {
+            const pr = findPath(board, costs, u.cell, p.cell, {
+              budget: ut.movement,
+              canStopAt,
+              canPassThrough,
+              extraCostAt,
+            });
+            if (pr && pr.path.length > 0) {
+              pathOf.set(p.cell, pr.path);
+              adjusted = p.score + crossingAdjustOf(pr.path);
+            }
+          }
+          if (
+            best === null ||
+            adjusted > bestAdj ||
+            (adjusted === bestAdj &&
+              (p.tie < best.tie || (p.tie === best.tie && p.cell < best.cell)))
+          ) {
+            best = p;
+            bestAdj = adjusted;
+          }
+        }
         if (!best) continue; // unreachable: stay-put always exists
 
         // ── Emit this unit's orders (stance, move, attack) ──────────────────
         let landedOn = u.cell;
         if (best.cell !== u.cell) {
-          const pr = findPath(board, costs, u.cell, best.cell, {
-            budget: ut.movement,
-            canStopAt,
-            canPassThrough,
-            extraCostAt, // v0.9: same friction the reach used — the path must fit it
-          });
+          // Reuse the path computed during the crossing re-rank when present;
+          // otherwise path it now (non-leader winners, or the charge/cqBonus
+          // path through the same findPath the reach used).
+          const pr =
+            pathOf.has(best.cell)
+              ? { path: pathOf.get(best.cell)!, totalCost: 0 }
+              : findPath(board, costs, u.cell, best.cell, {
+                  budget: ut.movement,
+                  canStopAt,
+                  canPassThrough,
+                  extraCostAt, // v0.9: same friction the reach used — the path must fit it
+                });
           if (pr && pr.path.length > 0) {
             orders.push({ kind: 'move', unitId: u.id, path: pr.path });
             landedOn = best.cell;
