@@ -70,6 +70,12 @@ export type ReplayFxData = {
   /** v0.8 veterancy: units that ranked up this frame — upward-chevron burst
    *  at each cell in the faction colour (~450 ms, celebratory, not dominant). */
   promotions?: Array<{ cell: CellId; faction: FactionId; rank: number }>;
+  /** Forced-crossing combat (addendum 2026-06-21 §5): "path interrupted!"
+   *  signs at crossing cells — a short transient label announcing that two
+   *  enemy movers' paths crossed and were halted here (the brawl that follows
+   *  uses the existing brawl FX). Fog-gated upstream (state/replay.ts) — this
+   *  draws exactly what it is given. Optional: most frames send none. */
+  signs?: Array<{ cell: CellId; text: string }>;
 };
 
 export type ReplayFxProps = {
@@ -529,6 +535,63 @@ function PromotionFx({ at, tokenSize, color }: { at: Pt; tokenSize: number; colo
   );
 }
 
+// --- Forced-crossing combat: the "path interrupted!" sign ---------------------
+// A short transient label floating above the crossing cell, announcing that two
+// enemy movers' paths crossed and were halted here (addendum 2026-06-21 §5).
+// Reuses the floater-pill visual vocabulary (a rounded label with the same rise
+// motion) but as a wider banner with a small ✕ glyph — it reads as an
+// announcement, not a damage number, and carries no breakdown tap target. The
+// ensuing brawl renders via the existing brawl FX.
+
+function CrossSign({ at, tokenSize, text }: { at: Pt; tokenSize: number; text: string }) {
+  const fs = tokenSize * 0.3;
+  const w = text.length * fs * 0.56 + fs * 2.2;
+  const h = fs * 1.7;
+  const y = at[1] - tokenSize * 1.05;
+  return (
+    <g
+      className="fx-cross-sign"
+      transform={`translate(${at[0]} ${y})`}
+      pointerEvents="none"
+    >
+      {/* the rise animation lives on this INNER group — see the transform NOTE */}
+      <g className="fx-floater-rise">
+        <rect
+          x={-w / 2}
+          y={-h / 2}
+          width={w}
+          height={h}
+          rx={h / 2}
+          fill="#9c2f1d"
+          stroke="#fff"
+          strokeWidth={tokenSize * 0.035}
+        />
+        {/* ✕ glyph at the left, echoing the crossing */}
+        <text
+          x={-w / 2 + fs * 0.9}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={fs * 0.9}
+          fontWeight={700}
+          fill="#fff"
+        >
+          ✕
+        </text>
+        <text
+          x={fs * 0.5}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={fs * 0.78}
+          fontWeight={700}
+          fill="#fff"
+        >
+          {text}
+        </text>
+      </g>
+    </g>
+  );
+}
+
 export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloaterTap }: ReplayFxProps) {
   // Stack same-cell floaters (brawl halves) side by side.
   const seenCells = new Map<CellId, number>();
@@ -695,6 +758,12 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
             tokenSize={tokenSize}
             color={factionColor(faction)}
           />
+        ) : null;
+      })}
+      {(fx.signs ?? []).map(({ cell, text }, k) => {
+        const at = center(board, cell, toScreen);
+        return at ? (
+          <CrossSign key={`sign${k}`} at={at} tokenSize={tokenSize} text={text} />
         ) : null;
       })}
     </g>

@@ -1071,6 +1071,18 @@ body {
   animation: none;
 }
 
+/* forced-crossing "path interrupted!" sign — a short announce label above the
+   crossing cell (addendum §5). Rides the shared .fx-floater-rise motion (the
+   inner group), with a brief scale pop for emphasis. Drops out with the rest of
+   the per-frame-remounted fx group on the next frame. */
+.fx-cross-sign {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.fx-cross-sign .fx-floater-rise {
+  animation: fx-float-up 0.45s ease-out forwards;
+}
+
 /* fire-from-the-mist impact: expanding rings, no source shown (§7) */
 .fx-impact-ring {
   transform-box: fill-box;
@@ -3648,6 +3660,7 @@ body {
   .fx-capture-consume,
   .fx-capture-spark,
   .fx-promote,
+  .fx-cross-sign .fx-floater-rise,
   .banner-scrim-win::before,
   .banner-scrim-win::after,
   .banner-scrim-loss {

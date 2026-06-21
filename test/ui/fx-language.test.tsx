@@ -156,6 +156,34 @@ describe('destruction verb (crumble / shrink / smoke-puff)', () => {
   });
 });
 
+describe('forced-crossing sign ("path interrupted!", addendum §5)', () => {
+  it('renders a transient sign label at the crossing cell', () => {
+    const { container } = renderFx({ signs: [{ cell: 2, text: 'path interrupted!' }] });
+    const sign = container.querySelector('.fx-cross-sign')!;
+    expect(sign).not.toBeNull();
+    // The cell-2 center on this board projects to x=250 (toScreen scales ×100).
+    expect(sign.getAttribute('transform')).toContain('250');
+    // The hyphen-free announcement copy is present.
+    const text = [...sign.querySelectorAll('text')].map((t) => t.textContent).join(' ');
+    expect(text).toContain('path interrupted!');
+  });
+
+  it('renders one sign per crossing cell', () => {
+    const { container } = renderFx({
+      signs: [
+        { cell: 1, text: 'path interrupted!' },
+        { cell: 3, text: 'path interrupted!' },
+      ],
+    });
+    expect(container.querySelectorAll('.fx-cross-sign').length).toBe(2);
+  });
+
+  it('no signs → nothing rendered (fog secrecy passes through)', () => {
+    const { container } = renderFx({});
+    expect(container.querySelector('.fx-cross-sign')).toBeNull();
+  });
+});
+
 describe('claim verb (capture: pulse → paint-fill → flag; consumed dissolve)', () => {
   it('capture renders the tile pulse, the clipped fill sweep, flag + shimmer', () => {
     const { container } = renderFx({ captures: [{ cell: 2, to: 0 }] });

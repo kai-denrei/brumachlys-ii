@@ -563,6 +563,81 @@ describe('replay builder — promotion events (v0.8 veterancy)', () => {
   });
 });
 
+// --- Forced-crossing combat: the "path interrupted!" sign (addendum §5) --------
+
+describe('replay builder — path-interrupted sign (forced crossing, §5)', () => {
+  it('a crossing on a VISIBLE cell yields a sign frame + a log line', () => {
+    // Player infantry (vision 2) at cell 2 sees cells 0..4. Two enemy movers
+    // (one own, one AI) crossed and were halted on cell 3 — inside vision.
+    const units = [
+      makeUnit('pi', 0, 2),
+      makeUnit('pc', 0, 0, 'ranger'), // own crosser
+      makeUnit('ec', 1, 4, 'ranger'), // enemy crosser
+    ];
+    const events: ResolutionEvent[] = [
+      { type: 'path-interrupted', unitId: 'pc', crossedWithId: 'ec', cell: 3 },
+      { type: 'path-interrupted', unitId: 'ec', crossedWithId: 'pc', cell: 3 },
+    ];
+    const script = build(units, events);
+    // One interrupt slot for the crossing beat (deduped to ONE per cell).
+    expect(script.slots.filter((s) => s.kind === 'interrupt').length).toBe(1);
+    const signFrame = script.frames.find((f) => (f.signs?.length ?? 0) > 0)!;
+    expect(signFrame).toBeDefined();
+    expect(signFrame.signs).toEqual([{ cell: 3, text: 'path interrupted!' }]);
+    // The sign frames the crossing cell.
+    expect(signFrame.focus).toEqual([3]);
+    // A skirmish-log line announces the interruption.
+    const line = script.log.find((e) =>
+      e.segs.some((s) => s.t.includes('path interrupted!')),
+    );
+    expect(line).toBeDefined();
+  });
+
+  it('two crossers on the SAME cell collapse to a single sign (no double label)', () => {
+    const units = [
+      makeUnit('pi', 0, 2),
+      makeUnit('pc', 0, 0, 'ranger'),
+      makeUnit('ec', 1, 4, 'ranger'),
+    ];
+    const events: ResolutionEvent[] = [
+      { type: 'path-interrupted', unitId: 'pc', crossedWithId: 'ec', cell: 3 },
+      { type: 'path-interrupted', unitId: 'ec', crossedWithId: 'pc', cell: 3 },
+    ];
+    const script = build(units, events);
+    const signFrame = script.frames.find((f) => (f.signs?.length ?? 0) > 0)!;
+    expect(signFrame.signs!.length).toBe(1); // one cell → one sign
+  });
+
+  it('a crossing on a NON-visible cell yields NO sign (fog secrecy)', () => {
+    // Player infantry (vision 2) at cell 2 sees cells 0..4 only. Two ENEMY
+    // movers cross at cell 8 — dark to the player. The crossing stays secret:
+    // no sign, no interrupt slot, no log line — exactly like an enemy brawl in
+    // the dark.
+    const units = [
+      makeUnit('pi', 0, 2),
+      makeUnit('e1', 1, 7, 'ranger'),
+      makeUnit('e2', 1, 9, 'ranger'),
+    ];
+    const events: ResolutionEvent[] = [
+      { type: 'path-interrupted', unitId: 'e1', crossedWithId: 'e2', cell: 8 },
+      { type: 'path-interrupted', unitId: 'e2', crossedWithId: 'e1', cell: 8 },
+    ];
+    const script = build(units, events, 12);
+    expect(script.frames.length).toBe(1); // establishing only — nothing witnessed
+    expect(script.slots.length).toBe(0);
+    expect(script.frames.every((f) => (f.signs?.length ?? 0) === 0)).toBe(true);
+    expect(script.log.length).toBe(0);
+  });
+
+  it('every frame carries an empty signs array by default (emptyFx contract)', () => {
+    const script = build([makeUnit('pi', 0, 2)], []);
+    for (const f of script.frames) {
+      expect(Array.isArray(f.signs)).toBe(true);
+      expect(f.signs).toEqual([]);
+    }
+  });
+});
+
 // --- Phase 4: simultaneous pacing -----------------------------------------------
 
 describe('replay builder — concurrent movement (Phase 4.1)', () => {

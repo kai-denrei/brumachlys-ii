@@ -81,7 +81,7 @@ export type Strike = {
 };
 
 export type TimelineSlot = {
-  kind: 'move' | 'volley' | 'brawl' | 'fizzle' | 'capture' | 'spawn' | 'promotion';
+  kind: 'move' | 'volley' | 'brawl' | 'fizzle' | 'capture' | 'spawn' | 'promotion' | 'interrupt';
   /** Unit-type key for the slot glyph; null = mist (source withheld). */
   actorType: string | null;
   actorFaction: FactionId | null;
@@ -147,6 +147,12 @@ export type ReplayFrame = {
   captures: { cell: CellId; to: FactionId; consumed?: UnitInstance }[];
   /** v0.8 veterancy: units that ranked up this frame (fog-filtered). */
   promotions?: Array<{ cell: CellId; faction: FactionId; rank: number }>;
+  /** Forced-crossing combat (addendum 2026-06-21 §5): "path interrupted!"
+   *  signs at crossing cells the player witnessed this frame. Each rides just
+   *  before the ensuing Phase A.5 brawl FX. Fog-gated exactly like the other
+   *  spatial beats — a crossing in the dark surfaces no sign (it stays secret,
+   *  like an enemy brawl the player cannot see). Empty by default. */
+  signs?: Array<{ cell: CellId; text: string }>;
   /** v1.3: active movement origin trails (fog-filtered, see TrailFx). */
   trails: TrailFx[];
   /** Cells the camera should keep in view this frame (auto-follow, P9).
@@ -209,6 +215,9 @@ const CAPTURE_MS = 700;
 const SPAWN_MS = 700;
 const INCOME_MS = 400;
 const PROMOTE_MS = 450;
+/** Forced-crossing "path interrupted!" sign — a brief announce beat before the
+ *  ensuing brawl FX (addendum 2026-06-21 §5). */
+const SIGN_MS = 450;
 
 /** E3: what buildReplay needs to simulate conquest fog + the credits HUD —
  *  the round-START picture (the resolver's events advance it). */
@@ -312,6 +321,7 @@ export function buildReplay(
     spawns: [] as UnitInstance[],
     captures: [] as ReplayFrame['captures'],
     promotions: [] as ReplayFrame['promotions'],
+    signs: [] as ReplayFrame['signs'],
     trails: [] as TrailFx[],
     focus: [] as CellId[],
   });
@@ -557,6 +567,50 @@ export function buildReplay(
         });
       }
       i++;
+      continue;
+    }
+
+    if (ev.type === 'path-interrupted') {
+      // Forced-crossing combat (addendum 2026-06-21 §5): the movement pre-pass
+      // halted this mover on a shared cell — a "path interrupted!" sign
+      // announces the clash; the ensuing brawl renders via the existing brawl
+      // FX. The resolver emits these in a contiguous run (one per interrupted
+      // mover, BEFORE any movement), so gather the run and surface ONE sign per
+      // distinct crossing cell. Fog discipline (same rule the other spatial
+      // beats use): show the sign only when the player can see the cell at this
+      // instant — own crosser always, otherwise the cell must be in vision. A
+      // crossing wholly in the dark surfaces nothing (it stays secret, exactly
+      // like an enemy brawl the player cannot witness).
+      const vis = vision();
+      const signCells: CellId[] = [];
+      let j = i;
+      while (j < events.length && events[j]!.type === 'path-interrupted') {
+        const pe = events[j] as Extract<ResolutionEvent, { type: 'path-interrupted' }>;
+        const u = sim.get(pe.unitId);
+        const shown = u ? seen(u.faction, pe.cell, vis) : vis.has(pe.cell);
+        if (shown && !signCells.includes(pe.cell)) signCells.push(pe.cell);
+        j++;
+      }
+      if (signCells.length > 0) {
+        const slot = slots.length;
+        slots.push({ kind: 'interrupt', actorType: null, actorFaction: null, strikes: [] });
+        frames.push({
+          duration: SIGN_MS,
+          slot,
+          units: renderUnits(vis),
+          ...fogFields(vis),
+          ...emptyFx(),
+          signs: signCells.map((cell) => ({ cell, text: 'path interrupted!' })),
+          focus: [...signCells],
+        });
+        // One announce line for the beat (the signs carry the cells spatially;
+        // every crossing here shares the same hyphen-free announcement copy).
+        log.push({
+          atFrame: frames.length - 1,
+          segs: [{ t: 'path interrupted!' }],
+        });
+      }
+      i = j;
       continue;
     }
 

@@ -273,7 +273,7 @@ describe('crossing — short-fall approximation', () => {
     // B reaches.
     const board = plainsLine(12);
     // Infantry budget 9 → 3 plains steps. A from 0 reaches at most cell 3.
-    // B (ranger, budget 15 → 5 steps) from 11 reaches at most cell 6.
+    // B (ranger, budget 12 → 4 steps) from 11 reaches at most cell 7.
     // Intended trails: A [1..6], B [10,9,8,7,6,5]. Shared on intended paths
     // includes cell 6 etc. The higher-init unit picks the interception cell;
     // whichever crosser can't reach it stops short → no brawl.

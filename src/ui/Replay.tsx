@@ -27,6 +27,7 @@ const SLOT_KIND_BADGE: Record<TimelineSlot['kind'], string> = {
   capture: '⚑',
   spawn: '✚',
   promotion: '★',
+  interrupt: '✕',
 };
 
 function chipUnit(slot: TimelineSlot): UnitInstance | null {
