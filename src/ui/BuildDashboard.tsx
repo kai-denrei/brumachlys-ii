@@ -266,22 +266,51 @@ export function BuildDashboard({
                         }
                       }}
                     />
+                    {/* Queued / occupied glyphs sit in the upper-right corner of
+                        the cell so the centered id label below stays legible. */}
                     {queued && (
-                      <circle cx={cx} cy={cy} r={3.5} fill="#fff" stroke="#5a5040" strokeWidth="0.8" />
+                      <circle
+                        cx={cx + 4.5}
+                        cy={cy - 4.5}
+                        r={3}
+                        fill="#fff"
+                        stroke="#5a5040"
+                        strokeWidth="0.8"
+                      />
                     )}
                     {occupied && (
                       <text
-                        x={cx}
-                        y={cy}
+                        x={cx - 4.5}
+                        y={cy - 4.5}
                         textAnchor="middle"
                         dominantBaseline="central"
-                        fontSize="7"
+                        fontSize="6"
                         fontWeight={800}
                         fill="#5a2800"
+                        style={{ pointerEvents: 'none' }}
                       >
                         !
                       </text>
                     )}
+                    {/* Base id label — centered, bold, with a paper halo (paint
+                        order: stroke first) so two-digit ids stay legible over any
+                        tint. pointerEvents none so it never blocks the base tap. */}
+                    <text
+                      x={cx}
+                      y={cy}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize="8"
+                      fontWeight={800}
+                      fill="#3a3328"
+                      stroke="#f6f3ea"
+                      strokeWidth="1.6"
+                      paintOrder="stroke"
+                      strokeLinejoin="round"
+                      style={{ pointerEvents: 'none' }}
+                    >
+                      {cell}
+                    </text>
                   </g>
                 );
               })}

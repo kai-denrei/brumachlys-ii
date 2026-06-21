@@ -183,6 +183,37 @@ describe('BuildDashboard — B mini-map', () => {
     // sanity: the palette helpers are the tint source.
     expect(factionColor(0)).not.toBe(factionColor(1));
   });
+
+  it('labels every base cell with its id (Task 7.1 — map ↔ list correlation)', () => {
+    const { getByTestId } = dash();
+    const map = getByTestId('build-minimap');
+    const texts = [...map.querySelectorAll('text')].map((t) => t.textContent?.trim());
+    // every base id (player 0, 2 and enemy 4) gets a numeric label on the map.
+    for (const id of [0, 2, 4]) {
+      expect(texts).toContain(String(id));
+    }
+  });
+
+  it('keeps two-digit base ids legible (a 71 base still gets its own label)', () => {
+    // a base on cell 71 with a polygon so projectBoard has something to place.
+    const board = dashBoard();
+    board.cells.set(71, {
+      id: 71,
+      center: [71.5, 0.5],
+      polygon: [
+        [71, 0],
+        [72, 0],
+        [72, 1],
+        [71, 1],
+      ],
+      neighbors: [],
+      terrain: 'base',
+    });
+    const { getByTestId } = dash({ board, bases: { ...bases, 71: 0 } });
+    const map = getByTestId('build-minimap');
+    const texts = [...map.querySelectorAll('text')].map((t) => t.textContent?.trim());
+    expect(texts).toContain('71');
+  });
 });
 
 describe('BuildDashboard — focusBase', () => {
