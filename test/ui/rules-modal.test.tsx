@@ -78,6 +78,25 @@ describe('RulesModal', () => {
     expect(text).toContain('zero bases for 3 round ends');
   });
 
+  it('E3 upkeep (addendum §5): an Upkeep section after Credits, hyphen free', () => {
+    const { baseElement } = render(<RulesModal onClose={() => {}} />);
+    const headings = [...baseElement.querySelectorAll('.rules-h')].map((h) => h.textContent);
+    expect(headings).toContain('Upkeep');
+    // Upkeep sits after Credits and before Production.
+    expect(headings.indexOf('Upkeep')).toBeGreaterThan(headings.indexOf('Credits'));
+    expect(headings.indexOf('Upkeep')).toBeLessThan(headings.indexOf('Production'));
+    const text = baseElement.querySelector('[data-testid="rules-modal"]')!.textContent!;
+    // "round end" is two words (no hyphen) and the section copy is hyphen free.
+    expect(text).toContain('round end');
+  });
+
+  it('round summary reads Income · Upkeep · Spawns (upkeep between income and spawns)', () => {
+    const { baseElement } = render(<RulesModal onClose={() => {}} />);
+    const text = baseElement.querySelector('[data-testid="rules-modal"]')!.textContent!;
+    expect(text).toContain('Income · Upkeep · Spawns');
+    expect(text).not.toContain('Income · Spawns'); // the old two-word line is gone
+  });
+
   it('fmtRange collapses when min equals max', () => {
     expect(fmtRange(1, 1)).toBe('1');
     expect(fmtRange(2, 4)).toBe('2–4');

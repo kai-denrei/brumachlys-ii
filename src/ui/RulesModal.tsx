@@ -288,8 +288,8 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
                 damage bonus per rank.
               </li>
               <li>
-                <b>Income · Spawns</b> (Conquest only) — each owned base pays credits, then
-                queued recruits appear.
+                <b>Income · Upkeep · Spawns</b> (Conquest only) — each owned base pays
+                credits, then each unit draws upkeep, then queued recruits appear.
               </li>
             </ol>
             <p>Per unit per round: one move, one attack, one stance.</p>
@@ -452,6 +452,16 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
             <p>
               Each faction holds credits, shown as ◈ in the top bar. Income lands at round end: a
               fixed sum per base owned at that moment. Credits buy units; nothing else does.
+            </p>
+          </Section>
+
+          <Section title="Upkeep">
+            <p>
+              Each unit draws pay at round end: a hundredth of its build cost per
+              soldier still standing, so a full squad costs a tenth of its price and a
+              thinned squad costs less. Upkeep follows income and never drives your
+              credits below zero. While your army outpaces your income there is nothing
+              left to recruit. Forces grow only as far as the ground that feeds them.
             </p>
           </Section>
 
