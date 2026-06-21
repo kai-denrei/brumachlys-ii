@@ -1,9 +1,15 @@
-# Brumachlys II — Upkeep Addendum
+# Brumachlys II — Upkeep & Build Dashboard Addendum
 
 > Extends `2026-06-12-conquest-addendum.md` (and through it the base design spec).
-> Operator-approved 2026-06-21. One change: **upkeep** — a per-turn maintenance
-> cost on every unit, to cap infinite camping and runaway build-up. Conquest mode
-> only. All hard rules of the base spec and the conquest addendum stay in force.
+> Operator-approved 2026-06-21. Two **linked** changes shipped in one pass:
+> 1. **Upkeep** (§1–§10) — a per-turn maintenance cost on every unit, to cap
+>    infinite camping and runaway build-up. Conquest mode only.
+> 2. **BUILD economy dashboard modal** (§11) — production moves off the on-map
+>    "+" into a full economy-planning modal that surfaces the upkeep/net numbers
+>    upkeep makes necessary. The two are linked: the dashboard is where a player
+>    reads and acts on upkeep.
+>
+> All hard rules of the base spec and the conquest addendum stay in force.
 
 ---
 
@@ -175,5 +181,100 @@ Single focused slice (upkeep is small and self-contained):
    landed; gate behind whatever E4 state exists).
 4. Each step: tests green, purity green, build clean, PM visual review, deban
    sync, push.
+
+---
+
+## 11. BUILD economy dashboard modal
+
+### 11.0 Motivation
+
+Production today is an on-map "+" pip that opens a cramped anchored card
+(`BuildSheet.tsx`). The pip layer already renders *above* unit tokens
+(`Board.tsx:1317–1327` over `EffectRenderer.tsx:245–322`), so occupancy is not
+actually the blocker — the blocker is that there is no place to *plan the
+economy*. Upkeep makes economy a per-turn planning activity (income vs upkeep vs
+net vs committed), so production graduates from a one-tap affordance into a
+dashboard. The on-map entry stays, but re-routes to the dashboard.
+
+### 11.1 Entry points (two, one modal)
+
+1. **HUD economy widget** (`HudCluster.tsx:38–54`, the ◈ cluster) becomes
+   tappable → opens the modal at the **economy overview** (no base focused).
+2. **"B" pip per owned base** — the existing build pip, relabeled `+ → B`
+   (`EffectRenderer.tsx` BuildPips). It already sits above the unit layer, so a
+   unit standing on the base never swallows the tap. Opens the modal **scrolled
+   to that base's row**.
+3. **Base *cell* taps no longer open build.** `App.tsx onCellTap` (the
+   `844–850` and `892–897` branches) reverts to info/selection. The standalone
+   anchored `BuildSheet` card is **retired**. The old BuyGhost-tap and dock
+   buy-chip tap (`App.tsx:1234, 1311`) re-route to the modal focused on that base.
+
+### 11.2 The modal — full-screen scrollable sheet
+
+`SheetShell` family (`Sheets.tsx`), mobile-first, same sheet styling as
+`RulesModal`. Sections top → bottom:
+
+- **A · Economy summary.** ◈ credits on hand · income/turn (`bases ×
+  perBaseCredits`) · upkeep/turn (Σ, from §1's shared helper) · **net/turn**
+  (income − upkeep, U+2212 minus) · committed this round (Σ queued buys) +
+  credits-after-commit. The planning headline.
+- **B · Mini-map.** Small SVG via the extracted `projectCells` helper (§11.4),
+  every base tinted by ownership (`palette.factionColor`/`mix`), queued-buy
+  badged, occupied marked. Tapping a base scrolls to its row. Read-only overview
+  + navigation.
+- **C · Per-base production list.** One row per owned base: location label,
+  occupant ("vacant" / unit token / "occupied — won't spawn"), queued buy (unit
+  + cost) with change/cancel, and a build action that opens the **reused unit
+  picker** (§11.4) scoped to that base, gated by the same affordability rule
+  (`available = credits − committedElsewhere`).
+- **D · Army roster summary.** Counts by unit type + total upkeep across the
+  player's army, to judge expansion headroom.
+
+### 11.3 Data & state — nothing new in core
+
+Everything is already available: `game.credits[PLAYER]`, `ownedBaseCount ×
+perBaseCredits`, the §1 upkeep helper over the player's units,
+`game.bases` (ownership) + `board.bases` (positions), `store.buys`
+(`Record<CellId, BuyOrder>`). Buy create/validate reuses `tryQueueBuy` /
+`removeBuyOrder` / `validateBuy` unchanged. **One buy per base stays.** This is a
+UI + state-presentation change on top of existing buy plumbing — no resolver or
+order-type change.
+
+### 11.4 Reuse / targeted refactor (no reinvention)
+
+- **Extract** `projectCells` from `RulesModal.tsx:54–82` into
+  `src/ui/skin/board-projection.ts`, generalized over any `Board`; `RulesModal`
+  switches to it (must stay green).
+- **Extract** the unit-picker grid + affordability logic from `BuildSheet.tsx`
+  into a reusable `<UnitPicker>` consumed by the modal's per-base build action.
+- Reuse `SheetShell`, `.sheet-scrim`, `.build-grid`, `UnitRenderer`
+  (`minimal`), and the `palette.ts` tint helpers.
+
+### 11.5 Testing
+
+- Modal opens from the HUD widget and from a base "B" pip (focused on that base).
+- Per-base buy set / change / cancel through the modal writes `store.buys` and
+  reflects in ghosts/dock as today.
+- Economy-summary math (income, upkeep, net, committed) matches the resolver and
+  the §1 helper.
+- Mini-map renders each base with the correct ownership tint; occupied bases are
+  flagged.
+- `board-projection` extraction keeps `RulesModal` rendering identical (its
+  existing test stays green).
+- Existing `BuildSheet` tests migrate onto the modal; the retired card has no
+  orphan references.
+
+### 11.6 Non-goals (this section)
+
+No core/resolution change; no multi-buy-per-base; no enemy-economy view; the
+onboarding tutorial (§8) stays deferred.
+
+### 11.7 Build order
+
+After §10 (upkeep) lands: (1) extract `board-projection` + `UnitPicker`
+(refactors, tests stay green); (2) build the dashboard modal with all four
+sections against existing buy state; (3) re-wire entry points (HUD widget, B pip
+relabel + route, cell-tap revert, ghost/dock re-route) and retire `BuildSheet`;
+(4) tests green, purity green, build clean, visual review, deban sync, push.
 
 *End of addendum.*
