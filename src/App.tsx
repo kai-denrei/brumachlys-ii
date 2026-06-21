@@ -57,6 +57,7 @@ import { CasualtyPanel } from './ui/CasualtyPanel';
 import { HudCluster } from './ui/HudCluster';
 import { ModeToggle } from './ui/ModeToggle';
 import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/Replay';
+import { useCombatAudio } from './ui/audio/useCombatAudio';
 import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
 import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
@@ -204,6 +205,11 @@ function BattleScreen() {
   // remounts the Board, so the sprite motion-diff and camera state survive).
   const boardAreaRef = useRef<HTMLElement>(null);
 
+  // R8 (AUDIO): the synth-cue toggle + per-frame cue emission. OFF by default;
+  // while OFF no AudioContext is created and `playFrame` no-ops. A pure UI side-
+  // effect — it reads the replay frame only, never game state / the frame data.
+  const audio = useCombatAudio();
+
   function clearIgnites() {
     for (const t of igniteTimers.current.values()) clearTimeout(t);
     igniteTimers.current.clear();
@@ -330,6 +336,23 @@ function BattleScreen() {
     },
     [],
   );
+
+  // R8 (AUDIO): emit the synth cues for the current replay frame as playback
+  // advances. Fires once per shown frame (keyed by frameIdx), reads the frame's
+  // ALREADY fog-filtered FX (projectiles/floaters/bursts/kills) via the pure
+  // cuesForFrame mapper, so a hidden event is never voiced. Respects the speed
+  // multiplier (envelopes tighten at 2×). No-op while the toggle is OFF (the hook
+  // never touches an AudioContext then). Skipped on a 'skip' jump (no per-frame
+  // playback) — only audible during live frame-by-frame playback.
+  const playFrameAudio = audio.playFrame;
+  useEffect(() => {
+    if (uiPhase !== 'replay' || !script) return;
+    if (replaySpeed === 'skip') return;
+    const fr = script.frames[Math.min(frameIdx, script.frames.length - 1)];
+    if (!fr) return;
+    const speed = typeof replaySpeed === 'number' ? replaySpeed : 1;
+    playFrameAudio(fr, speed);
+  }, [uiPhase, script, frameIdx, replaySpeed, playFrameAudio]);
 
   // v1.3 trails: sync with the current frame's active trails. A trail absent
   // from the frame (its move completed) starts fading and self-removes; one
@@ -1427,6 +1450,8 @@ function BattleScreen() {
           onSeekFrame={seekToFrame}
           onSeekTime={seekToTime}
           onScrubStart={onScrubStart}
+          audioOn={audio.enabled}
+          onToggleAudio={audio.toggle}
           onRecenter={
             followSuspended && uiPhase === 'replay'
               ? () => {

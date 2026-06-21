@@ -60,6 +60,8 @@ export function ReplayDock({
   onSeekTime,
   onScrubStart,
   onRecenter,
+  audioOn,
+  onToggleAudio,
 }: {
   slots: readonly TimelineSlot[];
   activeSlot: number;
@@ -93,6 +95,12 @@ export function ReplayDock({
   /** Non-null while auto-follow is suspended by a manual pan (P9) — shows the
    *  recenter button that hands the camera back to the replay. */
   onRecenter?: (() => void) | null;
+  /** R8 (AUDIO): current state of the synth-cue toggle (OFF by default). */
+  audioOn?: boolean;
+  /** R8 (AUDIO): flip the synth-cue toggle. Runs inside the click gesture so
+   *  turning ON unlocks the AudioContext (browser autoplay policy). Absent ⇒ the
+   *  control is not rendered. */
+  onToggleAudio?: () => void;
 }) {
   const stripRef = useRef<HTMLDivElement>(null);
   const lastFrame = Math.max(0, frameCount - 1);
@@ -182,6 +190,20 @@ export function ReplayDock({
         })}
       </div>
       <div className="replay-controls">
+        {/* R8 (AUDIO): the synth-cue toggle — OFF by default. Pressed reads
+            on/off via aria-pressed; turning ON unlocks the AudioContext inside
+            this click (autoplay policy). */}
+        {onToggleAudio && (
+          <button
+            className={`replay-button replay-audio${audioOn ? ' replay-button-active' : ''}`}
+            data-testid="replay-audio-toggle"
+            onClick={onToggleAudio}
+            aria-label={audioOn ? 'mute combat audio' : 'enable combat audio'}
+            aria-pressed={!!audioOn}
+          >
+            {audioOn ? '♪' : '♪̸'}
+          </button>
+        )}
         {onRecenter && (
           <button
             className="replay-button replay-recenter"

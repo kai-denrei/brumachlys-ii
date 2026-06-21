@@ -1650,6 +1650,13 @@ body {
   cursor: default;
 }
 
+/* R8 (AUDIO): the synth-cue toggle — a music note (♪) glyph; OFF shows the
+   crossed note (♪̸). Reuses .replay-button + .replay-button-active for layout
+   and the ON tint, so it matches the speed controls. */
+.replay-audio {
+  font-size: 0.85rem;
+}
+
 /* P9: recenter — appears only while a manual pan suspended auto-follow */
 .replay-recenter {
   background: var(--faction-a);
