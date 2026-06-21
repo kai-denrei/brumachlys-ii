@@ -118,6 +118,27 @@ describe('HudCluster wiring (round flap + credits odometer + income)', () => {
     expect(onOpenBuild).toHaveBeenCalledTimes(1);
   });
 
+  it('opens the build dashboard via keyboard (Enter and Space) when wired', () => {
+    const onOpenBuild = vi.fn();
+    const { getByTestId } = render(
+      <HudCluster
+        round={9}
+        credits={{ value: 250, income: 100, upkeep: 31, net: 69 }}
+        onOpenBuild={onOpenBuild}
+      />,
+    );
+    const row = getByTestId('credits-hud');
+    // The row is focusable (tabIndex 0) and announces as a button, so it MUST be
+    // keyboard-operable (WCAG 2.1.1) — Enter and Space both activate it.
+    expect(row.getAttribute('tabindex')).toBe('0');
+    fireEvent.keyDown(row, { key: 'Enter' });
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(onOpenBuild).toHaveBeenCalledTimes(2);
+    // A non-activating key does nothing.
+    fireEvent.keyDown(row, { key: 'a' });
+    expect(onOpenBuild).toHaveBeenCalledTimes(2);
+  });
+
   it('without onOpenBuild the credits row is not a button', () => {
     const { getByTestId } = render(
       <HudCluster round={10} credits={{ value: 250, income: 100, upkeep: 31, net: 69 }} />,

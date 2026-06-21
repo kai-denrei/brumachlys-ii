@@ -129,12 +129,13 @@ export type BoardProps = {
   bases?: Readonly<Record<CellId, FactionId | null>>;
   /** E3 conquest: queued-buy ghosts (token + "arrives at round end" pill). */
   buyGhosts?: readonly BuyGhostMark[];
-  /** Tap a buy ghost → reopen that base's build sheet. */
+  /** Tap a buy ghost → reopen the build dashboard, focused on that base. */
   onBuyGhostTap?: (baseCell: CellId) => void;
   /** v0.7 Item 1: owned-base build pips — an always-reachable production
    * affordance rendered ABOVE units, so an occupant never swallows the tap. */
   buildPips?: readonly BuildPipMark[];
-  /** Tap a build pip → open that base's build sheet (regardless of occupancy). */
+  /** Tap a build pip → open the build dashboard, focused on that base
+   *  (regardless of occupancy). */
   onBuildTap?: (baseCell: CellId) => void;
   highlights?: BoardHighlights;
   selectedUnitId?: string | null;

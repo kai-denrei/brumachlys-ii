@@ -821,10 +821,10 @@ function BattleScreen() {
   //   2. visible enemy on the cell    → attack / charge
   //   3. reachable cell               → queue move
   //   4. friendly on the cell         → switch selection to that friendly
-  //   5. owned base (conquest)        → open build sheet
+  //   5. owned base (conquest)        → info sheet (build is via the B pip / HUD)
   //   6. otherwise                    → deselect (the meaningful "tap away")
   // With nothing selected:
-  //   A. owned base (conquest)        → open build sheet
+  //   A. owned base (conquest)        → info sheet (build is via the B pip / HUD)
   //   B. otherwise                    → INFO SHEET (terrain/base stats; on a
   //      dark tile InfoSheet reads "unscouted", memory shows remembered
   //      terrain — neither leaks dark truth, the cell data IS the truth and

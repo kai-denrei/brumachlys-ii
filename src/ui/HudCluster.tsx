@@ -26,8 +26,8 @@ export function HudCluster({
   round: number;
   /** Conquest only — omit (or pass null) in skirmish. */
   credits?: CreditsHud | null;
-  /** Conquest only — tap the credits row to open the build dashboard.
-   *  onOpenBuild wired in Phase 5 (BuildDashboard). */
+  /** Conquest only — tap (or Enter/Space when focused) the credits row to open
+   *  the build dashboard. */
   onOpenBuild?: () => void;
 }) {
   return (
@@ -39,7 +39,7 @@ export function HudCluster({
         <RoundFlap value={round} digitW={CLUSTER_FLAP_DIGIT_W} boxH={CLUSTER_FLAP_BOX_H} />
       </div>
       {/* Credits row — conquest only. Tappable (role=button) when onOpenBuild is
-          wired (Phase 5) so a tap opens the build dashboard. */}
+          wired so a tap, or Enter/Space when focused, opens the build dashboard. */}
       {credits && (
         <div
           className="credits-hud"
@@ -47,6 +47,16 @@ export function HudCluster({
           role={onOpenBuild ? 'button' : undefined}
           tabIndex={onOpenBuild ? 0 : undefined}
           onClick={onOpenBuild}
+          onKeyDown={
+            onOpenBuild
+              ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onOpenBuild();
+                  }
+                }
+              : undefined
+          }
           aria-label={onOpenBuild ? 'open build dashboard' : undefined}
         >
           <span className="credits-glyph" aria-hidden="true">◈</span>
