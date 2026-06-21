@@ -101,11 +101,16 @@ export type GreedyWeights = {
    *  candidate covered by k enemies does not eat k full attacks. taken =
    *  maxThreat + threatConcentration·(sum − max). 1 = raw spec sum. */
   threatConcentration: number;
-  /** Forced-crossing awareness (addendum 2026-06-22 §2). A small SEEK bonus
-   *  added to a move whose intended path is estimated to cross a visible
-   *  enemy's likely path on a cell where the simulated brawl is FAVOURABLE
-   *  (we survive, they die) — the planner steers INTO a winning forced clash.
-   *  Conservative: the brawl is an approximation of enemy intent. */
+  /** Forced-crossing awareness (addendum 2026-06-22 §2). SEEK MULTIPLIER over
+   *  the base scorer's kill currency: a move whose intended path is estimated to
+   *  cross a visible enemy's likely path on a cell where the simulated brawl is
+   *  FAVOURABLE (we survive, they die) gains crossingSeek·(w.damageDealt·enemy
+   *  count + 1.5 win-condition + 0.6·menace) − our own brawl losses. So a
+   *  favourable forced crossing is valued comparably to actually killing that
+   *  enemy unit, and the planner steers INTO a winning forced clash that secures
+   *  a kill it would not otherwise get. Net-of-losses + the conservative scale
+   *  (the brawl is an approximation of enemy intent) keep it bounded so it does
+   *  not dominate a genuinely better non-crossing play. */
   crossingSeek: number;
   /** Forced-crossing awareness (addendum 2026-06-22 §2). A large AVOID penalty
    *  subtracted from a move whose intended path is estimated to cross a visible
@@ -308,9 +313,27 @@ const PHANTOM_THREAT = 5;
  *  compute its intended path; bounding to the leaders keeps the planner inside
  *  its ~0.5 ms median / <2 ms max budget while still letting a lethal crossing
  *  demote the current best below a held / rerouted alternative. Candidates
- *  outside the leader set cannot win even crossing-blind, so skipping their
- *  (costly) path computation never changes the outcome. */
+ *  outside the leader set cannot win even crossing-blind FOR THE AVOID/attrition
+ *  side; the SEEK side, however, can promote a candidate that the base
+ *  (crossing-blind) score buried — a favourable forced kill is worth a whole
+ *  enemy unit, so the crossing arm may sit below a merely-advancing route by
+ *  base score yet win once the seek bonus lands. So the re-rank scans further
+ *  than the leader window (up to CROSSING_SCAN_MAX candidates), but only those
+ *  whose own trail actually shares a cell with a visible enemy trail get the
+ *  (costly) findPath — and the total findPath calls per unit are capped at
+ *  CROSSING_PATH_BUDGET so perf stays bounded regardless of candidate count. */
 const CROSSING_LEADERS = 6;
+/** Upper bound on candidates the re-rank will even consider promoting via a
+ *  favourable crossing (sorted by base score desc). Beyond this a candidate is
+ *  too far down the base ranking for even a full kill-value seek bonus to
+ *  realistically overtake the leaders; the cap also bounds the cheap
+ *  trail-overlap pre-check. */
+const CROSSING_SCAN_MAX = 16;
+/** Hard cap on findPath calls per unit inside the crossing re-rank (perf
+ *  budget, §3). The leaders are always pathed; additional crossing candidates
+ *  draw from this same budget, so a unit never exceeds it no matter how many of
+ *  its reachable cells happen to overlap an enemy trail. */
+const CROSSING_PATH_BUDGET = 10;
 
 type EnemyInfo = {
   unit: UnitInstance;
@@ -1022,8 +1045,20 @@ export function createGreedyPlanner(
         // `cell`: compute this unit's intended path (the same findPath the emit
         // step uses), and for each visible enemy whose ESTIMATED trail shares a
         // cell with it, simulate the forced brawl at the first shared cell's
-        // terrain. Favourable (they die, we live) → +crossingSeek; lethal to us
-        // → −crossingAvoid; mutual/attrition → −crossingAvoid/4 (a minor nudge).
+        // terrain.
+        //   • Favourable (they die, we live) → +seek, where the seek bonus is
+        //     PRICED IN THE SAME CURRENCY the base scorer uses for a kill (not a
+        //     flat constant): the eliminated enemy's count valued at w.damageDealt
+        //     plus the +1.5 win-condition flat and the 0.6·menace finishing
+        //     bonus, NET of our own brawl losses (priced at parity, like the
+        //     charge branch), the whole kill-value scaled by w.crossingSeek. So a
+        //     favourable forced crossing that secures a kill is valued comparably
+        //     to actually attacking and killing that enemy — enough to pull the
+        //     planner onto the crossing arm over a merely-advancing route — while
+        //     the net-of-losses term and the conservative scale keep it bounded
+        //     and stop a Pyrrhic crossing from dominating a genuinely better play.
+        //   • Lethal to us (we die) → −crossingAvoid (a lost unit for the game).
+        //   • Mutual/attrition → −crossingAvoid/4 (a minor nudge).
         // Returns 0 when no enemy is visible or no crossing is estimated.
         const crossingAdjustOf = (ownPath: readonly CellId[]): number => {
           if (ownPath.length === 0 || enemyInfos.length === 0) return 0;
@@ -1047,8 +1082,14 @@ export function createGreedyPlanner(
               // for the rest of the game). Reroute/hold instead.
               adjust -= w.crossingAvoid;
             } else if (sim.theirEnd <= 0) {
-              // We survive, they die — a free kill on the way. Seek it.
-              adjust += w.crossingSeek;
+              // We survive, they die — a free kill on the way. Value it as the
+              // base scorer would value killing this enemy: damage currency on
+              // the erased count + the win-condition flat + the menace finisher,
+              // LESS our own brawl losses, scaled by w.crossingSeek.
+              const killValue =
+                w.damageDealt * ei.unit.count + 1.5 + 0.6 * (menaceOf.get(ei) ?? 0);
+              const ourLoss = u.count - sim.ourEnd; // priced at parity (charge §)
+              adjust += w.crossingSeek * killValue - ourLoss;
             } else {
               // Both bleed, neither annihilated — a minor deterrent (we'd
               // rather not be halted mid-march for an inconclusive scrap).
@@ -1311,23 +1352,46 @@ export function createGreedyPlanner(
 
         // ── Crossing-awareness re-rank (addendum 2026-06-22 §2.4) ───────────
         // Apply the forced-crossing adjustment to the leading MOVE candidates
-        // and re-rank. Only the top CROSSING_LEADERS contenders are examined —
-        // computing each one's intended path is a findPath, too costly for
-        // every reachable cell (§3 budget). A losing crossing on the current
-        // best can thus demote it below a held / rerouted alternative; a
-        // winning crossing can promote a candidate that merely brushes an
-        // enemy. Charges (own brawl already simulated) and stay-put (no path)
-        // are crossing-neutral. The own path computed here is REUSED at emit
-        // time so the move is not pathed twice.
+        // and re-rank. The leaders (top CROSSING_LEADERS by base score) are
+        // always pathed — a losing crossing on the current best demotes it below
+        // a held / rerouted alternative.
+        //
+        // SEEK SURFACING (addendum 2026-06-22 §2.6): a favourable forced kill is
+        // worth a whole enemy unit, so a crossing arm can sit BELOW a merely-
+        // advancing route by base score yet win once the seek bonus lands —
+        // outside the leader window the prior cut would never see it (the
+        // verifier's "seek never flips" finding). So beyond the leaders we also
+        // examine candidates (up to CROSSING_SCAN_MAX, base-score order) whose
+        // DESTINATION sits on a visible enemy's estimated trail — the cheap
+        // necessary pre-condition for a crossing at that cell — pathing them only
+        // while the per-unit findPath budget (CROSSING_PATH_BUDGET) lasts, so
+        // perf stays bounded no matter how many cells overlap. Charges (own brawl
+        // already simulated) and stay-put (no path) are crossing-neutral. The own
+        // path computed here is REUSED at emit time so the move is not pathed
+        // twice.
+        const enemyTrailCells = new Set<CellId>();
+        for (const ei of enemyInfos) {
+          if (remainingCount(ei.unit) <= 0) continue;
+          for (const c of ei.estTrail) enemyTrailCells.add(c);
+        }
         const pathOf = new Map<CellId, CellId[]>();
         let best: Pick | null = null;
         let bestAdj = -Infinity;
+        let pathBudget = CROSSING_PATH_BUDGET;
+        const scanMax = Math.min(picks.length, CROSSING_SCAN_MAX);
         for (let i = 0; i < picks.length; i++) {
           const p = picks[i]!;
           let adjusted = p.score;
-          // Only the leaders get the (costly) crossing examination; the rest
-          // keep their base score — they cannot win even crossing-blind.
-          if (i < CROSSING_LEADERS && p.charge === null && p.cell !== u.cell) {
+          const movable = p.charge === null && p.cell !== u.cell;
+          // Leaders are always examined; later candidates only when their
+          // destination lands on an enemy trail (a possible favourable crossing
+          // worth surfacing). Both draw from the shared findPath budget.
+          const examine =
+            movable &&
+            pathBudget > 0 &&
+            (i < CROSSING_LEADERS || (i < scanMax && enemyTrailCells.has(p.cell)));
+          if (examine) {
+            pathBudget--;
             const pr = findPath(board, costs, u.cell, p.cell, {
               budget: ut.movement,
               canStopAt,

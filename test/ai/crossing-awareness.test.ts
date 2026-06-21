@@ -84,19 +84,30 @@ describe('AI crossing-awareness — AVOID a losing forced crossing', () => {
   });
 });
 
-describe('AI crossing-awareness — SEEK vs AVOID flips on the matchup', () => {
-  // Identical geometry and identical advance pull (the enemy sits at the same
-  // cell in both variants); ONLY the enemy TYPE differs. The crossing-aware
-  // planner SEEKS the crossing arm when the forced brawl is winnable and
-  // AVOIDS it when the brawl is lethal — isolating the crossing logic from the
-  // advance/attack terms, which are constant across the two variants.
+describe('AI crossing-awareness — SEEK genuinely FLIPS the decision', () => {
+  // A GENUINE DIFFERENTIAL (replaces the prior trivially-passing SEEK test,
+  // which yielded the IDENTICAL move with crossingSeek=0 — the seek bonus never
+  // flipped anything). Same board, same view; the ONLY difference between the
+  // two planner runs is crossingSeek. They reach DIFFERENT decisions, and the
+  // flip is caused solely by the favourable-crossing value now being priced in
+  // the base scorer's kill currency (not a flat +1).
   //
-  // Board: our unit at 0; objective hub at 5. Two equal arms to it —
+  // Board: our infantry(10) at 0; objective hub at 5. Two equal arms to it —
   //   arm A: 0—1—2—5 (cell 1 is the crossing cell)
   //   arm B: 0—3—4—5 (clear).
-  // Enemy at 6 behind a bend 6—7—1, so its estimated charge toward our unit
-  // sweeps onto arm A's cell 1. A friendly sniper spotter at cell 2 keeps the
-  // distant enemy inside the fog-honest vision union.
+  // A WEAK enemy en1 (infantry 3) sits at 6 behind a bend 6—7—1, so its
+  // estimated approach toward our unit sweeps onto arm A's cell 1. The forced
+  // brawl infantry(10) vs infantry(3) ANNIHILATES en1 — a favourable forced
+  // kill. A friendly sniper spotter at cell 2 keeps the distant enemy inside the
+  // fog-honest vision union.
+  //
+  // CROSSING-BLIND (crossingSeek=0): committing up arm A to engage en1 is a
+  // net-negative play the base scorer DECLINES (the small kill on a 3-count is
+  // outweighed by the threat/counter on the forward cell), so the unit makes a
+  // NON-CROSSING move — it holds, never stepping onto the crossing cell 1.
+  // SEEK ON (default): the favourable crossing on arm A is now worth roughly a
+  // whole enemy kill, which tips the same forward play positive — the unit FLIPS
+  // onto arm A and crosses en1's estimated trail at cell 1.
   const mkBoard = (): Board =>
     syntheticBoard(
       [
@@ -121,29 +132,41 @@ describe('AI crossing-awareness — SEEK vs AVOID flips on the matchup', () => {
       ],
     );
 
-  it('SEEKS the crossing arm against a weak enemy it would annihilate', () => {
-    // Our infantry(10) vs the enemy infantry(3): the forced brawl on the
-    // crossing cell is a clean win → take arm A (the crossing arm), not arm B.
+  it('crossing-blind declines (non-crossing move); seek-on FLIPS onto the favourable-crossing arm', () => {
     const board = mkBoard();
     const me = makeUnit('me0', 0, 0, 'infantry', 10);
     const spotter = makeUnit('sp0', 0, 2, 'sniper', 1);
-    const enemy = makeUnit('en1', 1, 6, 'infantry', 3);
-    const view = buildFactionView(board, stateOn(board, [me, spotter, enemy]), 0, types);
+    const en1 = makeUnit('en1', 1, 6, 'infantry', 3); // weak — favourable brawl
+    const view = buildFactionView(board, stateOn(board, [me, spotter, en1]), 0, types);
     expect(view.enemies.map((e) => e.id)).toContain('en1');
 
-    const move = moveOf(createGreedyPlanner().planOrders(view, createRng(1)), 'me0');
-    expect(move).toBeDefined();
-    // Heads up the crossing arm (cell 1), never the clear arm (cell 3).
-    expect(move!.path).toContain(1);
-    expect(move!.path).not.toContain(3);
+    const seekOn = createGreedyPlanner(); // default crossingSeek > 0
+    const seekOff = createGreedyPlanner({ crossingSeek: 0 }); // keep AVOID intact
+
+    const onMove = moveOf(seekOn.planOrders(view, createRng(1)), 'me0');
+    const offMove = moveOf(seekOff.planOrders(view, createRng(1)), 'me0');
+
+    // Crossing-blind makes a NON-CROSSING move — it does not step onto the
+    // crossing cell 1 (here it declines to engage and holds entirely).
+    const offDest = offMove ? offMove.path[offMove.path.length - 1] : 0;
+    expect(offDest).not.toBe(1);
+    expect(offMove?.path ?? []).not.toContain(1);
+
+    // Seek-ON FLIPS onto the crossing arm: it now moves (the blind run did not),
+    // and its path crosses the weak enemy's estimated trail at cell 1.
+    expect(onMove).toBeDefined();
+    expect(onMove!.path).toContain(1);
+
+    // THE FLIP: the two runs choose DIFFERENT paths — proof seek changed the
+    // decision (with seek off there is no move; with seek on the unit crosses).
+    expect(JSON.stringify(onMove?.path ?? null)).not.toBe(JSON.stringify(offMove?.path ?? null));
   });
 
-  it('AVOIDS the same arm against a strong enemy it would lose to', () => {
+  it('AVOIDS a lethal forced crossing (crossingAvoid intact)', () => {
     // Same board, same enemy cell — only the type changes to heavytank(10).
     // Our infantry(10) vs heavytank(10) DIES in the forced brawl, so the
-    // crossing-aware planner must NOT commit up the crossing arm: it holds (no
-    // forward move) or routes onto the clear arm. Either way it does not march
-    // onto the lethal crossing cell 1.
+    // crossing-aware planner must NOT commit up the crossing arm: it holds or
+    // routes clear, never ending its move on the lethal crossing cell 1.
     const board = mkBoard();
     const me = makeUnit('me0', 0, 0, 'infantry', 10);
     const spotter = makeUnit('sp0', 0, 2, 'sniper', 1);
