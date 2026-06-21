@@ -53,6 +53,7 @@ import { BottomDock, type DockBuy } from './ui/BottomDock';
 import { BuildDashboard } from './ui/BuildDashboard';
 import { CasualtyPanel } from './ui/CasualtyPanel';
 import { HudCluster } from './ui/HudCluster';
+import { ModeToggle } from './ui/ModeToggle';
 import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/Replay';
 import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
 import { SkirmishLog } from './ui/SkirmishLog';
@@ -1264,6 +1265,18 @@ function BattleScreen() {
         />
         <CasualtyPanel casualties={casualties} unitTypes={types} />
       </div>
+      {/* Phase 7 Task 7.2: persistent Map/Economy mode toggle. Conquest +
+          planning only (never skirmish, replay, or game-over). Fixed and
+          layered ABOVE the dashboard scrim (z 20) so it stays tappable in
+          BOTH states — on the board and while the dashboard is open. Mode is
+          derived from whether the build dashboard sheet is open; flipping it
+          opens (openBuildDashboard) or closes (setSheet null) the dashboard. */}
+      {conquest && uiPhase === 'planning' && (
+        <ModeToggle
+          mode={sheet?.kind === 'build' ? 'economy' : 'map'}
+          onSelect={(m) => (m === 'economy' ? openBuildDashboard(null) : setSheet(null))}
+        />
+      )}
       <SkirmishLog
         history={battleLog}
         live={
