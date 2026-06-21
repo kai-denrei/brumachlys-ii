@@ -188,6 +188,13 @@ export type ResolutionEvent =
       creditsAfter: number;
     }
   | {
+      type: 'upkeep'; // Phase E — per faction, after income, before buys (upkeep §3)
+      faction: FactionId;
+      units: number; // living units that drew upkeep
+      amount: number; // total drawn AFTER clamp (the actual debit, ≤ pre-clamp sum)
+      creditsAfter: number;
+    }
+  | {
       type: 'spawn'; // Phase E — a buy resolved onto its (vacant) base (§B.4)
       unitId: string;
       typeKey: string;

@@ -12,19 +12,19 @@ const u = (type: string, count: number, faction: 0 | 1 = 0): UnitInstance => ({
 
 describe('unitUpkeep', () => {
   it('is 1% of cost per count-point, rounded (full infantry 75 → 8)', () => {
-    expect(unitUpkeep(types.infantry, 10, 0.01)).toBe(8); // round(7.5)
+    expect(unitUpkeep(types.infantry!, 10, 0.01)).toBe(8); // round(7.5)
   });
   it('caps at 10% of cost at full strength (heavytank 600 → 60)', () => {
-    expect(unitUpkeep(types.heavytank, 10, 0.01)).toBe(60);
+    expect(unitUpkeep(types.heavytank!, 10, 0.01)).toBe(60);
   });
   it('scales down with count (infantry at count 4 → round(3.0)=3)', () => {
-    expect(unitUpkeep(types.infantry, 4, 0.01)).toBe(3);
+    expect(unitUpkeep(types.infantry!, 4, 0.01)).toBe(3);
   });
   it('a 1-count cheap unit still rounds to ~1 (round(0.75)=1)', () => {
-    expect(unitUpkeep(types.infantry, 1, 0.01)).toBe(1);
+    expect(unitUpkeep(types.infantry!, 1, 0.01)).toBe(1);
   });
   it('rate 0 disables (0 for any unit)', () => {
-    expect(unitUpkeep(types.heavytank, 10, 0)).toBe(0);
+    expect(unitUpkeep(types.heavytank!, 10, 0)).toBe(0);
   });
 });
 
