@@ -28,6 +28,7 @@
 
 import type { Board, CellId } from '../../board/types';
 import type { FactionId, UnitInstance } from '../../core/types';
+import type { Projectile } from '../../state/replay-timing';
 import { darken, factionColor } from './palette';
 import { UnitRenderer } from './UnitRenderer';
 import { roundedPolygonPath, type Pt } from './rounded';
@@ -44,6 +45,13 @@ export type ImpactMark = {
 
 export type ReplayFxData = {
   arcs: { from: CellId; to: CellId; faction: FactionId }[];
+  /** R4 (PROJECTILE + ATTACK MOTION): the attack-motion primitives for this
+   *  frame's shown, source-revealed strikes — crawling tracers / arcing shells
+   *  (WAVE_A) and melee stabs (WAVE_B). When present and non-empty these REPLACE
+   *  the instant `arcs` flash (each projectile is a 1:1 upgrade of one arc); the
+   *  builder withholds a mist strike's projectile, so the source never leaks.
+   *  Optional: absent ⇒ the legacy instant FlashArc renders for `arcs`. */
+  projectiles?: Projectile[];
   /** `linger`: a "last volley" pill carried into later frames (P9) — still a
    *  breakdown tap target, but rendered settled (no pop animation, no
    *  re-expanding mist impact rings). */
@@ -200,6 +208,246 @@ function FlashArc({
       pointerEvents="none"
     />
   );
+}
+
+// --- R4 (PROJECTILE + ATTACK MOTION primitives) ------------------------------
+// Crawling ranged TRACERS, arcing artillery SHELLS, and melee STABS. Each is a
+// CSS-animated upgrade of the instant FlashArc, parameterised by progress over
+// the frame window (the impact fractions — 0.80 tracer / 0.88 shell / 0.5 stab —
+// are baked into the styles.css keyframe percentages, matching the spec config).
+// All WAVE_A projectiles of a beat animate on the SAME envelope (the dilation
+// clock), never sequenced per-unit. A WAVE_B counter rides `--proj-delay`
+// (≈75 ms) so an exchange reads as a crossfire of two motions. Reduced-motion
+// degrades each to a simple instant mark (the line + the impact, no crawl/arc) —
+// handled in CSS so the markup is identical (honesty: outcomes never change).
+
+/** R4: a ranged tracer — a faint full-line guide + a crawling round with a
+ *  gradient speed-streak tail; a brief charge glint near the start, then crawl
+ *  to a sharp impact spark at ~0.80 of the frame window. */
+function Tracer({
+  a,
+  b,
+  tokenSize,
+  faction,
+  delay,
+}: {
+  a: Pt;
+  b: Pt;
+  tokenSize: number;
+  faction: FactionId;
+  delay: number;
+}) {
+  const color = factionColor(faction);
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy) || 1;
+  // unit vector for the streak tail (a short segment trailing the round)
+  const ux = dx / len;
+  const uy = dy / len;
+  const tail = Math.min(len * 0.4, tokenSize * 0.9);
+  const style = { '--proj-delay': `${delay}ms` } as React.CSSProperties;
+  return (
+    <g className="fx-tracer" pointerEvents="none" style={style}>
+      {/* faint full-line guide along the whole shot */}
+      <line
+        className="fx-tracer-guide"
+        x1={a[0]}
+        y1={a[1]}
+        x2={b[0]}
+        y2={b[1]}
+        stroke={color}
+        strokeWidth={tokenSize * 0.04}
+        strokeLinecap="round"
+      />
+      {/* charge glint near the start */}
+      <circle className="fx-tracer-charge" cx={a[0]} cy={a[1]} r={tokenSize * 0.16} fill="#fff" />
+      {/* the crawling round + its speed-streak tail (translated start→impact) */}
+      <g className="fx-tracer-round" style={{ '--tx': `${dx}px`, '--ty': `${dy}px` } as React.CSSProperties}>
+        <line
+          className="fx-tracer-streak"
+          x1={a[0] - ux * tail}
+          y1={a[1] - uy * tail}
+          x2={a[0]}
+          y2={a[1]}
+          stroke={color}
+          strokeWidth={tokenSize * 0.1}
+          strokeLinecap="round"
+        />
+        <circle cx={a[0]} cy={a[1]} r={tokenSize * 0.11} fill="#fff" stroke={color} strokeWidth={tokenSize * 0.04} />
+      </g>
+      {/* sharp impact spark at the destination, fired at ~0.80 */}
+      <ImpactSpark at={b} tokenSize={tokenSize} className="fx-tracer-spark" />
+    </g>
+  );
+}
+
+/** R4: an artillery shell — a high parabolic ballistic arc (quadratic, control
+ *  point lobbed above the midpoint) with a DASHED trail; launches near the start
+ *  and LANDS LATE (~0.88). On impact: dust + an expanding ring burst. */
+function Shell({
+  a,
+  b,
+  tokenSize,
+  faction,
+  delay,
+}: {
+  a: Pt;
+  b: Pt;
+  tokenSize: number;
+  faction: FactionId;
+  delay: number;
+}) {
+  const color = factionColor(faction);
+  const mx = (a[0] + b[0]) / 2;
+  const my = (a[1] + b[1]) / 2;
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy) || 1;
+  // High lob: control point well ABOVE the midpoint (perpendicular, biased up).
+  const lob = Math.min(len * 0.55, tokenSize * 2.6) + tokenSize * 1.4;
+  const cx = mx - (dy / len) * lob * 0.25;
+  const cy = my - lob; // straight up in screen space (y-down) → smaller y
+  const d = `M${a[0]} ${a[1]} Q${cx} ${cy} ${b[0]} ${b[1]}`;
+  const style = { '--proj-delay': `${delay}ms` } as React.CSSProperties;
+  return (
+    <g className="fx-shell" pointerEvents="none" style={style}>
+      {/* dashed ballistic trail — drawn-on then faded */}
+      <path
+        className="fx-shell-trail"
+        d={d}
+        fill="none"
+        stroke={color}
+        strokeWidth={tokenSize * 0.07}
+        strokeLinecap="round"
+        strokeDasharray={`${tokenSize * 0.16} ${tokenSize * 0.22}`}
+      />
+      {/* the shell itself: rides the same parabola via offset-path, landing
+          LATE (~0.88). The path string is passed as a CSS var so the keyframes
+          can sweep offset-distance 0→100% along this exact arc. */}
+      <g
+        className="fx-shell-round"
+        style={{ '--shell-path': `path('${d}')` } as React.CSSProperties}
+      >
+        <circle r={tokenSize * 0.13} fill={darken(color, 0.15)} stroke="#fff" strokeWidth={tokenSize * 0.035} />
+      </g>
+      {/* dust + expanding ring burst at the landing */}
+      <g className="fx-shell-impact" transform={`translate(${b[0]} ${b[1]})`}>
+        <circle className="fx-shell-ring" r={tokenSize * 0.6} fill="none" stroke="#fff" strokeWidth={tokenSize * 0.09} />
+        <circle className="fx-shell-ring fx-shell-ring-2" r={tokenSize * 0.6} fill="none" stroke={color} strokeWidth={tokenSize * 0.05} />
+        {[0, 1, 2, 3, 4].map((k) => {
+          const t = (k / 5) * Math.PI * 2 + Math.PI / 5;
+          return (
+            <circle
+              key={k}
+              className="fx-shell-dust"
+              cx={Math.cos(t) * tokenSize * 0.42}
+              cy={Math.sin(t) * tokenSize * 0.42}
+              r={tokenSize * 0.16}
+              fill="#8d8675"
+              style={{ animationDelay: `calc(var(--proj-delay) + ${0.02 * k}s)` } as React.CSSProperties}
+            />
+          );
+        })}
+      </g>
+    </g>
+  );
+}
+
+/** R4: a melee stab — a short dash from the attacker toward the target (~0.5
+ *  reach) + a flash; fast and punchy. Used for adjacent strikes AND brawls
+ *  (same-cell: the dash nudges toward the shared tile). */
+function Stab({
+  a,
+  b,
+  tokenSize,
+  faction,
+  delay,
+}: {
+  a: Pt;
+  b: Pt;
+  tokenSize: number;
+  faction: FactionId;
+  delay: number;
+}) {
+  const color = factionColor(faction);
+  let dx = b[0] - a[0];
+  let dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-3) {
+    // brawl (same cell): nudge a fixed direction so both halves still read.
+    dx = tokenSize;
+    dy = 0;
+  }
+  const reach = 0.5; // ~half the distance toward the target
+  const style = {
+    '--proj-delay': `${delay}ms`,
+    '--tx': `${dx * reach}px`,
+    '--ty': `${dy * reach}px`,
+  } as React.CSSProperties;
+  return (
+    <g className="fx-stab" pointerEvents="none" style={style}>
+      <g className="fx-stab-dash">
+        <line
+          x1={a[0]}
+          y1={a[1]}
+          x2={a[0] + (dx / (len || 1)) * tokenSize * 0.42}
+          y2={a[1] + (dy / (len || 1)) * tokenSize * 0.42}
+          stroke={color}
+          strokeWidth={tokenSize * 0.14}
+          strokeLinecap="round"
+        />
+      </g>
+      <ImpactSpark at={b} tokenSize={tokenSize} className="fx-stab-flash" />
+    </g>
+  );
+}
+
+/** R4: a sharp, brief impact spark (4 radial spokes + a core) — the punctuation
+ *  on a tracer / stab landing. The animation timing lives in CSS. */
+function ImpactSpark({ at, tokenSize, className }: { at: Pt; tokenSize: number; className: string }) {
+  const r0 = tokenSize * 0.18;
+  const r1 = tokenSize * 0.5;
+  return (
+    <g className={className} transform={`translate(${at[0]} ${at[1]})`}>
+      {[0, 1, 2, 3].map((k) => {
+        const t = (k / 4) * Math.PI * 2 + Math.PI / 4;
+        return (
+          <line
+            key={k}
+            x1={Math.cos(t) * r0}
+            y1={Math.sin(t) * r0}
+            x2={Math.cos(t) * r1}
+            y2={Math.sin(t) * r1}
+            stroke="#fff"
+            strokeWidth={tokenSize * 0.07}
+            strokeLinecap="round"
+          />
+        );
+      })}
+      <circle r={r0 * 0.8} fill="#fff" />
+    </g>
+  );
+}
+
+/** R4: render a single projectile primitive by kind. Cells resolved upstream. */
+function ProjectileFx({
+  board,
+  toScreen,
+  tokenSize,
+  proj,
+}: {
+  board: Board;
+  toScreen: ReplayFxProps['toScreen'];
+  tokenSize: number;
+  proj: Projectile;
+}) {
+  const a = center(board, proj.from, toScreen);
+  const b = center(board, proj.to, toScreen);
+  if (!a || !b) return null;
+  const common = { a, b, tokenSize, faction: proj.faction, delay: proj.delay };
+  if (proj.kind === 'shell') return <Shell {...common} />;
+  if (proj.kind === 'stab') return <Stab {...common} />;
+  return <Tracer {...common} />;
 }
 
 // NOTE (P9 fix): a CSS `transform` animation REPLACES an element's SVG
@@ -595,19 +843,36 @@ function CrossSign({ at, tokenSize, text }: { at: Pt; tokenSize: number; text: s
 export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloaterTap }: ReplayFxProps) {
   // Stack same-cell floaters (brawl halves) side by side.
   const seenCells = new Map<CellId, number>();
+  // R4: when the frame carries attack-motion primitives, render them (crawling
+  // tracers / arcing shells / melee stabs) INSTEAD of the instant FlashArc — each
+  // projectile is a 1:1 upgrade of one arc. A mist strike has neither an arc nor
+  // a projectile (the source is withheld), so the impact alone shows either way.
+  // Frames without projectiles (or older callers) keep the legacy FlashArc.
+  const projectiles = fx.projectiles ?? [];
+  const useProjectiles = projectiles.length > 0;
   return (
     <g className="board-replay-fx">
-      {fx.arcs.map((arc, k) => (
-        <FlashArc
-          key={`a${k}`}
-          board={board}
-          toScreen={toScreen}
-          tokenSize={tokenSize}
-          from={arc.from}
-          to={arc.to}
-          faction={arc.faction}
-        />
-      ))}
+      {useProjectiles
+        ? projectiles.map((proj, k) => (
+            <ProjectileFx
+              key={`pj${k}`}
+              board={board}
+              toScreen={toScreen}
+              tokenSize={tokenSize}
+              proj={proj}
+            />
+          ))
+        : fx.arcs.map((arc, k) => (
+            <FlashArc
+              key={`a${k}`}
+              board={board}
+              toScreen={toScreen}
+              tokenSize={tokenSize}
+              from={arc.from}
+              to={arc.to}
+              faction={arc.faction}
+            />
+          ))}
       {fx.bursts.map((cell, k) => {
         const at = center(board, cell, toScreen);
         return at ? <ClashBurst key={`b${k}`} at={at} tokenSize={tokenSize} /> : null;

@@ -64,9 +64,12 @@ import {
   classifyBand,
   bandWave,
   layoutPhases,
+  projectileKind,
+  WAVE_B_COUNTER_OFFSET,
   type CombatBand,
   type PhaseDurations,
   type PhaseLayout,
+  type Projectile,
   type Wave,
 } from './replay-timing';
 
@@ -183,6 +186,17 @@ export type ReplayFrame = {
    *  (artillery | ranged | melee), derived from existing data without changing
    *  any resolved value. Absent on non-combat frames. */
   band?: CombatBand;
+  /** R4 (PROJECTILE + ATTACK MOTION): the attack-motion primitives for this
+   *  combat frame's SHOWN strikes — crawling tracers / arcing shells (WAVE_A) or
+   *  melee stabs (WAVE_B). All WAVE_A projectiles of a beat share ONE dilated
+   *  envelope (no per-unit sequencing); WAVE_B counters carry a ~75 ms crossfire
+   *  delay so an exchange reads as two motions. Mist strikes withhold the source
+   *  → no projectile (the impact alone shows). Empty on non-combat frames. */
+  projectiles?: Projectile[];
+  /** R4: screen-shake magnitude (px at 1×) for this combat frame — scales with
+   *  the total damage landing this beat; artillery gets the biggest shake of the
+   *  set. 0/absent on non-combat frames. The App nudges the board container. */
+  shake?: number;
 };
 
 export type RoundSummary = {
@@ -261,6 +275,30 @@ const PROMOTE_MS = 450;
 /** Forced-crossing "path interrupted!" sign — a brief announce beat before the
  *  ensuing brawl FX (addendum 2026-06-21 §5). */
 const SIGN_MS = 450;
+
+// --- R4 (screen-shake) -------------------------------------------------------
+// Shake magnitude (px at 1×) scales with the total damage landing on the beat.
+// Artillery is the BIGGEST shake of the set (source spec §8: "biggest shake");
+// ranged a sharp small punch; melee a light nudge. PURE — derived from the
+// shown strikes' damage + band, no resolved value touched. The App applies it
+// to the board container; reduced-motion drops it.
+const SHAKE_MAX = 14; // px ceiling so the board never lurches off-screen
+/** Per-band scale on √damage — artillery > ranged > melee. */
+const SHAKE_BAND_SCALE: Record<CombatBand, number> = {
+  artillery: 2.4,
+  ranged: 1.0,
+  melee: 1.3,
+};
+
+/** R4 (PURE, exported for tests): the screen-shake magnitude (px at 1×) for a
+ *  combat beat — `√(totalDamage)` × the band's scale, clamped to SHAKE_MAX.
+ *  Monotonic in damage (more damage ⇒ a bigger shake) and ordered by band
+ *  (artillery is the biggest of the set at equal damage). 0 for no damage. */
+export function shakeMagnitude(totalDamage: number, band: CombatBand): number {
+  if (totalDamage <= 0) return 0;
+  const m = Math.sqrt(totalDamage) * SHAKE_BAND_SCALE[band];
+  return Math.min(SHAKE_MAX, m);
+}
 
 /** E3: what buildReplay needs to simulate conquest fog + the credits HUD —
  *  the round-START picture (the resolver's events advance it). */
@@ -937,6 +975,19 @@ export function buildReplay(
         }
         for (const k of waveKills) focus.add(k.cell);
         const visAfter = vision(); // deaths shrink player vision
+        const beatBand: CombatBand = w === 'A'
+          ? (b.strikes.some((s) => classifiedArtillery(s)) ? 'artillery' : 'ranged')
+          : 'melee';
+        // R4: attack-motion primitives for this beat's SHOWN, source-revealed
+        // strikes. A mist strike (attackerCell null) yields no projectile — the
+        // impact alone shows, the source never leaks. WAVE_A projectiles all fly
+        // on the SAME dilated envelope (delay 0 — never sequenced per-unit, so
+        // five snipers' tracers fly together); a WAVE_B counter trails the strike
+        // it answers by WAVE_B_COUNTER_OFFSET (crossfire reads as two motions).
+        const projectiles = buildProjectiles(b.strikes, board, unitTypes);
+        // R4: shake scales with the TOTAL damage of this beat (band-weighted —
+        // artillery is the biggest of the set).
+        const beatDamage = b.strikes.reduce((sum, s) => sum + s.damage, 0);
         frames.push({
           duration: VOLLEY_MS,
           slot,
@@ -948,9 +999,9 @@ export function buildReplay(
           kills: waveKills,
           focus: [...focus],
           wave: w,
-          band: w === 'A'
-            ? (b.strikes.some((s) => classifiedArtillery(s)) ? 'artillery' : 'ranged')
-            : 'melee',
+          band: beatBand,
+          projectiles,
+          shake: shakeMagnitude(beatDamage, beatBand),
         });
         for (const line of b.logLines) log.push({ atFrame: frames.length - 1, segs: line });
         logKills(waveKills, frames.length - 1);
@@ -1071,6 +1122,12 @@ export function buildReplay(
           strikes,
         });
         const visAfter = vision();
+        // R4: a brawl is melee — both halves stab (a short dash toward the
+        // shared cell), the return offset by WAVE_B_COUNTER_OFFSET so the
+        // exchange reads as a crossfire of two motions. Shake scales with the
+        // total damage landing on the tile (light melee nudge).
+        const brawlProjectiles = buildProjectiles(strikes, board, unitTypes);
+        const brawlDamage = strikes.reduce((sum, s) => sum + s.damage, 0);
         frames.push({
           duration: followup ? BRAWL_FOLLOWUP_MS : VOLLEY_MS,
           slot,
@@ -1081,6 +1138,8 @@ export function buildReplay(
           // R1: a brawl is same-cell mutual combat — always WAVE_B (melee).
           wave: 'B',
           band: 'melee',
+          projectiles: brawlProjectiles,
+          shake: shakeMagnitude(brawlDamage, 'melee'),
         });
         if (hi && lo) {
           const segs: LogSeg[] = [
@@ -1509,6 +1568,61 @@ function regroupCombatWaves(
     for (const fl of fr.floaters) fl.slot = slotMap[fl.slot] ?? fl.slot;
   }
   for (const entry of log) entry.atFrame = frameMap[entry.atFrame] ?? entry.atFrame;
+}
+
+/** R4 (PURE): turn a beat's SHOWN strikes into attack-motion primitives. One
+ *  projectile per source-revealed strike — a mist strike (attackerCell null)
+ *  yields none (the impact alone shows; the source never leaks). The kind +
+ *  land fraction follow the per-strike band (artillery shell / ranged tracer /
+ *  melee stab). WAVE_A projectiles all carry delay 0 (the SHARED dilated
+ *  envelope — no per-unit sequencing). A WAVE_B counter / brawl-return trails
+ *  the strike it answers by WAVE_B_COUNTER_OFFSET so the exchange reads as a
+ *  crossfire of two motions; leading strikes carry delay 0. */
+function buildProjectiles(
+  strikes: readonly Strike[],
+  board: Board,
+  unitTypes: Readonly<Record<string, UnitType>>,
+): Projectile[] {
+  const out: Projectile[] = [];
+  for (const s of strikes) {
+    // Source withheld (fire from the mist): no projectile — only the impact.
+    if (s.attackerCell === null || s.attackerFaction === null || s.attackerType === null) {
+      continue;
+    }
+    // Per-strike band: a brawl/brawl-return is melee; otherwise classify by the
+    // attacker's type + the shot geometry (the SAME pure classifier R1 uses).
+    const att: UnitInstance = {
+      id: s.attackerId ?? '',
+      type: s.attackerType,
+      faction: s.attackerFaction,
+      cell: s.attackerCell,
+      count: 1,
+      stance: 'aggressive',
+      attackedFrom: [],
+    };
+    const band = classifyBand(
+      s.kind === 'attack' ? 'attack' : s.kind === 'counter' ? 'counter' : s.kind,
+      att,
+      s.attackerCell,
+      s.defenderCell,
+      board,
+      unitTypes,
+    );
+    const { kind, impact } = projectileKind(band);
+    // Crossfire: the answering half of an exchange trails by the offset so the
+    // two motions read as a crossing, not one. WAVE_A shares the envelope (0).
+    const isCounter = s.kind === 'counter' || s.kind === 'brawl-return';
+    const delay = band === 'melee' && isCounter ? WAVE_B_COUNTER_OFFSET : 0;
+    out.push({
+      kind,
+      from: s.attackerCell,
+      to: s.defenderCell,
+      faction: s.attackerFaction,
+      impact,
+      delay,
+    });
+  }
+  return out;
 }
 
 function makeStrike(

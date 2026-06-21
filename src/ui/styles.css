@@ -1160,6 +1160,200 @@ body {
   }
 }
 
+/* --- R4 (PROJECTILE + ATTACK MOTION primitives) -----------------------------
+   Crawling tracers / arcing shells (WAVE_A, the dilated window) and melee stabs
+   (WAVE_B). Each is parameterised by progress over the frame window; the impact
+   fractions (0.80 tracer / 0.88 shell / 0.50 stab) are baked into the keyframe
+   percentages, matching the spec config (WAVE_A_TRACER_IMPACT etc). All WAVE_A
+   projectiles animate on the SAME envelope (no per-unit sequencing); a WAVE_B
+   counter carries --proj-delay (≈75 ms) so an exchange reads as a crossfire.
+   The fx group remounts per frame (Board keys it by frame index) so every
+   animation restarts cleanly. The WAVE_A window is long (the dilation), so the
+   crawl/arc durations are generous; melee is quick + punchy. */
+
+/* shared transform-box for fill-box rotations/translations */
+.fx-tracer,
+.fx-shell,
+.fx-stab {
+  transform-box: fill-box;
+}
+
+/* RANGED TRACER ------------------------------------------------------------- */
+/* faint full-line guide: fades in immediately, holds dim */
+.fx-tracer-guide {
+  opacity: 0;
+  animation: fx-tracer-guide 1.8s ease-out var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-tracer-guide {
+  0% { opacity: 0; }
+  6% { opacity: 0.28; }
+  100% { opacity: 0.16; }
+}
+
+/* charge glint near the start (~0.10) then gone */
+.fx-tracer-charge {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-tracer-charge 1.8s ease-out var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-tracer-charge {
+  0% { opacity: 0; transform: scale(0.4); }
+  6% { opacity: 1; transform: scale(1.1); }
+  14% { opacity: 0; transform: scale(0.7); }
+  100% { opacity: 0; }
+}
+
+/* the crawling round + speed-streak tail: translate start→impact, reaching the
+   target at ~0.80 of the window, then vanish into the spark */
+.fx-tracer-round {
+  animation: fx-tracer-crawl 1.8s linear var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-tracer-crawl {
+  0% { transform: translate(0, 0); opacity: 0; }
+  8% { opacity: 1; }
+  80% { transform: translate(var(--tx), var(--ty)); opacity: 1; }
+  84% { transform: translate(var(--tx), var(--ty)); opacity: 0; }
+  100% { transform: translate(var(--tx), var(--ty)); opacity: 0; }
+}
+.fx-tracer-streak {
+  opacity: 0.85;
+}
+
+/* sharp impact spark fires at ~0.80 */
+.fx-tracer-spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-proj-spark 1.8s ease-out var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-proj-spark {
+  0%, 79% { opacity: 0; transform: scale(0.3); }
+  82% { opacity: 1; transform: scale(1.05); }
+  94% { opacity: 0.4; transform: scale(1.25); }
+  100% { opacity: 0; transform: scale(1.4); }
+}
+
+/* ARTILLERY SHELL ----------------------------------------------------------- */
+/* dashed ballistic trail: draws on as the shell climbs, lands ~0.88, fades */
+.fx-shell-trail {
+  stroke-dasharray: 6 8;
+  opacity: 0;
+  animation: fx-shell-trail 2.2s ease-in var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-shell-trail {
+  0% { opacity: 0; }
+  10% { opacity: 0.5; }
+  88% { opacity: 0.5; }
+  100% { opacity: 0; }
+}
+
+/* the shell rides the parabola (motion-path) — lands LATE at ~0.88 */
+.fx-shell-round {
+  offset-path: path(var(--shell-path, none));
+  offset-distance: 0%;
+  opacity: 0;
+  animation: fx-shell-fly 2.2s cubic-bezier(0.4, 0, 0.7, 1) var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-shell-fly {
+  0% { offset-distance: 0%; opacity: 0; }
+  6% { opacity: 1; }
+  88% { offset-distance: 100%; opacity: 1; }
+  90% { offset-distance: 100%; opacity: 0; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+/* dust + expanding ring burst at the landing (~0.88) */
+.fx-shell-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-shell-ring 2.2s ease-out var(--proj-delay, 0ms) forwards;
+}
+.fx-shell-ring-2 {
+  animation-delay: calc(var(--proj-delay, 0ms) + 0.04s);
+}
+@keyframes fx-shell-ring {
+  0%, 87% { opacity: 0; transform: scale(0.2); }
+  90% { opacity: 1; transform: scale(0.7); }
+  100% { opacity: 0; transform: scale(2); }
+}
+.fx-shell-dust {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-shell-dust 2.2s ease-out forwards; /* per-circle delay inline */
+}
+@keyframes fx-shell-dust {
+  0%, 87% { opacity: 0; transform: scale(0.3) translate(0, 0); }
+  91% { opacity: 0.8; transform: scale(1) translate(0, 0); }
+  100% { opacity: 0; transform: scale(1.4) translate(0, -6px); }
+}
+
+/* MELEE STAB ---------------------------------------------------------------- */
+/* short dash toward the target (~0.5 reach) — fast + punchy, lands ~0.50 */
+.fx-stab-dash {
+  animation: fx-stab-dash 0.42s cubic-bezier(0.3, 0, 0.2, 1) var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-stab-dash {
+  0% { transform: translate(0, 0); opacity: 0; }
+  20% { opacity: 1; }
+  50% { transform: translate(var(--tx), var(--ty)); opacity: 1; }
+  70% { transform: translate(var(--tx), var(--ty)); opacity: 0.5; }
+  100% { transform: translate(0, 0); opacity: 0; }
+}
+.fx-stab-flash {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-stab-flash 0.42s ease-out var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-stab-flash {
+  0%, 45% { opacity: 0; transform: scale(0.3); }
+  55% { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 0; transform: scale(1.3); }
+}
+
+/* faster wave-2x playback: shrink the projectile durations to match */
+.board-replay-2x .fx-tracer-guide,
+.board-replay-2x .fx-tracer-charge,
+.board-replay-2x .fx-tracer-round,
+.board-replay-2x .fx-tracer-spark { animation-duration: 0.9s; }
+.board-replay-2x .fx-shell-trail,
+.board-replay-2x .fx-shell-round,
+.board-replay-2x .fx-shell-ring,
+.board-replay-2x .fx-shell-dust { animation-duration: 1.1s; }
+.board-replay-2x .fx-stab-dash,
+.board-replay-2x .fx-stab-flash { animation-duration: 0.21s; }
+
+/* reduced motion: degrade every projectile to a SIMPLE INSTANT MARK — no crawl
+   or arc animation, but the line guide + the impact spark still land (so the
+   player still sees WHAT hit WHOM; outcomes are unchanged either way). */
+@media (prefers-reduced-motion: reduce) {
+  .fx-tracer-charge,
+  .fx-tracer-round,
+  .fx-shell-trail,
+  .fx-shell-round,
+  .fx-shell-dust,
+  .fx-stab-dash {
+    animation: none;
+    opacity: 0;
+  }
+  /* keep a static faint guide line so the shot direction reads */
+  .fx-tracer-guide {
+    animation: none;
+    opacity: 0.18;
+  }
+  /* the impact spark / ring snaps to a brief static end-mark (no travel) */
+  .fx-tracer-spark,
+  .fx-stab-flash,
+  .fx-shell-ring {
+    animation: none;
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+
 /* floating damage number: rises and holds (stays tappable for breakdown).
    P9: the animation targets an INNER group — a CSS transform animation
    replaces the SVG transform ATTRIBUTE on the same element, which silently

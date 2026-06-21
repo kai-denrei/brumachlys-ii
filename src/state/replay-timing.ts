@@ -17,7 +17,7 @@
 
 import type { Board, CellId } from '../board/types';
 import { graphDistance } from '../board/geometry';
-import type { UnitInstance, UnitType } from '../core/types';
+import type { FactionId, UnitInstance, UnitType } from '../core/types';
 
 /** Range-band of a single combat event, for presentation grouping. */
 export type CombatBand = 'artillery' | 'ranged' | 'melee';
@@ -47,6 +47,57 @@ export const REPLAY_PHASE_DURATIONS: PhaseDurations = {
   WAVE_B: 1400,
   SETTLE: 900,
 };
+
+// --- R4 (PROJECTILE + ATTACK MOTION primitives) ------------------------------
+// Progress (p ∈ [0,1]) milestones over each wave's frame window, and the
+// crossfire offset for WAVE_B counters. PURE config — source spec §8/§10. The
+// motion primitives are CSS/SMIL parameterised by these; they change no resolved
+// value, they only decide WHEN within a frame a projectile lands.
+
+/** A ranged tracer crawls to its sharp impact spark at this fraction of the
+ *  WAVE_A frame window (source spec §10 WAVE_A_TRACER_IMPACT). */
+export const WAVE_A_TRACER_IMPACT = 0.8;
+/** A lobbed artillery shell LANDS LATE — at this fraction of the WAVE_A frame
+ *  window (source spec §10 WAVE_A_SHELL_IMPACT). The long hang-time is what
+ *  fills the dilation. */
+export const WAVE_A_SHELL_IMPACT = 0.88;
+/** A ranged tracer's brief charge glint sits near the start of the crawl. */
+export const WAVE_A_TRACER_CHARGE = 0.1;
+/** A WAVE_B counter is offset from the strike it answers by this many ms (at 1×)
+ *  so an exchange reads as TWO motions, a crossfire (source spec §10
+ *  WAVE_B_COUNTER_OFFSET). */
+export const WAVE_B_COUNTER_OFFSET = 75;
+
+/** A single attack-motion primitive for a shown strike. The renderer animates
+ *  it via CSS/SMIL parameterised by progress over the frame duration:
+ *   • tracer — straight-line crawl (charge glint → crawl → spark), impact ~0.80.
+ *   • shell  — high parabolic arc (dashed trail), LANDS LATE ~0.88, dust+ring.
+ *   • stab   — short dash from attacker toward target (~0.5 reach) + flash.
+ *  Mist strikes (attacker withheld) carry no projectile — the impact alone
+ *  shows (the source never leaks). PURE — derived from band + strike geometry. */
+export type Projectile = {
+  kind: 'tracer' | 'shell' | 'stab';
+  from: CellId;
+  to: CellId;
+  faction: FactionId;
+  /** Fraction of the frame window at which the projectile lands (impact). */
+  impact: number;
+  /** ms delay before this projectile launches (WAVE_B crossfire offset — a
+   *  counter trails the strike it answers by WAVE_B_COUNTER_OFFSET). 0 for the
+   *  leading strike of an exchange and for all WAVE_A projectiles (shared
+   *  envelope — never sequenced per-unit). */
+  delay: number;
+};
+
+/** Map a combat band to its projectile kind + land fraction (R4). PURE. */
+export function projectileKind(band: CombatBand): {
+  kind: Projectile['kind'];
+  impact: number;
+} {
+  if (band === 'artillery') return { kind: 'shell', impact: WAVE_A_SHELL_IMPACT };
+  if (band === 'ranged') return { kind: 'tracer', impact: WAVE_A_TRACER_IMPACT };
+  return { kind: 'stab', impact: 0.5 };
+}
 
 /** One laid-out phase window: absolute start/end (ms) and its duration. */
 export type PhaseWindow = { start: number; end: number; duration: number };

@@ -198,6 +198,11 @@ function BattleScreen() {
   const [ignites, setIgnites] = useState<ReadonlySet<CellId>>(new Set());
   const igniteTimers = useRef(new Map<CellId, ReturnType<typeof setTimeout>>());
 
+  // R4 (SCREEN-SHAKE): the board container, nudged per combat beat via the Web
+  // Animations API (a pure DOM side-effect that never disturbs the React tree /
+  // remounts the Board, so the sprite motion-diff and camera state survive).
+  const boardAreaRef = useRef<HTMLElement>(null);
+
   function clearIgnites() {
     for (const t of igniteTimers.current.values()) clearTimeout(t);
     igniteTimers.current.clear();
@@ -1064,6 +1069,44 @@ function BattleScreen() {
   const dilation =
     replayActive && script ? dilationAt(script, frameIdx) : null;
 
+  // R4 (SCREEN-SHAKE): a combat frame nudges the board container by its `shake`
+  // magnitude (px at 1×, scaled with the beat's total damage — artillery the
+  // biggest of the set). Honors the replay speed (a 2× pass shakes faster via
+  // the CSS class). Pure read of the frame; reduced-motion drops the animation
+  // in CSS. Keyed by frameIdx so the shake restarts each combat beat.
+  const boardShake = frame?.shake && frame.shake > 0 ? frame.shake : 0;
+
+  // R4: fire the shake on each combat beat (keyed by frameIdx). Web Animations
+  // API so it never remounts the Board; magnitude = the frame's `shake` px,
+  // duration scaled by the replay speed. prefers-reduced-motion users get no
+  // shake (the impact marks still land — outcomes unchanged either way).
+  useEffect(() => {
+    const el = boardAreaRef.current;
+    if (!el || boardShake <= 0) return;
+    if (typeof window !== 'undefined' && typeof el.animate !== 'function') return;
+    const reduce =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) return;
+    const m = boardShake;
+    const speed = typeof replaySpeed === 'number' ? replaySpeed : 1;
+    const dur = 360 / speed;
+    const anim = el.animate?.(
+      [
+        { transform: 'translate(0px, 0px)' },
+        { transform: `translate(${m * 0.7}px, ${-m * 0.5}px)` },
+        { transform: `translate(${-m * 0.6}px, ${m * 0.4}px)` },
+        { transform: `translate(${m * 0.4}px, ${m * 0.3}px)` },
+        { transform: `translate(${-m * 0.2}px, ${-m * 0.15}px)` },
+        { transform: 'translate(0px, 0px)' },
+      ],
+      { duration: dur, easing: 'ease-out' },
+    );
+    return () => anim?.cancel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frameIdx, boardShake, replaySpeed]);
+
   const own = units.filter((u) => u.faction === PLAYER_FACTION);
   const orderedIds = orderedUnitIds(orders);
 
@@ -1208,7 +1251,7 @@ function BattleScreen() {
           </button>
         </div>
       )}
-      <main className="board-area">
+      <main className="board-area" ref={boardAreaRef}>
         {frame ? (
           <Board
             board={board}
@@ -1221,6 +1264,7 @@ function BattleScreen() {
               key: frameIdx,
               fx: {
                 arcs: frame.arcs,
+                projectiles: frame.projectiles,
                 floaters: fxFloaters,
                 bursts: frame.bursts,
                 kills: frame.kills,
