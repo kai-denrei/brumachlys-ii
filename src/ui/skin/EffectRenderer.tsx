@@ -388,15 +388,17 @@ export function BuildPips({
                   strokeLinejoin="round"
                 />
               ) : (
-                // plus — open production
-                <g
-                  stroke={stroke}
-                  strokeWidth={r * 0.22}
-                  strokeLinecap="round"
+                // "B" — open the build dashboard for this base
+                <text
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize={r * 1.15}
+                  fontWeight={700}
+                  fill={stroke}
+                  pointerEvents="none"
                 >
-                  <line x1={-r * 0.46} y1={0} x2={r * 0.46} y2={0} />
-                  <line x1={0} y1={-r * 0.46} x2={0} y2={r * 0.46} />
-                </g>
+                  B
+                </text>
               )}
             </g>
           </g>
