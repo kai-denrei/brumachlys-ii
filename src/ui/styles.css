@@ -2636,9 +2636,16 @@ body {
   max-width: 48vw;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  /* stretch (not flex-start): children fill the column width, which is set by
+     the widest INTRINSICALLY-sized child — the HudCluster. The casualty panel
+     opts out of that intrinsic-width vote (width:0 + min-width:100% below) so a
+     long game's icon list can't widen the column toward 48vw and spill over the
+     board; it wraps DOWN within the cluster's width instead. */
+  align-items: stretch;
   gap: 0.4rem;
   pointer-events: none; /* gap between children passes through to the board */
+  /* size to content (the cluster) up to the 48vw cap, not the 48vw box itself */
+  width: max-content;
 }
 
 /* --- v0.9: Round + Credits HUD cluster (prominently BIGGER) ----------------- */
@@ -2715,7 +2722,16 @@ body {
   /* position/top/left/z-index come from .hud-column — this element is in-flow
      inside that flex column and simply stacks below .hud-cluster. */
   pointer-events: auto;  /* restore: the parent column is pointer-events:none */
-  max-width: 100%;       /* respects parent's max-width: 48vw */
+  /* WIDTH CONTRACT (bugfix): the panel's width must TRACK the HudCluster and
+     never widen the column toward 48vw. width:0 zeroes its intrinsic-width
+     contribution so the column's max-content is set by the cluster alone; then
+     min-width:100% + max-width:100% snap it to whatever width the cluster gave
+     the column. The icon rows therefore wrap DOWNWARD inside the cluster width
+     instead of spilling rightward over the board. */
+  width: 0;
+  min-width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -2742,7 +2758,9 @@ body {
 
 .casualty-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: wrap;       /* icons overflow onto NEW ROWS, not rightward */
+  min-width: 0;          /* don't let icon content force the row wider */
+  max-width: 100%;       /* never exceed the (cluster-sized) panel width */
   gap: 1px;
 }
 
