@@ -140,9 +140,10 @@ describe('replay builder — grouping', () => {
     });
     const script = build(units, [exchange(4, 5, 5, 6), exchange(3, 1, 4, 3)]);
     expect(script.slots.length).toBe(2);
-    // First exchange: full volley beat. Second (same cell + pair): compressed.
-    // (MOVE_STEP_MS=160, VOLLEY_MS=520, BRAWL_FOLLOWUP_MS=240 — Phase 4.2 constants)
-    expect(script.frames[1]!.duration).toBe(520);
+    // First exchange: a full SEQUENCED beat — its duration is now beat-driven
+    // (melee base 700 × default dilationDepth 1.6 = 1120). The second exchange
+    // (same cell + pair) stays compressed at BRAWL_FOLLOWUP_MS=240 (P9 pacing).
+    expect(script.frames[1]!.duration).toBe(1120);
     expect(script.frames[2]!.duration).toBe(240);
     // Floaters show RUNNING totals: −4/−5, then −7/−6 — the sum stays readable.
     expect(script.frames[1]!.floaters.map((f) => f.text)).toEqual(['−4', '−5']);
@@ -174,8 +175,8 @@ describe('replay builder — grouping', () => {
     const script = build(units, [exchange, move, exchange]);
     const brawlFrames = script.frames.filter((f) => f.bursts.length > 0);
     expect(brawlFrames.length).toBe(2);
-    expect(brawlFrames[0]!.duration).toBe(520); // Phase 4.2 constant: VOLLEY_MS=520
-    expect(brawlFrames[1]!.duration).toBe(520); // chain broken — full beat again (Phase 4.2)
+    expect(brawlFrames[0]!.duration).toBe(1120); // beat-driven (melee 700 × 1.6)
+    expect(brawlFrames[1]!.duration).toBe(1120); // chain broken — full beat again
     expect(brawlFrames[1]!.floaters.map((f) => f.text)).toEqual(['−4', '−5']); // fresh totals
   });
 

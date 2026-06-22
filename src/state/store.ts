@@ -55,6 +55,18 @@ import {
   type ReplayScript,
   type TimelineSlot,
 } from './replay';
+import {
+  clampDilationDepth,
+  DILATION_DEPTH_DEFAULT,
+  DILATION_DEPTH_MAX,
+  DILATION_DEPTH_MIN,
+} from './replay-timing';
+
+// Re-export the combat-dilation range for the second slider (sequencing §5) so
+// the UI imports it from the store alongside the replay-speed bounds.
+export { DILATION_DEPTH_DEFAULT, DILATION_DEPTH_MAX, DILATION_DEPTH_MIN };
+/** Slider step for the combat-dilation knob — 0.1 over [1.0, 4.0]. */
+export const DILATION_DEPTH_STEP = 0.1;
 
 /** §6.4 standard army: one of each of the 8 types, initiative descending. */
 export const STANDARD_ARMY: readonly string[] = [
@@ -179,6 +191,43 @@ export function saveReplaySpeed(speed: number): void {
     if (typeof localStorage === 'undefined') return;
     if (Number.isNaN(speed) || speed < REPLAY_SPEED_MIN || speed > REPLAY_SPEED_MAX) return;
     localStorage.setItem(REPLAY_SPEED_KEY, String(speed));
+  } catch {
+    // storage blocked (private mode etc.) — preference simply won't persist.
+  }
+}
+
+// --- COMBAT DILATION-DEPTH (second knob — sequencing §5) ----------------------
+// A SEPARATE control from replaySpeed: it scales COMBAT BEAT durations only
+// (never movement frames), restoring the fast→slow contrast. Persisted to
+// localStorage; clamped on load/save. The clamp + range live in replay-timing
+// (shared with the beat layout) so the store and the layout can never disagree.
+
+/** localStorage key for the persisted combat dilation depth. */
+const DILATION_DEPTH_KEY = 'brumachlys.dilationDepth';
+
+/** Read the persisted combat dilation depth. Defaults to DILATION_DEPTH_DEFAULT
+ *  (1.6×) when unset, invalid, or when storage is unavailable; CLAMPS an
+ *  in-range-but-imprecise stored value into [1.0, 4.0]. try/caught (private mode
+ *  can throw). */
+export function loadDilationDepth(): number {
+  try {
+    if (typeof localStorage === 'undefined') return DILATION_DEPTH_DEFAULT;
+    const raw = localStorage.getItem(DILATION_DEPTH_KEY);
+    if (raw === null) return DILATION_DEPTH_DEFAULT;
+    const n = Number(raw);
+    if (Number.isNaN(n)) return DILATION_DEPTH_DEFAULT;
+    return clampDilationDepth(n); // clamp out-of-range stored values into range
+  } catch {
+    return DILATION_DEPTH_DEFAULT;
+  }
+}
+
+/** Persist a combat dilation depth (clamped to [1.0, 4.0] first). No-op when
+ *  storage is unavailable. */
+export function saveDilationDepth(depth: number): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(DILATION_DEPTH_KEY, String(clampDilationDepth(depth)));
   } catch {
     // storage blocked (private mode etc.) — preference simply won't persist.
   }
@@ -548,6 +597,11 @@ export type AppState = {
   /** Last resolved round's replay script (null in planning of round 1). */
   replay: ReplaySlice | null;
   replaySpeed: ReplaySpeed;
+  /** COMBAT DILATION DEPTH (second knob — sequencing §5): scales COMBAT BEAT
+   *  durations only (never movement). Range [1.0, 4.0], default 1.6×. Persisted
+   *  to localStorage; flows into buildReplay so combat beats stretch/compress.
+   *  Composes with replaySpeed (effective per-beat wall time = beatDur / speed). */
+  dilationDepth: number;
 
   // --- planning slice (P7) ---------------------------------------------------
   /** Currently selected OWN unit (Layer 1, §9.2). */
@@ -655,6 +709,9 @@ export type AppState = {
    * in conquest, under p1ArchetypeKey), then commit — full self-play. */
   commitAutopilot: () => void;
   setReplaySpeed: (speed: ReplaySpeed) => void;
+  /** Sequencing §5: set the combat dilation depth (clamped to [1.0, 4.0]) and
+   *  persist it. Scales combat beat durations only — movement is unaffected. */
+  setDilationDepth: (depth: number) => void;
   /** Playback driver reached the last frame → round summary sheet. */
   finishReplay: () => void;
   /** Summary dismissed → back to planning, or the §2.8 banner. */
@@ -689,6 +746,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   // RESOLUTION SLOW-DOWN SLIDER: seed from the persisted choice so test sessions
   // remember the last slow level (defaults to 1× when unset).
   replaySpeed: loadReplaySpeed(),
+  // COMBAT DILATION DEPTH (second knob): seed from the persisted choice so a
+  // session remembers the depth (defaults to 1.6× when unset).
+  dilationDepth: loadDilationDepth(),
 
   selectedUnitId: null,
   pendingMove: null,
@@ -1118,6 +1178,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     } else {
       set({ replaySpeed });
     }
+  },
+
+  // COMBAT DILATION DEPTH (second knob): clamp into [1.0, 4.0], persist, set.
+  // Scales combat beat durations only — stage 2 wires it into buildReplay +
+  // playback; this stage owns the value + persistence.
+  setDilationDepth: (depth) => {
+    const clamped = clampDilationDepth(depth);
+    saveDilationDepth(clamped);
+    set({ dilationDepth: clamped });
   },
 
   finishReplay: () => {

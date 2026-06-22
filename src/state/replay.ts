@@ -65,12 +65,17 @@ import {
   classifyBand,
   bandWave,
   layoutPhases,
+  layoutBeats,
   projectileKind,
+  DILATION_DEPTH_DEFAULT,
+  MAX_SPOTLIT_BEATS,
   WAVE_B_COUNTER_OFFSET,
+  type Beat,
   type CombatBand,
   type PhaseDurations,
   type PhaseLayout,
   type Projectile,
+  type RawBeat,
   type Wave,
 } from './replay-timing';
 
@@ -233,11 +238,24 @@ export type ReplayFrame = {
   band?: CombatBand;
   /** R4 (PROJECTILE + ATTACK MOTION): the attack-motion primitives for this
    *  combat frame's SHOWN strikes — crawling tracers / arcing shells (WAVE_A) or
-   *  melee stabs (WAVE_B). All WAVE_A projectiles of a beat share ONE dilated
-   *  envelope (no per-unit sequencing); WAVE_B counters carry a ~75 ms crossfire
-   *  delay so an exchange reads as two motions. Mist strikes withhold the source
-   *  → no projectile (the impact alone shows). Empty on non-combat frames. */
+   *  melee stabs (WAVE_B). Sequencing pass (§3): these now also live PER-BEAT in
+   *  `beats[].projectiles`; this flat list is kept as the union (every beat's
+   *  projectiles in beat order) so existing readers see the same set. WAVE_B
+   *  counters carry a ~75 ms crossfire delay so an exchange reads as two motions.
+   *  Mist strikes withhold the source → no projectile (the impact alone shows).
+   *  Empty on non-combat frames. */
   projectiles?: Projectile[];
+  /** Sequencing pass (§3.3): the SEQUENCED beats of this combat frame — one per
+   *  shown exchange (leading strike + immediate counter grouped; a brawl is one
+   *  beat), in the resolver's natural strike order, played SEQUENTIALLY within
+   *  the frame. `start`/`dur` are relative to the frame (ms at 1× speed, scaled
+   *  by the combat `dilationDepth`); the frame's `duration` is the sum of the
+   *  beats' windows + inter-beat gaps. `activeCells` is the beat's attacker +
+   *  defender cells for the §4 focal spotlight (fog-honest — a withheld mist
+   *  source is never in activeCells). Each beat owns its projectiles. The
+   *  spotlit count is capped at MAX_SPOTLIT_BEATS; the tail collapses into one
+   *  faster remainder beat. Absent on non-combat frames. */
+  beats?: Beat[];
   /** R4: screen-shake magnitude (px at 1×) for this combat frame — scales with
    *  the total damage landing this beat; artillery gets the biggest shake of the
    *  set. 0/absent on non-combat frames. The App nudges the board container. */
@@ -371,6 +389,12 @@ export function buildReplay(
    *  if you retune. Affects only the exposed phase layout — frame durations are
    *  the existing per-beat constants, divided by speed in the transport. */
   timing?: Partial<PhaseDurations>,
+  /** Sequencing pass (§5): the combat dilation DEPTH — scales COMBAT BEAT
+   *  durations only (§3.2), never movement. Defaults to DILATION_DEPTH_DEFAULT
+   *  (1.6×) when omitted; the store passes its persisted value. Presentation
+   *  wall-clock only — never feeds the resolver; the laid-out frame durations
+   *  stay the transport authority. */
+  dilationDepth: number = DILATION_DEPTH_DEFAULT,
 ): ReplayScript {
   // R1: the laid-out combat phase windows for this round (presentation only).
   const phases = layoutPhases(timing);
@@ -1087,11 +1111,18 @@ export function buildReplay(
         // five snipers' tracers fly together); a WAVE_B counter trails the strike
         // it answers by WAVE_B_COUNTER_OFFSET (crossfire reads as two motions).
         const projectiles = buildProjectiles(b.strikes, board, unitTypes);
+        // Sequencing (§3): split this wave's shown strikes into SEQUENTIAL beats
+        // (each leading strike + its counter = one beat), scaled by dilationDepth.
+        // The frame's duration is RECOMPUTED from the laid-out beats so the R7
+        // transport (totalDuration/frameAtTime/frameStartTime) stays authoritative.
+        const { beats, duration: beatsDuration } = buildBeats(
+          b.strikes, beatBand, board, unitTypes, dilationDepth,
+        );
         // R4: shake scales with the TOTAL damage of this beat (band-weighted —
         // artillery is the biggest of the set).
         const beatDamage = b.strikes.reduce((sum, s) => sum + s.damage, 0);
         frames.push({
-          duration: VOLLEY_MS,
+          duration: beatsDuration > 0 ? beatsDuration : VOLLEY_MS,
           slot,
           units: renderUnits(visAfter),
           ...fogFields(visAfter),
@@ -1110,6 +1141,7 @@ export function buildReplay(
           wave: w,
           band: beatBand,
           projectiles,
+          beats,
           shake: shakeMagnitude(beatDamage, beatBand),
         });
         // R6: this beat's casualties enter the DOOMED hold from THIS frame.
@@ -1260,9 +1292,18 @@ export function buildReplay(
         // exchange reads as a crossfire of two motions. Shake scales with the
         // total damage landing on the tile (light melee nudge).
         const brawlProjectiles = buildProjectiles(strikes, board, unitTypes);
+        // Sequencing (§3.1): a brawl-exchange (strike + return) is ONE beat. The
+        // frame duration comes from the laid-out beat (× dilationDepth). A
+        // follow-up exchange of the SAME brawl stays compressed: it overrides the
+        // beat-driven duration with the short BRAWL_FOLLOWUP envelope (P9 pacing).
+        const { beats: brawlBeats, duration: brawlBeatsDuration } = buildBeats(
+          strikes, 'melee', board, unitTypes, dilationDepth,
+        );
         const brawlDamage = strikes.reduce((sum, s) => sum + s.damage, 0);
         frames.push({
-          duration: followup ? BRAWL_FOLLOWUP_MS : VOLLEY_MS,
+          duration: followup
+            ? BRAWL_FOLLOWUP_MS
+            : brawlBeatsDuration > 0 ? brawlBeatsDuration : VOLLEY_MS,
           slot,
           units: renderUnits(visAfter),
           ...fogFields(visAfter),
@@ -1272,6 +1313,7 @@ export function buildReplay(
           wave: 'B',
           band: 'melee',
           projectiles: brawlProjectiles,
+          beats: brawlBeats,
           shake: shakeMagnitude(brawlDamage, 'melee'),
         });
         // R6: brawl casualties enter the DOOMED hold from this clash frame and
@@ -1862,6 +1904,90 @@ function buildProjectiles(
     });
   }
   return out;
+}
+
+/** Sequencing pass (§3, PURE): group a beat-frame's SHOWN strikes into ordered
+ *  RawBeats then lay them out into sequential `Beat`s scaled by `dilationDepth`.
+ *
+ *  Grouping (§3.1): a leading strike + its immediate counter form ONE beat (the
+ *  crossfire reads as a single exchange); an independent strike is its own beat;
+ *  a brawl + its return is one beat. The strike list arrives in the resolver's
+ *  natural order with each leading strike ('attack'/'brawl') immediately followed
+ *  by its answering strike ('counter'/'brawl-return') when present — so we walk
+ *  the list, opening a new beat on each leading strike and folding a trailing
+ *  answer into it.
+ *
+ *  activeCells (§3.3 / §4): a beat's attacker + defender cells, fog-honest — a
+ *  mist strike's attacker is null, so only the witnessed defender joins (the
+ *  firing position never leaks, never is spotlit). Each strike's projectile (if
+ *  source-revealed) goes into its own beat.
+ *
+ *  Cap (§3.2): only the first MAX_SPOTLIT_BEATS exchanges get individual beats;
+ *  any beyond collapse into ONE remainder beat (its activeCells/projectiles are
+ *  the union of the tail's), laid out faster + flagged so the renderer plays it
+ *  together without a spotlight. PURE — deterministic from (strikes, board,
+ *  unitTypes, dilationDepth); no Math.random, so scrub/replay are identical.
+ *  Exported for unit tests (grouping + cap + scaling). */
+export function buildBeats(
+  strikes: readonly Strike[],
+  band: CombatBand,
+  board: Board,
+  unitTypes: Readonly<Record<string, UnitType>>,
+  dilationDepth: number,
+): { beats: Beat[]; duration: number } {
+  // The shown strikes share this frame's wave band for sub-window sizing; the
+  // projectile kind is still per-strike (a mist strike yields none).
+  const projAll = buildProjectiles(strikes, board, unitTypes);
+  // buildProjectiles emits one projectile per SOURCE-REVEALED strike in order;
+  // map each strike to its projectile (mist strikes consume none).
+  const projByStrike: (Projectile | null)[] = [];
+  {
+    let p = 0;
+    for (const s of strikes) {
+      const revealed =
+        s.attackerCell !== null && s.attackerFaction !== null && s.attackerType !== null;
+      projByStrike.push(revealed ? (projAll[p++] ?? null) : null);
+    }
+  }
+
+  // Walk the ordered strikes, opening a beat on each leading strike and folding
+  // a trailing answer (counter / brawl-return) into the open beat.
+  const raw: RawBeat[] = [];
+  let open: RawBeat | null = null;
+  const cellsOf = (s: Strike): CellId[] =>
+    s.attackerCell !== null ? [s.attackerCell, s.defenderCell] : [s.defenderCell];
+  const pushCells = (into: CellId[], add: CellId[]): void => {
+    for (const c of add) if (!into.includes(c)) into.push(c);
+  };
+  for (let k = 0; k < strikes.length; k++) {
+    const s = strikes[k]!;
+    const isAnswer = s.kind === 'counter' || s.kind === 'brawl-return';
+    const proj = projByStrike[k];
+    if (isAnswer && open) {
+      pushCells(open.activeCells, cellsOf(s));
+      if (proj) open.projectiles.push(proj);
+    } else {
+      open = { activeCells: [], projectiles: proj ? [proj] : [], band };
+      pushCells(open.activeCells, cellsOf(s)); // dedup (a same-cell brawl repeats)
+      raw.push(open);
+    }
+  }
+
+  // §3.2 cap: collapse the tail past MAX_SPOTLIT_BEATS into ONE remainder beat.
+  let laidRaw = raw;
+  if (raw.length > MAX_SPOTLIT_BEATS) {
+    const head = raw.slice(0, MAX_SPOTLIT_BEATS);
+    const tail = raw.slice(MAX_SPOTLIT_BEATS);
+    const remCells: CellId[] = [];
+    const remProj: Projectile[] = [];
+    for (const rb of tail) {
+      pushCells(remCells, rb.activeCells);
+      remProj.push(...rb.projectiles);
+    }
+    laidRaw = [...head, { activeCells: remCells, projectiles: remProj, band, remainder: true }];
+  }
+
+  return layoutBeats(laidRaw, dilationDepth);
 }
 
 function makeStrike(

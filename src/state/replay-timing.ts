@@ -99,6 +99,138 @@ export function projectileKind(band: CombatBand): {
   return { kind: 'stab', impact: 0.5 };
 }
 
+// --- Sequenced combat BEATS (combat-readability sequencing §3) ---------------
+// A beat is the unit of SEQUENCED combat presentation: one shown exchange — a
+// leading strike + its immediate counter grouped (crossfire), an independent
+// strike with no counter, or a brawl-exchange — played as its own sub-window
+// inside a combat frame. Beats play SEQUENTIALLY (never concurrently) in the
+// resolver's natural strike order; beat K+1 starts after beat K's window plus a
+// small inter-beat gap. This is the cure for the "simultaneous burst" — the eye
+// tracks ONE exchange at a time. PURE: a beat is a presentation REORDER of
+// already-resolved strikes; no resolved value (damage/counts/fog/log) changes.
+//
+// activeCells = the beat's attacker + defender cells, for the §4 focal
+// spotlight (the board dims everything else during the beat). Fog-honest by
+// construction: a mist strike (attacker withheld) carries only its DEFENDER
+// cell — the firing position is NEVER in activeCells (it never leaks, never is
+// spotlit). Built upstream in replay.ts from the same fog-filtered strikes.
+
+/** A leading-strike base sub-window (ms at 1× depth, before dilationDepth) for a
+ *  RANGED beat — a tracer crawl reads at this pace (sequencing spec §3.2). */
+export const BEAT_BASE_RANGED = 900;
+/** A leading-strike base sub-window (ms at 1× depth) for an ARTILLERY beat —
+ *  longer so the lobbed shell's hang-time reads (sequencing spec §3.2). */
+export const BEAT_BASE_ARTILLERY = 1200;
+/** A leading-strike base sub-window (ms at 1× depth) for a MELEE beat — a brief
+ *  stab exchange. (Melee waves are quick; the contrast is movement-vs-combat.) */
+export const BEAT_BASE_MELEE = 700;
+/** A small legible "tick" between beats (ms at 1× depth) so the sequence reads
+ *  as discrete exchanges, not a smear (sequencing spec §3.2). Scaled by depth. */
+export const INTER_BEAT_GAP = 120;
+/** Cap on spotlit beats per wave (sequencing spec §3.2): beyond this, the
+ *  remaining strikes collapse into ONE faster "remainder" beat (played together,
+ *  briefly, NOT spotlit) so a 30-unit melee doesn't run for a minute. */
+export const MAX_SPOTLIT_BEATS = 8;
+/** The remainder beat (the collapsed tail past MAX_SPOTLIT_BEATS) plays at this
+ *  fraction of a normal leading-strike sub-window — faster, played together. */
+export const REMAINDER_BEAT_SCALE = 0.6;
+
+/** The per-band base sub-window (ms at 1× depth) for a leading strike. PURE. */
+export function beatBaseFor(band: CombatBand): number {
+  if (band === 'artillery') return BEAT_BASE_ARTILLERY;
+  if (band === 'ranged') return BEAT_BASE_RANGED;
+  return BEAT_BASE_MELEE;
+}
+
+/** Clamp the combat dilation depth into the supported range (sequencing §5:
+ *  1.0 → 4.0). NaN / non-number → the default. PURE — shared by the store
+ *  (persistence load/save) and the layout so they can never disagree. */
+export const DILATION_DEPTH_MIN = 1.0;
+export const DILATION_DEPTH_MAX = 4.0;
+export const DILATION_DEPTH_DEFAULT = 1.6;
+export function clampDilationDepth(v: number): number {
+  if (typeof v !== 'number' || Number.isNaN(v)) return DILATION_DEPTH_DEFAULT;
+  return Math.max(DILATION_DEPTH_MIN, Math.min(DILATION_DEPTH_MAX, v));
+}
+
+/** A SEQUENCED combat beat — one shown exchange laid out within its combat
+ *  frame. `start`/`dur` are RELATIVE to the frame (ms at 1× speed, already
+ *  scaled by dilationDepth). Beats within a frame are non-overlapping and
+ *  ordered: `beats[k+1].start === beats[k].start + beats[k].dur + gap`. */
+export type Beat = {
+  /** ms from the frame's start at which this beat's window begins. */
+  start: number;
+  /** ms duration of this beat's window (already × dilationDepth). */
+  dur: number;
+  /** The beat's attacker + defender cells for the focal spotlight. Fog-honest:
+   *  a withheld mist source is NOT here (only the witnessed defender). */
+  activeCells: CellId[];
+  /** This beat's attack-motion primitives (moved out of the flat per-frame list
+   *  into the beat that owns them). A mist strike carries no projectile. */
+  projectiles: Projectile[];
+};
+
+/** A pre-layout beat: the cells + projectiles + band of one exchange, before
+ *  start/dur are assigned. `remainder` flags the collapsed tail (§3.2 cap) —
+ *  the renderer plays it together + faster and does NOT spotlight it. */
+export type RawBeat = {
+  activeCells: CellId[];
+  projectiles: Projectile[];
+  band: CombatBand;
+  remainder?: boolean;
+};
+
+/** Lay out a wave's ordered RawBeats into sequential, non-overlapping `Beat`s.
+ *  PURE — a function of (rawBeats, dilationDepth) only; no Math.random, so
+ *  scrub/replay are identical. The §3.2 model:
+ *   • each leading beat's window = `beatBaseFor(band) × dilationDepth`;
+ *   • beats are laid end-to-end separated by `INTER_BEAT_GAP × dilationDepth`;
+ *   • the FIRST `MAX_SPOTLIT_BEATS` play individually; any beyond that are
+ *     collapsed by the CALLER into ONE remainder RawBeat (flagged), which is laid
+ *     out here at `REMAINDER_BEAT_SCALE` of a normal window (faster).
+ *  Returns the laid-out beats and the wave's total duration (Σ dur + gaps). An
+ *  empty input yields `{ beats: [], duration: 0 }`. */
+export function layoutBeats(
+  rawBeats: readonly RawBeat[],
+  dilationDepth: number,
+): { beats: Beat[]; duration: number } {
+  const depth = clampDilationDepth(dilationDepth);
+  const gap = INTER_BEAT_GAP * depth;
+  const beats: Beat[] = [];
+  let t = 0;
+  for (let k = 0; k < rawBeats.length; k++) {
+    const rb = rawBeats[k]!;
+    if (k > 0) t += gap;
+    const base = beatBaseFor(rb.band) * (rb.remainder ? REMAINDER_BEAT_SCALE : 1);
+    const dur = base * depth;
+    beats.push({ start: t, dur, activeCells: [...rb.activeCells], projectiles: rb.projectiles });
+    t += dur;
+  }
+  return { beats, duration: t };
+}
+
+/** PURE: the beat whose window contains `tWithinFrame` (ms relative to the
+ *  frame's start), or null when t is in an inter-beat gap, before the first
+ *  beat, or past the last. A value exactly on a beat's start belongs to THAT
+ *  beat; a value at/after a beat's end but before the next beat's start (the
+ *  gap) yields null. Deterministic — scrub-safe (a stable function of t). */
+export function beatAt(beats: readonly Beat[], tWithinFrame: number): Beat | null {
+  if (!(tWithinFrame >= 0)) return null; // negative / NaN → before the sequence
+  for (const b of beats) {
+    if (tWithinFrame >= b.start && tWithinFrame < b.start + b.dur) return b;
+  }
+  return null;
+}
+
+/** PURE: the active (spotlit) cells at `tWithinFrame` — the containing beat's
+ *  activeCells, or [] in a gap / outside the sequence. Fog-honest (a withheld
+ *  source is never in any beat's activeCells, so it can never be spotlit). The
+ *  §4 spotlight reads this; deterministic + scrub-safe. */
+export function activeCellsAt(beats: readonly Beat[], tWithinFrame: number): CellId[] {
+  const b = beatAt(beats, tWithinFrame);
+  return b ? b.activeCells : [];
+}
+
 /** One laid-out phase window: absolute start/end (ms) and its duration. */
 export type PhaseWindow = { start: number; end: number; duration: number };
 
