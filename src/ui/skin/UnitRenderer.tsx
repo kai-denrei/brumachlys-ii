@@ -11,8 +11,11 @@
 
 import { memo } from 'react';
 import type { UnitInstance } from '../../core/types';
+import type { UnitRenderMode } from '../../state/store';
 import { UnitGlyph } from './icons';
 import { UnitSprite } from './UnitSprite';
+import { UnitWatercolor } from './UnitWatercolor';
+import { watercolorUrl } from './watercolors/watercolor-data';
 import type { Motion } from './sprites/sprite-data';
 import { darken, desaturate, factionColor } from './palette';
 import { SPOTLIGHT_DESATURATION, SPOTLIGHT_DIM_OPACITY } from './CellRenderer';
@@ -63,14 +66,16 @@ export type UnitRendererProps = {
   onRadar?: () => void;
   /** v0.9 radar: when true the radar pip renders as ACTIVE (inverted fill). */
   radarActive?: boolean;
-  /** PoC: render infantry as an animated sprite (the "anim" toggle, board only).
-   *  Off ⇒ the flat glyph. Default off so non-board sites stay glyphs. */
-  sprite?: boolean;
+  /** Unit-render skin (gear menu): 'icon' the flat glyph (default — non-board
+   *  sites stay glyphs), 'anim' animated infantry sprite (infantry-only, board),
+   *  'watercolor' static faction art for ALL 8 types (board). Minimal contexts
+   *  always render the glyph regardless of the mode. */
+  renderMode?: UnitRenderMode;
   /** PoC: what the unit is doing right now — drives the sprite clip family
-   *  (idle ambient / moving / firing). Ignored unless `sprite` is on. */
+   *  (idle ambient / moving / firing). Ignored unless renderMode === 'anim'. */
   motion?: Motion;
   /** PoC: which way the sprite faces — 1 = native right, -1 = mirrored to face
-   *  left (toward the enemy). Ignored unless `sprite` is on. */
+   *  left (toward the enemy). Ignored unless renderMode === 'anim'. */
   facing?: 1 | -1;
   /** R2 (SPOTLIGHT): combat-spotlight treatment during replay.
    *   • 'dim' — an idle (non-combatant) unit: desaturate its faction colour
@@ -100,7 +105,7 @@ export const UnitRenderer = memo(function UnitRenderer({
   onTap,
   onRadar,
   radarActive = false,
-  sprite = false,
+  renderMode = 'icon',
   motion = 'idle',
   facing = 1,
   spotlight = null,
@@ -124,11 +129,16 @@ export const UnitRenderer = memo(function UnitRenderer({
 
   const pipR = size * 0.21;
 
-  // PoC ("anim" toggle): infantry renders as an animated sprite instead of the
-  // flat squircle + glyph. Off by default (non-board sites stay glyphs; the
-  // board passes the store flag). Minimal contexts (timeline chips, demoted
-  // corner tokens) keep the cheap glyph — a per-frame sprite there is wasteful.
-  const useSprite = sprite && unit.type === 'infantry' && !minimal;
+  // Render skin (gear menu). Minimal contexts (timeline chips, demoted corner
+  // tokens, hover cards) ALWAYS keep the cheap glyph — a per-frame sprite or a
+  // full painting there is wasteful and illegible at tiny sizes.
+  //  • 'anim'       → animated sprite, INFANTRY ONLY (the other types have no
+  //    sprite strips); every other type stays a glyph.
+  //  • 'watercolor' → static faction art for ALL 8 types and BOTH factions; a
+  //    type with no shipped painting falls back to the glyph.
+  const useSprite = renderMode === 'anim' && unit.type === 'infantry' && !minimal;
+  const useWatercolor =
+    renderMode === 'watercolor' && !minimal && watercolorUrl(unit.faction, unit.type) !== null;
 
   const body = (
     <>
@@ -183,6 +193,8 @@ export const UnitRenderer = memo(function UnitRenderer({
       )}
       {useSprite ? (
         <UnitSprite unitId={unit.id} faction={unit.faction} size={size} motion={motion} facing={facing} />
+      ) : useWatercolor ? (
+        <UnitWatercolor faction={unit.faction} type={unit.type} size={size} />
       ) : (
         <>
           <rect

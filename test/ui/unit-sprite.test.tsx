@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { Board as BoardGraph, Cell, CellId } from '../../src/board/types';
 import type { UnitInstance } from '../../src/core/types';
-import { useAppStore } from '../../src/state/store';
+import { useAppStore, type UnitRenderMode } from '../../src/state/store';
 import { Board } from '../../src/ui/Board';
 import { UnitRenderer, type Motion, type ReplayFxData } from '../../src/ui/skin';
 
@@ -30,7 +30,7 @@ function unit(over: Partial<UnitInstance> = {}): UnitInstance {
 
 function renderToken(
   u: UnitInstance,
-  opts: { sprite?: boolean; minimal?: boolean; motion?: Motion; facing?: 1 | -1 } = {},
+  opts: { renderMode?: UnitRenderMode; minimal?: boolean; motion?: Motion; facing?: 1 | -1 } = {},
 ) {
   return render(
     <svg>
@@ -39,7 +39,7 @@ function renderToken(
         x={0}
         y={0}
         size={40}
-        sprite={opts.sprite ?? true}
+        renderMode={opts.renderMode ?? 'anim'}
         minimal={opts.minimal ?? false}
         motion={opts.motion ?? 'idle'}
         facing={opts.facing ?? 1}
@@ -61,8 +61,8 @@ describe('UnitSprite (infantry)', () => {
     expect(container.querySelector('.unit-count')).not.toBeNull();
   });
 
-  it('sprite OFF (the "anim" toggle) → the flat glyph, no sprite', () => {
-    const { container } = renderToken(unit(), { sprite: false });
+  it('icon mode → the flat glyph, no sprite', () => {
+    const { container } = renderToken(unit(), { renderMode: 'icon' });
     expect(container.querySelector('.unit-sprite')).toBeNull();
     expect(container.querySelector('.unit-body')).not.toBeNull();
   });
@@ -128,7 +128,7 @@ const clipFor = (c: HTMLElement, id: string) =>
   c.querySelector(`[data-unit-id="${id}"] .unit-sprite image`)?.getAttribute('data-sprite-clip');
 
 describe('infantry sprite motion (Board, from the replay frame)', () => {
-  beforeEach(() => useAppStore.setState({ screen: 'battle', uiPhase: 'replay', spritesOn: true }));
+  beforeEach(() => useAppStore.setState({ screen: 'battle', uiPhase: 'replay', unitRenderMode: 'anim' }));
 
   it('FIRES (a shoot clip) when its cell is an arc source this frame', () => {
     const fx: ReplayFxData = { ...EMPTY_FX, arcs: [{ from: 0, to: 1, faction: 0 }] };

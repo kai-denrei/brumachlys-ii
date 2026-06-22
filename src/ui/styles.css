@@ -73,23 +73,75 @@ body {
   gap: 0.35rem;
 }
 
-/* PoC "anim" sprite toggle — a minimalist tag; filled coral when ON. */
-.top-bar-anim {
-  font: 700 0.62rem/1 ui-monospace, 'SF Mono', Menlo, monospace;
-  letter-spacing: 0.1em;
-  text-transform: lowercase;
-  color: #8c8676;
-  background: transparent;
+/* Gear (⚙) unit-appearance skin picker — a slim button opening a small popover
+   menu of the three skins (Icons / Animated / Watercolor). Replaces the old
+   binary "anim" toggle. */
+.top-bar-gear-root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.top-bar-gear {
   border: 1px solid rgba(74, 68, 58, 0.28);
+  background: transparent;
   border-radius: 0.4rem;
-  padding: 0.16rem 0.42rem;
+  width: 1.7rem;
+  height: 1.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgba(74, 68, 58, 0.7);
+  -webkit-tap-highlight-color: transparent;
+}
+.top-bar-gear-open {
+  color: #fff;
+  background: #e8806b; /* factionA coral — reads as "active" while open */
+  border-color: transparent;
+}
+.top-bar-gear-glyph {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+/* The popover: anchored under the gear, right-aligned so it stays on-screen. */
+.top-bar-gear-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 8.5rem;
+  padding: 0.25rem;
+  border-radius: 0.5rem;
+  background: var(--paper, #f7f3ea);
+  border: 1px solid rgba(74, 68, 58, 0.18);
+  box-shadow: 0 6px 22px rgba(40, 36, 30, 0.22);
+}
+
+.top-bar-gear-item {
+  font: 600 0.74rem/1 inherit;
+  text-align: left;
+  color: var(--ink, #4a443a);
+  background: transparent;
+  border: none;
+  border-radius: 0.35rem;
+  padding: 0.46rem 0.6rem;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.top-bar-anim-on {
+.top-bar-gear-item:hover {
+  background: rgba(74, 68, 58, 0.08);
+}
+.top-bar-gear-item-active {
   color: #fff;
-  background: #e8806b; /* factionA coral — reads as "live" */
-  border-color: transparent;
+  background: #e8806b; /* factionA coral — the live skin */
+  font-weight: 700;
+}
+.top-bar-gear-item-active:hover {
+  background: #e8806b;
 }
 
 .top-bar-round {

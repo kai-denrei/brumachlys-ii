@@ -860,8 +860,8 @@ export function Board({
   const planningOrders = useAppStore((s) =>
     s.screen === 'battle' && s.uiPhase === 'planning' ? s.orders : null,
   );
-  // PoC "anim" toggle: ON ⇒ infantry render as animated sprites on the board.
-  const spritesOn = useAppStore((s) => s.spritesOn);
+  // Gear menu: the unit-render skin (icon / anim / watercolor) for board tokens.
+  const unitRenderMode = useAppStore((s) => s.unitRenderMode);
   const pulseEligible =
     interactive && !silhouette && replayFx === null && planningOrders !== null;
   const orderedIds = useMemo(
@@ -1268,7 +1268,7 @@ export function Board({
                 onTap={tapGuard(onUnitTap)}
                 onRadar={showRadar ? () => onUnitRadarTap(unit.id) : undefined}
                 radarActive={rangeOverlay?.unitId === unit.id}
-                sprite={spritesOn}
+                renderMode={unitRenderMode}
                 motion={spriteByUnit.get(unit.id)?.motion ?? 'idle'}
                 facing={spriteByUnit.get(unit.id)?.facing ?? 1}
                 spotlight={unitSpotlight(unit)}

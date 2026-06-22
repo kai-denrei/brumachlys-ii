@@ -5,7 +5,7 @@
 // matches how it runs in the app).
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { STANDARD_ARMY, useAppStore } from '../../src/state/store';
+import { STANDARD_ARMY, loadUnitRenderMode, useAppStore } from '../../src/state/store';
 
 describe('app store', () => {
   beforeEach(() => {
@@ -14,7 +14,7 @@ describe('app store', () => {
       donorId: '53316',
       seed: 7,
       donorDefaultsApplied: new Set(),
-      spritesOn: true,
+      unitRenderMode: 'icon',
       // E3: the store defaults to conquest; these suites pin the v1 skirmish
       // game (mirror armies, no bases) — conquest plumbing has its own suite.
       mode: 'skirmish',
@@ -77,12 +77,29 @@ describe('app store', () => {
     expect(s.uiPhase).toBe('planning');
   });
 
-  it('toggleSprites flips the "anim" flag (default on)', () => {
-    expect(useAppStore.getState().spritesOn).toBe(true);
-    useAppStore.getState().toggleSprites();
-    expect(useAppStore.getState().spritesOn).toBe(false);
-    useAppStore.getState().toggleSprites();
-    expect(useAppStore.getState().spritesOn).toBe(true);
+  it('setUnitRenderMode sets the skin and persists it to localStorage', () => {
+    localStorage.removeItem('brumachlys.unitRenderMode');
+    useAppStore.getState().setUnitRenderMode('watercolor');
+    expect(useAppStore.getState().unitRenderMode).toBe('watercolor');
+    expect(localStorage.getItem('brumachlys.unitRenderMode')).toBe('watercolor');
+
+    useAppStore.getState().setUnitRenderMode('anim');
+    expect(useAppStore.getState().unitRenderMode).toBe('anim');
+    expect(localStorage.getItem('brumachlys.unitRenderMode')).toBe('anim');
+
+    useAppStore.getState().setUnitRenderMode('icon');
+    expect(useAppStore.getState().unitRenderMode).toBe('icon');
+    expect(localStorage.getItem('brumachlys.unitRenderMode')).toBe('icon');
+  });
+
+  it('loadUnitRenderMode reads a persisted choice, defaulting to icon when unset/invalid', () => {
+    localStorage.removeItem('brumachlys.unitRenderMode');
+    expect(loadUnitRenderMode()).toBe('icon');
+    localStorage.setItem('brumachlys.unitRenderMode', 'watercolor');
+    expect(loadUnitRenderMode()).toBe('watercolor');
+    localStorage.setItem('brumachlys.unitRenderMode', 'nonsense');
+    expect(loadUnitRenderMode()).toBe('icon');
+    localStorage.removeItem('brumachlys.unitRenderMode');
   });
 
   it('seed controls: setSeed truncates, randomizeSeed changes the seed', () => {

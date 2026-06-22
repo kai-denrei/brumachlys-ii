@@ -72,6 +72,43 @@ export type Screen = 'start' | 'battle';
 
 export const PLAYER_FACTION: FactionId = 0;
 
+/** Unit-render skin (gear menu, top bar). Replaces the old binary "anim" flag:
+ *  - 'icon'       → the flat squircle + glyph (default, every context)
+ *  - 'anim'       → animated infantry sprites on the board (infantry-only)
+ *  - 'watercolor' → static faction-colored watercolor art for ALL 8 types
+ *  Board tokens only; minimal contexts (chips, demoted corner tokens, hover
+ *  cards) always keep the glyph regardless of the mode. */
+export type UnitRenderMode = 'icon' | 'anim' | 'watercolor';
+
+/** localStorage key for the persisted unit-render mode (mirrors the audio
+ *  preference key convention in ui/audio/combatAudio.ts). */
+const UNIT_RENDER_MODE_KEY = 'brumachlys.unitRenderMode';
+
+const UNIT_RENDER_MODES: readonly UnitRenderMode[] = ['icon', 'anim', 'watercolor'];
+
+/** Read the persisted unit-render mode. Defaults to 'icon' when unset, invalid,
+ *  or when storage is unavailable (jsdom may lack it; private mode can block).
+ *  PURE-ish (reads storage only). */
+export function loadUnitRenderMode(): UnitRenderMode {
+  try {
+    if (typeof localStorage === 'undefined') return 'icon';
+    const v = localStorage.getItem(UNIT_RENDER_MODE_KEY);
+    return UNIT_RENDER_MODES.includes(v as UnitRenderMode) ? (v as UnitRenderMode) : 'icon';
+  } catch {
+    return 'icon';
+  }
+}
+
+/** Persist the unit-render mode. No-op when storage is unavailable. */
+export function saveUnitRenderMode(mode: UnitRenderMode): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(UNIT_RENDER_MODE_KEY, mode);
+  } catch {
+    // storage blocked (private mode etc.) — preference simply won't persist.
+  }
+}
+
 /** UI phase — orthogonal to GameState.phase (which the resolver owns). */
 export type UiPhase = 'planning' | 'replay' | 'summary' | 'over';
 
@@ -416,9 +453,10 @@ export type AppState = {
   /** v0.7 Item 4: the selected opponent archetype key (start screen). Persisted
    *  into the battle on startBattle; commit() instantiates its planner. */
   archetypeKey: string;
-  /** PoC toggle ("anim" tag, top bar): ON → animated infantry sprites on the
-   *  board, OFF → the flat glyph icons. */
-  spritesOn: boolean;
+  /** Unit-render skin (gear menu, top bar): 'icon' flat glyphs · 'anim'
+   *  animated infantry sprites · 'watercolor' static faction art (all types).
+   *  Persisted to localStorage. */
+  unitRenderMode: UnitRenderMode;
   /** Generated battle board (null until startBattle). game.board === board. */
   board: Board | null;
 
@@ -472,8 +510,9 @@ export type AppState = {
   setRoundLimit: (limit: number | null) => void;
   /** v0.7 Item 4: start-screen opponent archetype select. */
   setArchetype: (key: string) => void;
-  /** PoC: toggle animated infantry sprites vs flat glyph icons. */
-  toggleSprites: () => void;
+  /** Gear menu: pick the unit-render skin (icon / anim / watercolor) and
+   *  persist the choice to localStorage. */
+  setUnitRenderMode: (mode: UnitRenderMode) => void;
   startBattle: () => void;
   exitBattle: () => void;
 
@@ -543,7 +582,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   mode: 'conquest',
   roundLimit: null,
   archetypeKey: defaultArchetypeKey(),
-  spritesOn: true,
+  unitRenderMode: loadUnitRenderMode(),
   board: null,
 
   game: null,
@@ -582,7 +621,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   setMode: (mode) => set({ mode }),
   setRoundLimit: (roundLimit) => set({ roundLimit }),
   setArchetype: (archetypeKey) => set({ archetypeKey }),
-  toggleSprites: () => set((s) => ({ spritesOn: !s.spritesOn })),
+  setUnitRenderMode: (mode) => {
+    saveUnitRenderMode(mode);
+    set({ unitRenderMode: mode });
+  },
 
   startBattle: () => {
     const { donorId, seed, mode, roundLimit } = get();

@@ -26,6 +26,10 @@ export { UnitRenderer } from './UnitRenderer';
 export type { UnitRendererProps } from './UnitRenderer';
 export { UnitSprite, SpriteRedFilter } from './UnitSprite';
 export type { Motion } from './sprites/sprite-data';
+export { UnitWatercolor } from './UnitWatercolor';
+export type { UnitWatercolorProps } from './UnitWatercolor';
+export { watercolorUrl, WATERCOLOR_KEYS } from './watercolors/watercolor-data';
+export type { WatercolorKey } from './watercolors/watercolor-data';
 export { UnitGlyph, UNIT_ICON_KEYS } from './icons';
 export { GrainFilterDef, GrainOverlay, GRAIN_FILTER_ID, GRAIN_OPACITY } from './GrainFilter';
 export {
