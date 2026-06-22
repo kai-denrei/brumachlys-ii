@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-// R3 (DILATION) — App-level wiring. During WAVE A the board cools + vignettes
-// and the analog dilation CLOCK renders (screen-anchored HUD chrome); both are
-// gone outside WAVE A (INTERLUDE / WAVE_B / non-combat). The clock is never a
-// unit token and never reuses radar geometry. Pure read of the script + cursor.
+// Phase 2 (BULLET-TIME DILATION CLOCK) — App-level wiring. The Swiss-railway
+// clock is a fixed TOP-RIGHT canvas overlay present THROUGH THE WHOLE replay
+// (glide → shift → dilation → release), layered above the SkirmishLog. The R3
+// board COOLING/VIGNETTE (the kept chrome) still gates on WAVE A only. The old
+// R3 SVG clock geometry is gone. Pure read of the script + cursor.
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
@@ -112,21 +113,30 @@ function seedReplay(frames: ReplayFrame[]) {
   });
 }
 
-describe('R3 dilation — App wiring', () => {
-  it('WAVE A frame: the cooling vignette + the analog clock render', () => {
-    // Pause playback so frameIdx stays on frame 0 (a WAVE_A frame).
+describe('Phase 2 dilation clock — App wiring', () => {
+  it('the Swiss-railway clock overlay is present through the replay (top-right HUD)', () => {
     vi.useFakeTimers();
     const units = [unit('a', 0, 0), unit('e', 1, 10)];
-    seedReplay([frame(units, 'A'), frame(units)]);
+    // frame 0 is a plain MOVE frame (glide) — the clock is still present.
+    seedReplay([frame(units), frame(units, 'A')]);
     const { container } = render(<App />);
-    expect(container.querySelector('.dilation-vignette')).not.toBeNull();
-    expect(container.querySelector('.dilation-clock')).not.toBeNull();
-    // 12 ticks + a single gold hand, on a HUD element (not a unit token).
-    expect(container.querySelectorAll('.dilation-clock-tick').length).toBe(12);
-    expect(container.querySelectorAll('.dilation-clock-hand').length).toBe(1);
     const clock = container.querySelector('.dilation-clock') as HTMLElement;
+    expect(clock).not.toBeNull();
+    expect(clock.querySelector('canvas.dilation-clock-canvas')).not.toBeNull();
+    // HUD chrome — not a unit token / board group.
     expect(clock.closest('[data-unit-id]')).toBeNull();
     expect(clock.closest('.board-units')).toBeNull();
+  });
+
+  it('the R3 SVG clock geometry is GONE (replaced by the canvas clock)', () => {
+    vi.useFakeTimers();
+    const units = [unit('a', 0, 0), unit('e', 1, 10)];
+    seedReplay([frame(units, 'A')]);
+    const { container } = render(<App />);
+    expect(container.querySelector('.dilation-clock-tick')).toBeNull();
+    expect(container.querySelector('.dilation-clock-hand')).toBeNull();
+    expect(container.querySelector('.dilation-clock-face')).toBeNull();
+    expect(container.querySelector('.dilation-clock-disc')).toBeNull();
   });
 
   it('the clock never reuses unit-radar geometry/classes', () => {
@@ -134,29 +144,36 @@ describe('R3 dilation — App wiring', () => {
     const units = [unit('a', 0, 0), unit('e', 1, 10)];
     seedReplay([frame(units, 'A')]);
     const { container } = render(<App />);
-    // The clock subtree carries no radar classes.
     const clock = container.querySelector('.dilation-clock') as HTMLElement;
     expect(clock.querySelector('.unit-radar')).toBeNull();
     expect(clock.querySelector('.unit-radar-ring')).toBeNull();
     expect(clock.querySelector('.radar-overlay')).toBeNull();
   });
 
-  it('non-combat / non-WAVE-A frame: NO vignette and NO clock', () => {
+  it('WAVE A frame: the kept cooling vignette renders (clock present too)', () => {
     vi.useFakeTimers();
     const units = [unit('a', 0, 0), unit('e', 1, 10)];
-    // frame 0 is a plain (non-combat) frame → dilation released.
+    seedReplay([frame(units, 'A'), frame(units)]);
+    const { container } = render(<App />);
+    expect(container.querySelector('.dilation-vignette')).not.toBeNull();
+    expect(container.querySelector('.dilation-clock')).not.toBeNull();
+  });
+
+  it('non-WAVE-A frame: NO cooling vignette (the clock stays — it spans the run)', () => {
+    vi.useFakeTimers();
+    const units = [unit('a', 0, 0), unit('e', 1, 10)];
+    // frame 0 is a plain (non-combat) frame → vignette released, clock present.
     seedReplay([frame(units), frame(units, 'A')]);
     const { container } = render(<App />);
     expect(container.querySelector('.dilation-vignette')).toBeNull();
-    expect(container.querySelector('.dilation-clock')).toBeNull();
+    expect(container.querySelector('.dilation-clock')).not.toBeNull();
   });
 
-  it('WAVE B (melee) frame: NO dilation overlays (dilation is WAVE A only)', () => {
+  it('WAVE B (melee) frame: NO cooling vignette (cooling is WAVE A only)', () => {
     vi.useFakeTimers();
     const units = [unit('a', 0, 0), unit('e', 1, 10)];
     seedReplay([frame(units, 'B')]);
     const { container } = render(<App />);
     expect(container.querySelector('.dilation-vignette')).toBeNull();
-    expect(container.querySelector('.dilation-clock')).toBeNull();
   });
 });

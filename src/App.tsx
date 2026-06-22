@@ -1387,22 +1387,25 @@ function BattleScreen() {
           />
         )}
       </main>
-      {/* R3 (DILATION): WAVE A cues — the board cools + a subtle vignette closes
-          (layered OVER the board and on top of the R2 spotlight), and the analog
-          dilation CLOCK appears, screen-anchored upper-right. Both are present
-          only during WAVE A (dilation.active), fade out by the INTERLUDE, and
-          are pure reads of the script + cursor. The clock is HUD chrome — never
-          drawn on a unit, never reusing radar geometry. */}
-      {dilation?.active && (
-        <>
-          <DilationVignette active progress={dilation.progress} />
-          <DilationClock
-            active
-            progress={dilation.progress}
-            turns={dilation.turns}
-            fade={dilation.fade}
-          />
-        </>
+      {/* R3 (DILATION): WAVE A board cooling — the board cools + a subtle vignette
+          closes (layered OVER the board and on top of the R2 spotlight), present
+          only during WAVE A (dilation.active) and a pure read of the script +
+          cursor. The clock layers on top (Phase 2). */}
+      {dilation?.active && <DilationVignette active progress={dilation.progress} />}
+      {/* Phase 2: the Swiss-railway BULLET-TIME dilation clock — a fixed
+          top-right canvas overlay present through the WHOLE replay, driven by the
+          replay's elapsed time (frameStartTime(cursor) + (now−entered)·speed).
+          It GLIDES during the move frames, blooms + grows IN PLACE at the
+          move→combat handover (overlaying the SkirmishLog for the slow-mo beat),
+          ticks in decelerating steps through WAVE_A, then recedes. Pure
+          closed-form hand model; respects pause/speed/skip/scrub. */}
+      {replayActive && script && (
+        <DilationClock
+          frames={script.frames}
+          frameIdx={frameIdx}
+          speed={replaySpeed}
+          paused={paused}
+        />
       )}
       {/* v0.9 HUD: top-left column — Round + Credits cluster on top, casualty
           tally stacked immediately below. Fixed over the board, below modals. */}

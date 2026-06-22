@@ -55,8 +55,13 @@ export type {
 } from './EffectRenderer';
 export { ReplayFx, ReplayTrails } from './ReplayFx';
 export type { ImpactMark, ReplayFxData, ReplayFxProps, TrailMark } from './ReplayFx';
-// R3 (DILATION): WAVE A cooling vignette + the analog dilation clock HUD.
-export { DilationClock, DilationVignette, DILATION_CLOCK_TURNS } from './DilationOverlay';
+// R3 (DILATION): WAVE A board cooling vignette (the kept R3 chrome).
+export { DilationVignette } from './DilationOverlay';
+// Phase 2: the Swiss-railway BULLET-TIME dilation clock (top-right canvas
+// overlay, replay-time-driven across the whole resolution — replaces the R3
+// SVG clock).
+export { DilationClock } from './DilationClock';
+export type { DilationClockProps } from './DilationClock';
 // v0.9 HUD: canvas split-flap round number + odometer credits (displays/).
 export { RoundFlap, CreditsOdometer } from './displays';
 // v1.5 VICTORY DASHBOARD: sparkline + bar-histogram viz primitives (charts/).

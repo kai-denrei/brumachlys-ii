@@ -433,60 +433,35 @@ body {
   }
 }
 
-/* R3 (DILATION): the analog dilation CLOCK — a small screen-anchored HUD face
-   in the upper-right of the action, present ONLY during WAVE A. Single gold
-   hand on a dark face, 12 ticks. It is HUD chrome, NEVER on a unit token and it
-   never reuses the unit-radar geometry. Opacity is driven inline by the fade
-   envelope (fade in at the wave's start, out at its end — gone by INTERLUDE);
-   the transition just softens the per-frame steps. */
+/* Phase 2 (BULLET-TIME DILATION CLOCK): the Swiss-railway clock — a fixed
+   TOP-RIGHT canvas overlay where the SkirmishLog sits, present through the WHOLE
+   replay. It GLIDES during movement, then GROWS/BRIGHTENS IN PLACE at the
+   move→combat handover (the canvas box is sized for the grown state, so the
+   swell never shifts the anchor) and ticks through WAVE_A, then recedes. Layered
+   ABOVE the log (z 26 > the log's z 25) for the slow-mo beat; HUD chrome, never
+   intercepts input, never on a unit token / radar geometry. The actual
+   glide/shift/dilation/release motion is on the canvas (replay-time driven). */
 .dilation-clock {
   position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 64px);
-  right: calc(env(safe-area-inset-right, 0px) + 14px);
-  z-index: 14;
+  top: calc(env(safe-area-inset-top, 0px) + 0.4rem);
+  right: 0.4rem;
+  z-index: 26;
   pointer-events: none;
-  width: 56px;
-  height: 56px;
-  transition: opacity 0.18s linear;
-}
-
-.dilation-clock-face {
+  /* the canvas centers the clock inside its (grown-sized) box */
   display: block;
-  filter: drop-shadow(0 1px 2px rgba(20, 24, 36, 0.4));
 }
 
-.dilation-clock-disc {
-  fill: #20242f;
-  stroke: rgba(215, 169, 58, 0.35);
-  stroke-width: 1.2;
+.dilation-clock-canvas {
+  display: block;
+  filter: drop-shadow(0 2px 6px rgba(20, 24, 36, 0.4));
 }
 
-.dilation-clock-tick {
-  stroke: rgba(236, 230, 214, 0.55);
-  stroke-width: 1;
-  stroke-linecap: round;
-}
-
-.dilation-clock-hand {
-  stroke: var(--gold);
-  stroke-width: 2;
-  stroke-linecap: round;
-}
-
-.dilation-clock-hub {
-  fill: var(--gold);
-}
-
-/* Reduced motion: a static cool end-state — no cool-in fade-up, no hand-step
-   transition flash. The cue (cool board + a present clock) still reads; only
-   the animated glide is suppressed (spec R2/R3 reduced-motion contract). */
+/* Reduced motion: a static cool end-state — no cool-in fade-up. The clock's
+   component already skips the rAF/bloom under prefers-reduced-motion (it paints
+   one static frame); this just stills the vignette transition. */
 @media (prefers-reduced-motion: reduce) {
   .dilation-vignette {
     animation: none;
-  }
-
-  .dilation-clock {
-    transition: none;
   }
 }
 
