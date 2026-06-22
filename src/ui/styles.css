@@ -2730,6 +2730,35 @@ body {
   line-height: 1;
 }
 
+/* In the top action cluster (beside Commit) the Map/Economy toggle lays out
+   INLINE — overriding the fixed bottom-center default — and is more compact so
+   it balances the Commit pill. It keeps z-auto here because the parent .top-cta
+   already sits at z 26, above the dashboard scrim (z 20). */
+.top-cta .mode-toggle {
+  position: static;
+  transform: none;
+  left: auto;
+  bottom: auto;
+  z-index: auto;
+  align-self: center;
+  padding: 2px;
+  box-shadow: 0 2px 8px rgba(74, 68, 58, 0.16);
+}
+
+.top-cta .mode-toggle-seg {
+  width: 36px;
+  height: 32px;
+}
+
+.top-cta .mode-toggle-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.top-cta .mode-toggle-glyph {
+  font-size: 1.05rem;
+}
+
 .hud-column {
   position: fixed;
   top: calc(env(safe-area-inset-top) + 3.2rem); /* clear the top bar */
