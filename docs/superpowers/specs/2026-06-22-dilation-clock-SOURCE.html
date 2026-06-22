@@ -1,0 +1,291 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Brumachlys — Bullet-Time Dilation Clock</title>
+<style>
+  :root{
+    --paper:#efece3; --ink:#2b2a28; --red:#c85a4a; --blue:#3f6fac;
+    --green:#c4d8a6; --grey:#cac6bd; --gold:#d8a13a;
+    --sbb-red:#e8362a; --sbb-black:#161616; --sbb-face:#ffffff;
+    --mono: ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  html,body{margin:0;background:#1b1a17;color:#cfcabd;font-family:var(--mono)}
+  .wrap{max-width:900px;margin:0 auto;padding:18px}
+  .top{display:flex;align-items:baseline;gap:12px;margin-bottom:10px}
+  .top h1{font-size:13px;letter-spacing:.12em;margin:0;font-weight:700;text-transform:uppercase;color:#e8e3d6}
+  .top .sub{font-size:11px;color:#7c776c}
+  canvas{width:100%;height:auto;display:block;background:var(--paper);border-radius:14px;
+    box-shadow:0 10px 40px rgba(0,0,0,.5)}
+  .ctrl{background:#26251f;border-radius:12px;padding:12px 14px;margin-top:12px;font-size:11px}
+  .btns{display:flex;gap:8px;margin-bottom:10px}
+  button{font-family:var(--mono);font-size:11px;background:#3a382f;color:#e8e3d6;border:0;
+    border-radius:8px;padding:8px 13px;cursor:pointer;letter-spacing:.04em}
+  button:hover{background:#4a473b}
+  button.primary{background:var(--sbb-red);color:#fff}
+  button.primary:hover{background:#c12a20}
+  .row{display:flex;align-items:center;gap:8px;margin:9px 0}
+  label{flex:0 0 auto;color:#9c978b;min-width:120px}
+  input[type=range]{flex:1;accent-color:var(--gold)}
+  .val{flex:0 0 50px;text-align:right;color:#e0c98a}
+  .toggle{display:flex;align-items:center;gap:7px;cursor:pointer}
+  .toggle input{accent-color:var(--gold)}
+  .scrub{width:100%;margin-top:6px;accent-color:var(--sbb-red)}
+  .hint{color:#7c776c;font-size:10px;margin-top:6px;line-height:1.5}
+</style>
+<div class="wrap">
+  <div class="top"><h1>Brumachlys · Bullet-Time Dilation Clock</h1>
+    <span class="sub">glide → shift → decelerating ticks</span></div>
+  <canvas id="cv" width="760" height="460"></canvas>
+  <div class="ctrl">
+    <div class="btns">
+      <button class="primary" id="play">▶ Run</button>
+      <button id="skip">⏭ End</button>
+      <label class="toggle" style="margin-left:auto"><input type="checkbox" id="aud" checked> Audio</label>
+    </div>
+    <div class="row"><label>Movement (1×)</label><input type="range" id="nm" min="600" max="3000" step="100" value="1500"><span class="val" id="nmV">1500</span></div>
+    <div class="row"><label>Dilation window</label><input type="range" id="dl" min="1500" max="4500" step="100" value="2800"><span class="val" id="dlV">2800</span></div>
+    <div class="row"><label>Tick spacing (slow end)</label><input type="range" id="ts" min="250" max="650" step="20" value="440"><span class="val" id="tsV">440</span></div>
+    <input type="range" class="scrub" id="scrub" min="0" max="1000" value="0">
+    <div class="hint">The second hand glides smoothly at 1× while units move, then a shift effect (bloom + ripple, clock swells, board cools) hands over to bullet-time: discrete ticks that <i>decelerate</i> — tick-tick-tick … tick … &nbsp;tick — each with a reverbed, pitched-down click. Audio fires on forward play; scrub is visual-only.</div>
+  </div>
+</div>
+<script>
+(() => {
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const DPR=Math.min(2,window.devicePixelRatio||1);
+cv.width=760*DPR; cv.height=460*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+const C=getComputedStyle(document.documentElement), col=n=>C.getPropertyValue(n).trim();
+
+// ---- config ----
+let NM=1500, DL=2800, TS=440;     // movement, dilation window, slow-end tick spacing
+const SHIFT=600, TAIL=400;        // shift duration, post-dilation hold
+const STEP_DEG=6;                 // each tick = one second-mark (authentic crawl)
+const W_NORMAL = 0.8*2*Math.PI/1500; // rad/ms during glide (~0.8 rev over 1.5s baseline)
+
+// ---- scene (minimal board to give "units move at 1x" context) ----
+const tiles=[{x:210,y:360},{x:290,y:360},{x:380,y:360},{x:470,y:360},{x:550,y:360},{x:330,y:280},{x:430,y:280}];
+const redU ={from:{x:210,y:360}, to:{x:300,y:360}, side:'red'};
+const blueU={from:{x:560,y:360}, to:{x:470,y:360}, side:'blue'};
+
+// clock placement: HUD corner (normal) -> swelled prominent (dilated)
+const CLK_N={x:648,y:78, r:60}, CLK_D={x:380,y:158, r:128};
+
+// ---- timeline ----
+let T={}, ticks=[];
+const easeOutCubic=x=>1-Math.pow(1-x,3);
+const easeInOutCubic=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+const easeOutBack=x=>{const c1=1.70158,c3=c1+1;return 1+c3*Math.pow(x-1,3)+c1*Math.pow(x-1,2);};
+const cl=(a,b,t)=>Math.max(0,Math.min(1,(t-a)/(b-a)));
+const lerp=(a,b,t)=>a+(b-a)*t;
+
+function build(){
+  const s={}; s.norm=0; s.shift=NM; s.dil=NM+SHIFT; s.dilEnd=NM+SHIFT+DL; s.total=s.dilEnd+TAIL;
+  T=s;
+  // decelerating tick boundaries within the dilation window
+  ticks=[]; let tt=0,k=0; const slow=TS, fast=TS*0.42;
+  while(tt<DL){ ticks.push(tt); const iv=lerp(fast,slow,easeOutCubic(Math.min(k/8,1))); tt+=iv; k++; }
+}
+
+// angle of the red second hand at absolute time t (closed form, pure)
+function handAngle(t){
+  const a0=-Math.PI/2; // 12 o'clock
+  if(t<=T.shift) return a0 + W_NORMAL*t;                       // smooth glide
+  const angAtNorm=a0+W_NORMAL*NM;
+  if(t<=T.dil){ const p=cl(T.shift,T.dil,t);                   // decelerate to rest
+    return angAtNorm + W_NORMAL*SHIFT*(p-p*p/2); }
+  const angAtDil=angAtNorm + W_NORMAL*SHIFT*0.5;
+  const d=t-T.dil, step=STEP_DEG*Math.PI/180;
+  // find current tick index
+  let k=0; while(k+1<ticks.length && ticks[k+1]<=d) k++;
+  const segStart=ticks[k], segEnd=(k+1<ticks.length?ticks[k+1]:segStart+TS);
+  const sp=cl(segStart,segEnd,d), settle=Math.min(sp/0.4,1);
+  const animSteps=k + easeOutBack(settle);
+  return angAtDil + animSteps*step;
+}
+
+// ---- swiss railway clock ----
+function drawClock(cx,cy,R,t){
+  // face
+  ctx.save();
+  ctx.shadowColor='rgba(0,0,0,.18)'; ctx.shadowBlur=R*0.18; ctx.shadowOffsetY=R*0.05;
+  ctx.fillStyle=col('--sbb-face'); ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.fill();
+  ctx.restore();
+  ctx.save();
+  // ticks
+  for(let i=0;i<60;i++){
+    const a=i/60*2*Math.PI, hour=i%5===0;
+    const len=hour?R*0.20:R*0.075, w=hour?R*0.052:R*0.018, r1=R*0.93;
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(a);
+    ctx.fillStyle=col('--sbb-black');
+    ctx.fillRect(-w/2, -(r1), w, len);
+    ctx.restore();
+  }
+  // hour & minute hands — static aesthetic pose (~10:09), black batons
+  const baton=(ang,len,w,back)=>{ ctx.save(); ctx.translate(cx,cy); ctx.rotate(ang);
+    ctx.fillStyle=col('--sbb-black'); ctx.fillRect(-w/2, -(len), w, len+(back||0)); ctx.restore(); };
+  baton(-Math.PI/2 + (-58/60)*2*Math.PI*0/1 + (-2.6), R*0.50, R*0.072, R*0.13); // hour ~10
+  baton(-Math.PI/2 + 0.78, R*0.78, R*0.05, R*0.13);                              // minute ~09
+  // red second hand with the signal disc
+  const ang=handAngle(t);
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(ang);
+  ctx.fillStyle=col('--sbb-red'); ctx.strokeStyle=col('--sbb-red');
+  ctx.lineWidth=R*0.026; ctx.lineCap='butt';
+  ctx.beginPath(); ctx.moveTo(0, R*0.18); ctx.lineTo(0, -(R*0.82)); ctx.stroke(); // shaft + tail
+  ctx.beginPath(); ctx.arc(0, -(R*0.66), R*0.082, 0, 7); ctx.fill();              // disc
+  ctx.restore();
+  // hubs
+  ctx.fillStyle=col('--sbb-black'); ctx.beginPath(); ctx.arc(cx,cy,R*0.045,0,7); ctx.fill();
+  ctx.fillStyle=col('--sbb-red');   ctx.beginPath(); ctx.arc(cx,cy,R*0.022,0,7); ctx.fill();
+  // thin bezel
+  ctx.strokeStyle='rgba(0,0,0,.10)'; ctx.lineWidth=R*0.03; ctx.beginPath(); ctx.arc(cx,cy,R*0.985,0,7); ctx.stroke();
+  ctx.restore();
+}
+
+// ---- board ----
+function drawBoard(t, dim){
+  ctx.save(); ctx.globalAlpha=lerp(1,0.42,dim);
+  tiles.forEach(tl=>{ ctx.fillStyle=dim>0.5?'#cfccc2':col('--green');
+    rr(tl.x-37,tl.y-37,74,74,15); ctx.fill(); });
+  ctx.restore();
+  const mp=cl(T.norm,T.shift,t); // movement progress during 1x
+  drawUnit(redU, lerp1(redU,mp), t, dim);
+  drawUnit(blueU, lerp1(blueU,mp), t, dim);
+}
+function lerp1(u,p){return {x:lerp(u.from.x,u.to.x,easeInOutCubic(p)), y:u.from.y};}
+function drawUnit(u,pos,t,dim){
+  const c=u.side==='red'?col('--red'):col('--blue');
+  ctx.save(); ctx.globalAlpha=lerp(1,0.5,dim);
+  // recoil if hit (red unit takes the dilated tracer)
+  let rx=0; if(u.side==='red' && T.tracerImpact!=null){ const k=cl(T.tracerImpact,T.tracerImpact+150,t)*(1-cl(T.tracerImpact+150,T.tracerImpact+300,t)); rx=-5*k; }
+  const cx=pos.x+rx, cy=pos.y;
+  ctx.fillStyle=u.side==='red'?'rgba(200,90,74,.16)':'rgba(63,111,172,.16)';
+  ctx.beginPath(); ctx.arc(cx,cy,22,0,7); ctx.fill();
+  ctx.fillStyle=c; ctx.beginPath(); ctx.arc(cx,cy-11,5,0,7); ctx.fill();
+  rr(cx-5,cy-5,10,17,4); ctx.fill();
+  if(u.side==='blue'){ ctx.strokeStyle=c; ctx.lineWidth=3; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(cx-2,cy-1); ctx.lineTo(cx-18,cy-7); ctx.stroke(); }
+  ctx.restore();
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+// dilated bullet-time tracer (blue -> red), crawls across the dilation window
+function drawTracer(t){
+  if(t<T.dil) return;
+  const a=T.dil+DL*0.12, b=T.dil+DL*0.80; T.tracerImpact=b;
+  const src={x:blueU.to.x-18,y:blueU.to.y-7}, dst={x:redU.to.x,y:redU.to.y};
+  const p=cl(a,b,t); if(p<=0) return;
+  ctx.save();
+  ctx.strokeStyle='rgba(63,111,172,.18)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(src.x,src.y); ctx.lineTo(dst.x,dst.y); ctx.stroke();
+  const pe=p, bx=lerp(src.x,dst.x,pe), by=lerp(src.y,dst.y,pe);
+  const tl=0.12, tx=lerp(src.x,dst.x,Math.max(0,pe-tl)), ty=lerp(src.y,dst.y,Math.max(0,pe-tl));
+  const g=ctx.createLinearGradient(tx,ty,bx,by); g.addColorStop(0,'rgba(63,111,172,0)'); g.addColorStop(1,'rgba(63,111,172,.95)');
+  ctx.strokeStyle=g; ctx.lineWidth=3; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(tx,ty); ctx.lineTo(bx,by); ctx.stroke();
+  ctx.fillStyle=col('--blue'); ctx.beginPath(); ctx.arc(bx,by,3,0,7); ctx.fill();
+  ctx.restore();
+  const ip=cl(b,b+300,t);
+  if(ip>0&&ip<1){ ctx.save(); ctx.globalAlpha=1-ip; ctx.strokeStyle=col('--blue'); ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(dst.x,dst.y,4+ip*16,0,7); ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.globalAlpha=1-easeOutCubic(ip); ctx.fillStyle=col('--ink'); ctx.font='bold 15px '+col('--mono'); ctx.textAlign='center';
+    ctx.fillText('−5', dst.x-16, dst.y-22-easeOutCubic(ip)*30); ctx.restore(); }
+}
+
+// ---- shift effect + dilation chrome ----
+function drawDilationChrome(t){
+  // board cools + vignette as we enter dilation
+  const cool=cl(T.shift,T.dil,t)*(1-cl(T.dilEnd,T.total,t));
+  if(cool>0){ ctx.save(); ctx.globalAlpha=cool*0.55;
+    const g=ctx.createRadialGradient(380,200,120,380,200,460);
+    g.addColorStop(0,'rgba(20,28,40,0)'); g.addColorStop(1,'rgba(15,18,28,.9)');
+    ctx.fillStyle=g; ctx.fillRect(0,0,760,460); ctx.restore(); }
+}
+function drawShiftBurst(t){
+  const cx=lerp(CLK_N.x,CLK_D.x,easeInOutCubic(cl(T.shift,T.dil,t)));
+  const cy=lerp(CLK_N.y,CLK_D.y,easeInOutCubic(cl(T.shift,T.dil,t)));
+  const p=cl(T.shift,T.shift+SHIFT*0.9,t); if(p<=0||p>=1) return;
+  ctx.save();
+  // white bloom
+  ctx.globalAlpha=(1-p)*0.8; const r=lerp(40,260,easeOutCubic(p));
+  const g=ctx.createRadialGradient(cx,cy,0,cx,cy,r); g.addColorStop(0,'rgba(255,255,255,.9)'); g.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fill();
+  // ripple ring
+  ctx.globalAlpha=(1-p)*0.7; ctx.strokeStyle='rgba(232,54,42,.8)'; ctx.lineWidth=lerp(5,1,p);
+  ctx.beginPath(); ctx.arc(cx,cy,lerp(20,230,easeOutCubic(p)),0,7); ctx.stroke();
+  ctx.restore();
+}
+
+// ---- render ----
+function render(t){
+  ctx.clearRect(0,0,760,460);
+  const dim=cl(T.shift,T.dil,t)*(1-cl(T.dilEnd,T.total,t)); // 0 normal, 1 dilated
+  drawBoard(t, dim);
+  drawTracer(t);
+  drawDilationChrome(t);
+  // clock: glide phase (corner/small) -> swell to prominent
+  const ph=easeInOutCubic(cl(T.shift,T.dil,t));
+  const cx=lerp(CLK_N.x,CLK_D.x,ph), cy=lerp(CLK_N.y,CLK_D.y,ph), r=lerp(CLK_N.r,CLK_D.r,ph);
+  drawClock(cx,cy,r,t);
+  drawShiftBurst(t);
+}
+
+// ---- audio: shift whoom, dilated reverbed ticks, low drone ----
+let AC=null, IR=null, drone=null;
+function audioInit(){ if(AC) return; try{
+  AC=new (window.AudioContext||window.webkitAudioContext)();
+  const len=AC.sampleRate*1.6; IR=AC.createBuffer(2,len,AC.sampleRate);
+  for(let ch=0;ch<2;ch++){const d=IR.getChannelData(ch);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6);}
+}catch(_){}}
+function rev(){ const c=AC.createConvolver(); c.buffer=IR; return c; }
+function whoom(){ if(!AC) return; const n=AC.currentTime;
+  const o=AC.createOscillator(), g=AC.createGain(), cv=rev(), w=AC.createGain();
+  o.type='sawtooth'; o.frequency.setValueAtTime(420,n); o.frequency.exponentialRampToValueAtTime(55,n+.5);
+  g.gain.setValueAtTime(.0001,n); g.gain.exponentialRampToValueAtTime(.16,n+.05); g.gain.exponentialRampToValueAtTime(.001,n+.6);
+  w.gain.value=.5; o.connect(g); g.connect(AC.destination); g.connect(cv); cv.connect(w); w.connect(AC.destination);
+  o.start(n); o.stop(n+.65);
+}
+function tick(i,total){ if(!AC) return; const n=AC.currentTime;
+  const o=AC.createOscillator(), g=AC.createGain(), cv=rev(), w=AC.createGain();
+  const f=lerp(220,150, i/Math.max(1,total-1));            // ticks lower as time grinds
+  o.type='square'; o.frequency.setValueAtTime(f,n); o.frequency.exponentialRampToValueAtTime(f*0.6,n+.06);
+  g.gain.setValueAtTime(.14,n); g.gain.exponentialRampToValueAtTime(.001,n+.10);
+  w.gain.value=lerp(.25,.7, i/Math.max(1,total-1));         // more reverb as it slows
+  o.connect(g); g.connect(AC.destination); g.connect(cv); cv.connect(w); w.connect(AC.destination);
+  o.start(n); o.stop(n+.12);
+}
+function startDrone(){ if(!AC) return; stopDrone(); const n=AC.currentTime;
+  const o=AC.createOscillator(), g=AC.createGain(); o.type='sine'; o.frequency.value=46;
+  g.gain.setValueAtTime(.0001,n); g.gain.exponentialRampToValueAtTime(.05,n+.4);
+  o.connect(g); g.connect(AC.destination); o.start(n); drone={o,g}; }
+function stopDrone(){ if(drone){ try{const n=AC.currentTime; drone.g.gain.exponentialRampToValueAtTime(.0001,n+.3); drone.o.stop(n+.35);}catch(_){} drone=null; } }
+
+// ---- transport ----
+let raf=0, base=0, playing=false, firedWhoom=false, firedDrone=false, tickFired=-1;
+const audOn=()=>document.getElementById('aud').checked;
+function cues(t){
+  if(!audOn()) return;
+  if(!firedWhoom && t>=T.shift){ firedWhoom=true; whoom(); }
+  if(!firedDrone && t>=T.shift){ firedDrone=true; startDrone(); }
+  if(t>=T.dil){ const d=t-T.dil;
+    let k=-1; for(let i=0;i<ticks.length;i++){ if(d>=ticks[i]) k=i; }
+    if(k>tickFired){ for(let i=tickFired+1;i<=k;i++) tick(i,ticks.length); tickFired=k; } }
+  if(t>=T.dilEnd && drone) stopDrone();
+}
+function frame(now){ const t=Math.min(T.total, now-base);
+  document.getElementById('scrub').value=Math.round(t/T.total*1000);
+  cues(t); render(t);
+  if(t<T.total && playing) raf=requestAnimationFrame(frame);
+  else { playing=false; stopDrone(); document.getElementById('play').textContent='↺ Replay'; }
+}
+function run(){ build(); audioInit(); if(AC&&AC.state==='suspended')AC.resume();
+  firedWhoom=false; firedDrone=false; tickFired=-1; playing=true; base=performance.now();
+  document.getElementById('play').textContent='■ Stop'; cancelAnimationFrame(raf); raf=requestAnimationFrame(frame); }
+document.getElementById('play').onclick=()=>{ if(playing){ playing=false; cancelAnimationFrame(raf); stopDrone(); document.getElementById('play').textContent='▶ Run'; } else run(); };
+document.getElementById('skip').onclick=()=>{ playing=false; cancelAnimationFrame(raf); stopDrone(); build(); render(T.total); document.getElementById('play').textContent='↺ Replay'; };
+document.getElementById('scrub').oninput=e=>{ playing=false; cancelAnimationFrame(raf); stopDrone(); build(); render(e.target.value/1000*T.total); document.getElementById('play').textContent='▶ Run'; };
+function bind(id,vid,set){ const el=document.getElementById(id),v=document.getElementById(vid);
+  el.oninput=()=>{ v.textContent=el.value; set(+el.value); build(); render(0); document.getElementById('scrub').value=0; }; }
+bind('nm','nmV',x=>NM=x); bind('dl','dlV',x=>DL=x); bind('ts','tsV',x=>TS=x);
+
+build(); render(0);
+})();
+</script>
