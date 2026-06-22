@@ -1336,19 +1336,22 @@ body {
   100% { opacity: 0; }
 }
 
-/* the shell rides the parabola (motion-path) — lands LATE at ~0.88 */
+/* the shell rides the parabola via SVG SMIL <animateMotion> (see ReplayFx
+   Shell) — NOT a CSS offset-path, which does not translate an SVG <g> along
+   absolute path coords inside the board's transform group (it pinned the round
+   at the layer origin → a stray dot off toward the board edge). Here CSS owns
+   ONLY the opacity track (fade-in, then vanish on impact ~0.88); the TRAVEL is
+   the animateMotion. */
 .fx-shell-round {
-  offset-path: path(var(--shell-path, none));
-  offset-distance: 0%;
   opacity: 0;
-  animation: fx-shell-fly 2.2s cubic-bezier(0.4, 0, 0.7, 1) var(--proj-delay, 0ms) forwards;
+  animation: fx-shell-fly 2.2s linear var(--proj-delay, 0ms) forwards;
 }
 @keyframes fx-shell-fly {
-  0% { offset-distance: 0%; opacity: 0; }
+  0% { opacity: 0; }
   6% { opacity: 1; }
-  88% { offset-distance: 100%; opacity: 1; }
-  90% { offset-distance: 100%; opacity: 0; }
-  100% { offset-distance: 100%; opacity: 0; }
+  88% { opacity: 1; }
+  90% { opacity: 0; }
+  100% { opacity: 0; }
 }
 
 /* dust + expanding ring burst at the landing (~0.88) */

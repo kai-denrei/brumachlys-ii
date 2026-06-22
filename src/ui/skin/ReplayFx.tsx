@@ -353,14 +353,34 @@ function Shell({
         strokeLinecap="round"
         strokeDasharray={`${tokenSize * 0.16} ${tokenSize * 0.22}`}
       />
-      {/* the shell itself: rides the same parabola via offset-path, landing
-          LATE (~0.88). The path string is passed as a CSS var so the keyframes
-          can sweep offset-distance 0→100% along this exact arc. */}
-      <g
-        className="fx-shell-round"
-        style={{ '--shell-path': `path('${d}')` } as React.CSSProperties}
-      >
-        <circle r={tokenSize * 0.13} fill={darken(color, 0.15)} stroke="#fff" strokeWidth={tokenSize * 0.035} />
+      {/* the shell itself: rides the SAME parabola, landing LATE (~0.88). It
+          travels via SVG SMIL <animateMotion> along the trail's exact path —
+          NOT a CSS `offset-path`. offset-path on an SVG <g> inside the board's
+          (translate+scale) view group does NOT translate the element along the
+          path's absolute user-space coords: the round stayed pinned at the FX
+          layer origin and rendered as a STRAY COLOURED DOT off toward the board
+          edge, disconnected from the real attacker→target vector (live-captured:
+          trail a→b ~178 px, but the round ~470 px away near a corner). This is
+          the same family as the impact-spark clobber (bb971d4): a CSS transform
+          mechanism not surviving the SVG/transform context. animateMotion is
+          SVG-native and composes with the parent view transform; keyPoints/
+          keyTimes hold launch until ~6% then land at 88% (matching the old
+          envelope), and fill="freeze" pins it at the target like CSS `forwards`.
+          Opacity (fade-in / vanish on impact) stays in CSS (fx-shell-fly, now a
+          pure opacity track — no offset-distance). The path is the trail's d. */}
+      <g className="fx-shell-round" pointerEvents="none">
+        <circle r={tokenSize * 0.13} fill={darken(color, 0.15)} stroke="#fff" strokeWidth={tokenSize * 0.035}>
+          <animateMotion
+            dur="2.2s"
+            begin={`${delay}ms`}
+            fill="freeze"
+            rotate="auto"
+            path={d}
+            keyPoints="0;0;1;1"
+            keyTimes="0;0.06;0.88;1"
+            calcMode="linear"
+          />
+        </circle>
       </g>
       {/* dust + expanding ring burst at the landing */}
       <g className="fx-shell-impact" transform={`translate(${b[0]} ${b[1]})`}>

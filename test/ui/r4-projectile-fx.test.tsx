@@ -166,12 +166,46 @@ describe('R4 ReplayFx — artillery shell (arc + dashed trail + dust/ring)', () 
     expect(trail).not.toBeNull();
     expect(trail.getAttribute('stroke-dasharray')).not.toBeNull();
     expect(trail.getAttribute('d')).toMatch(/Q/); // quadratic bézier (lobbed arc)
-    // the shell rides the same parabola via an offset-path CSS var
+    // the shell rides the SAME parabola — via SVG SMIL <animateMotion>, NOT a CSS
+    // offset-path. (offset-path on an SVG <g> in a transformed board group does
+    // NOT translate the element along absolute path coords — the round stayed
+    // pinned at the layer origin and rendered as a stray colored dot off toward
+    // the board edge; live-confirmed. animateMotion is SVG-native and composes
+    // with the parent view transform.) The motion path MUST equal the trail's d
+    // so the shell follows the real attacker→target arc and lands ON the target.
     const round = shell.querySelector<SVGGElement>('.fx-shell-round')!;
-    expect(round.style.getPropertyValue('--shell-path')).toMatch(/path\(/);
+    const motion = round.querySelector('animateMotion')!;
+    expect(motion).not.toBeNull();
+    expect(motion.getAttribute('path')).toBe(trail.getAttribute('d'));
+    // and it must NOT fall back to the broken offset-path mechanism
+    expect(round.style.getPropertyValue('--shell-path')).toBe('');
+    expect(round.style.offsetPath ?? '').toBe('');
     // dust + expanding ring burst on impact
     expect(shell.querySelector('.fx-shell-ring')).not.toBeNull();
     expect(shell.querySelectorAll('.fx-shell-dust').length).toBeGreaterThan(0);
+  });
+
+  it('the shell motion lands exactly on the defender cell (endpoint = center(to)), not a stray far point', () => {
+    // Regression for the live-captured artifact: trail a→b length ~178px but the
+    // moving shell-round rendered ~470px away near the board edge (offset-path
+    // failed in the SVG board group). The motion path must START at center(from)
+    // and END at center(to) so the round flies the real vector and lands on the
+    // target, never off toward the edge.
+    const board = rowBoard(8);
+    const { container } = renderFx({ projectiles: [proj({ kind: 'shell', from: 1, to: 5, impact: 0.88 })] }, board);
+    const trail = container.querySelector('.fx-shell-trail')!;
+    const d = trail.getAttribute('d')!;
+    // path is "M ax ay Q cx cy bx by" in screen coords (toScreen).
+    const nums = (d.match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
+    const [ax, ay] = [nums[0], nums[1]];
+    const [bx, by] = [nums[nums.length - 2], nums[nums.length - 1]];
+    const aWant = toScreen(board.cells.get(1)!.center);
+    const bWant = toScreen(board.cells.get(5)!.center);
+    expect([ax, ay]).toEqual([aWant[0], aWant[1]]);
+    expect([bx, by]).toEqual([bWant[0], bWant[1]]);
+    // the SMIL motion rides this exact path → its endpoint is the target cell.
+    const motion = container.querySelector('.fx-shell-round animateMotion')!;
+    expect(motion.getAttribute('path')).toBe(d);
   });
 });
 
