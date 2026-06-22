@@ -119,6 +119,57 @@ export const PIPELINE: PipelineEntry[] = [
     commit: '26cddd2',
   },
   {
+    version: '1.0.x',
+    date: 'Jun 21',
+    status: 'shipped',
+    title: 'upkeep economy · build dashboard',
+    items: [
+      'per unit upkeep · drawn at round end · clamp at zero',
+      'build dashboard: income · upkeep · net · committed',
+      'bases mini map · per base production · army roster',
+      'net income line in the HUD',
+    ],
+    commit: 'c6f0de9',
+  },
+  {
+    version: '1.1.x',
+    date: 'Jun 22',
+    status: 'shipped',
+    title: 'forced crossing combat · smarter AI',
+    items: [
+      'enemies whose paths cross fight to the death',
+      'path interrupted sign at the clash',
+      'AI seeks favourable crossings · avoids lethal ones',
+    ],
+    commit: 'a3fd71b',
+  },
+  {
+    version: '1.2.x',
+    date: 'Jun 22',
+    status: 'shipped',
+    title: 'combat resolution readability',
+    items: [
+      'two wave tempo: dilated ranged then quick melee',
+      'spotlight · dilation clock · crawling tracers · arcing shells',
+      'gold kill numbers · deferred dissolve in a settle beat',
+      'scrub the replay · optional combat audio',
+    ],
+    commit: '9aede0b',
+  },
+  {
+    version: '1.3.x',
+    date: 'Jun 22',
+    status: 'shipped',
+    title: 'victory dashboard · watercolor units · full auto',
+    items: [
+      'victory sparklines · casualties by type histogram',
+      'watercolor unit set · gear menu skins · framed tokens',
+      'actions gathered at the top · steady casualty panel',
+      'full auto: watch the greedy bot play itself',
+    ],
+    commit: 'd855be4',
+  },
+  {
     version: 'next',
     date: null,
     status: 'next',
@@ -138,4 +189,4 @@ export const PIPELINE: PipelineEntry[] = [
  *  output would couple the bundle to the test runner. Update alongside the
  *  version bump; the pipeline test pins it to this constant, not to the
  *  live suite. */
-export const TEST_COUNT = 795;
+export const TEST_COUNT = 1115;
