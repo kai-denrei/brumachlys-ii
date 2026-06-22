@@ -232,6 +232,45 @@ export const EMPTY_RECAP: BattleRecap = {
   spent: 0,
 };
 
+/** VICTORY DASHBOARD (v1.5): one round's contribution to the game-over data
+ * visualizations — accumulated round-by-round in closeSummary, the SAME moment
+ * (and from the SAME fog-filtered source) as the casualty recap and BattleRecap
+ * totals. The dashboard's sparklines/histogram walk a `roundHistory` of these.
+ *
+ * FOG HONESTY (inherits the BattleRecap argument, field by field):
+ * - `damageDealt` = [summary.damageDealt[player], summary.damageDealt[enemy]]:
+ *   built only from strikes the replay SHOWED (own strikes always shown; an
+ *   enemy strike on the player's own unit always renders). The damage arc never
+ *   reveals a hidden attacker — it plots watched-land damage vs watched-taken.
+ * - `kills`   = the round's WITNESSED kills (summary.kills.length) — a mist kill
+ *   was never in the summary, so it never inflates the per-round line.
+ * - `fizzles` = shown lost-target fizzles only.
+ * - `brawls`  = witnessed brawl chains (countWitnessedBrawls) — a brawl always
+ *   involves a player unit, so all real brawls are witnessed.
+ * The conquest economy fields are PUBLIC to the player about their OWN side
+ * (their credits, their bases, their living units), so plotting them leaks
+ * nothing about the enemy. They are ABSENT in skirmish (the economy section of
+ * the dashboard hides on their absence). */
+export type RoundRecord = {
+  /** The resolved round number (1-indexed) this record summarizes. */
+  round: number;
+  /** [player, ai] fog-filtered damage dealt this round (same as the recap). */
+  damageDealt: [number, number];
+  /** Witnessed kills this round (both sides; fog-filtered summary.kills). */
+  kills: number;
+  /** Shown lost-target fizzles this round. */
+  fizzles: number;
+  /** Witnessed distinct brawls this round. */
+  brawls: number;
+  /** CONQUEST ONLY: the player's credits at round end. Absent in skirmish. */
+  credits?: number;
+  /** CONQUEST ONLY: the player's base count at round end. Absent in skirmish. */
+  basesHeld?: number;
+  /** CONQUEST ONLY: the player's living unit count at round end. Absent in
+   *  skirmish. */
+  unitsAlive?: number;
+};
+
 /** v1.4: distinct brawls in one round's replay script. The builder emits one
  * slot per brawl EXCHANGE, back-to-back per brawl (same P9 chain rule that
  * compresses follow-up frames): consecutive brawl slots whose strikes carry
@@ -250,6 +289,37 @@ export function countWitnessedBrawls(slots: readonly TimelineSlot[]): number {
     prevKey = key;
   }
   return brawls;
+}
+
+/** v1.5 victory dashboard: build one round's RoundRecord from the fog-filtered
+ * replay script + the POST-round game state. PURE — derived entirely from its
+ * arguments (no ambient input). The conquest economy fields are populated ONLY
+ * when the state carries conquest bookkeeping (game.mode === 'conquest'); in
+ * skirmish they are omitted so the dashboard hides the economy section. The
+ * player's living unit count and base count are PUBLIC to the player about
+ * their own side, so plotting them leaks nothing about the enemy. */
+export function makeRoundRecord(
+  round: number,
+  script: ReplayScript,
+  game: GameState | null,
+): RoundRecord {
+  const base: RoundRecord = {
+    round,
+    damageDealt: [script.summary.damageDealt[PLAYER_FACTION], script.summary.damageDealt[1]],
+    kills: script.summary.kills.length,
+    fizzles: script.summary.fizzles,
+    brawls: countWitnessedBrawls(script.slots),
+  };
+  if (game?.mode === 'conquest') {
+    base.credits = game.credits?.[PLAYER_FACTION] ?? 0;
+    base.basesHeld = game.bases
+      ? Object.values(game.bases).filter((owner) => owner === PLAYER_FACTION).length
+      : 0;
+    base.unitsAlive = Object.values(game.units).filter(
+      (u) => u.faction === PLAYER_FACTION && u.count > 0,
+    ).length;
+  }
+  return base;
 }
 
 /**
@@ -387,6 +457,11 @@ export type AppState = {
   /** v1.4 battle recap: fog-honest battle-long totals (see BattleRecap).
    * Accumulated when each round's summary closes; resets on a new battle. */
   recap: BattleRecap;
+  /** v1.5 victory dashboard: one RoundRecord per resolved round (see
+   * RoundRecord), appended in closeSummary AFTER the recap accumulation, from
+   * the same fog-filtered source. Resets on a new battle. Feeds the game-over
+   * dashboard's sparklines (damage arc / kills / economy). */
+  roundHistory: RoundRecord[];
 
   selectDonor: (donorId: string) => void;
   setSeed: (seed: number) => void;
@@ -486,6 +561,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   battleLog: [],
   casualties: [],
   recap: EMPTY_RECAP,
+  roundHistory: [],
 
   selectDonor: (donorId) =>
     set((s) => {
@@ -543,6 +619,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       battleLog: [],
       casualties: [],
       recap: EMPTY_RECAP,
+      roundHistory: [],
     });
   },
 
@@ -563,6 +640,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       battleLog: [],
       casualties: [],
       recap: EMPTY_RECAP,
+      roundHistory: [],
     }),
 
   // --- planning actions --------------------------------------------------------
@@ -897,13 +975,22 @@ export const useAppStore = create<AppState>((set, get) => ({
             spent: s.recap.spent + (s.replay.script.summary.creditsSpent ?? 0),
           }
         : s.recap;
-      if (s.game?.outcome) return { ...s, uiPhase: 'over' as const, casualties, recap };
+      // v1.5 victory dashboard: append this round's RoundRecord AFTER the recap
+      // accumulation, from the SAME fog-filtered replay summary (witnessed
+      // kills/damage/fizzles/brawls). Conquest economy fields come from the
+      // POST-round game state available here (s.game has already advanced to the
+      // resolved state — its credits/bases/units are the round-end picture the
+      // player owns about their own side). Absent in skirmish.
+      const roundHistory = s.replay
+        ? [...s.roundHistory, makeRoundRecord(s.replay.round, s.replay.script, s.game)]
+        : s.roundHistory;
+      if (s.game?.outcome) return { ...s, uiPhase: 'over' as const, casualties, recap, roundHistory };
       // Back to planning; the replay script is spent — its skirmish-log lines
       // join the battle log history (the log persists across rounds, §v1.1 D).
       const battleLog = s.replay
         ? [...s.battleLog, { round: s.replay.round, entries: s.replay.script.log }]
         : s.battleLog;
-      return { ...s, uiPhase: 'planning' as const, replay: null, battleLog, casualties, recap };
+      return { ...s, uiPhase: 'planning' as const, replay: null, battleLog, casualties, recap, roundHistory };
     }),
 
   rematch: (seed) => {

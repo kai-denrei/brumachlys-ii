@@ -14,8 +14,8 @@ import type { FactionId, GameOutcome, UnitInstance, UnitType } from '../core/typ
 import { loadUnits } from '../io/data-loader';
 import type { RoundSummary, Strike, TimelineSlot } from '../state/replay';
 import { PLAYER_FACTION, useAppStore, type ReplaySpeed } from '../state/store';
-import { CasualtyRow } from './CasualtyPanel';
-import { UnitRenderer, factionColor } from './skin';
+import { CasualtyRow, groupCasualties } from './CasualtyPanel';
+import { BarHistogram, Sparkline, UnitRenderer, factionColor, type HistBar, type SparkSeries } from './skin';
 
 // --- timeline strip + speed control (§9.4) -------------------------------------
 
@@ -449,6 +449,151 @@ export function SummarySheet({
 
 // --- game-over banner + New Battle (§2.8, §9.6, §4.3) ------------------------------
 
+// --- v1.5 VICTORY DASHBOARD (data visualizations) --------------------------------
+// Four compact, scrollable sections appended to the banner recap, all from the
+// store's fog-filtered accumulators (roundHistory + casualties). Each section
+// hides gracefully when its data is empty (a 1-round game has no multi-round
+// arc; an empty casualty list hides the histogram). The economy section appears
+// in CONQUEST only. FOG HONESTY rides the data layer (see RoundRecord) — these
+// are pure reads/plots of already-filtered numbers.
+
+/** One labelled sparkline block in the dashboard. */
+function DashSpark({
+  label,
+  series,
+  ariaLabel,
+}: {
+  label: string;
+  series: SparkSeries[];
+  ariaLabel: string;
+}) {
+  return (
+    <div className="dash-spark-block">
+      <span className="dash-spark-label">{label}</span>
+      <Sparkline series={series} ariaLabel={ariaLabel} />
+    </div>
+  );
+}
+
+/** Legend swatch (a colored dot + text) for the dual damage arc. */
+function DashLegend({ color, text }: { color: string; text: string }) {
+  return (
+    <span className="dash-legend-item">
+      <span className="dash-legend-dot" style={{ background: color }} aria-hidden="true" />
+      {text}
+    </span>
+  );
+}
+
+/** The four data-viz sections. Reads roundHistory + casualties from the store.
+ * Mobile-first + scrollable (the .victory-dashboard scroll container). */
+function VictoryDashboard({ conquest }: { conquest?: ConquestOutcome | null }) {
+  const roundHistory = useAppStore((s) => s.roundHistory);
+  const casualties = useAppStore((s) => s.casualties);
+  const types = useMemo(() => loadUnits(), []);
+  const colorA = factionColor(PLAYER_FACTION);
+  const colorB = factionColor(1);
+
+  // Damage arc: a section needs ≥1 round AND some damage to be worth plotting.
+  const dealt = roundHistory.map((r) => r.damageDealt[0]);
+  const taken = roundHistory.map((r) => r.damageDealt[1]);
+  const kills = roundHistory.map((r) => r.kills);
+  const anyDamage = dealt.some((v) => v > 0) || taken.some((v) => v > 0);
+  const anyKills = kills.some((v) => v > 0);
+
+  // Economy (conquest only): present when the records carry the fields.
+  const econ = !!conquest && roundHistory.some((r) => r.credits !== undefined);
+  const credits = roundHistory.map((r) => r.credits ?? 0);
+  const bases = roundHistory.map((r) => r.basesHeld ?? 0);
+  const army = roundHistory.map((r) => r.unitsAlive ?? 0);
+
+  // Casualties by type+faction → histogram bars (reuse groupCasualties, the same
+  // grouping the icon rows / CasualtyModal use, so they agree). Player groups
+  // first (red), then enemy (blue); each ordered by descending count.
+  const bars: HistBar[] = useMemo(() => {
+    const fallen = casualties.filter((c) => c.faction === PLAYER_FACTION);
+    const destroyed = casualties.filter((c) => c.faction !== PLAYER_FACTION);
+    const toBars = (groups: ReturnType<typeof groupCasualties>, color: string): HistBar[] =>
+      [...groups]
+        .sort((a, b) => b.count - a.count)
+        .map((g) => ({
+          type: g.type,
+          faction: g.faction,
+          count: g.count,
+          color,
+          label: types[g.type]?.name ?? g.type,
+        }));
+    return [
+      ...toBars(groupCasualties(fallen, types), colorA),
+      ...toBars(groupCasualties(destroyed, types), colorB),
+    ];
+  }, [casualties, types, colorA, colorB]);
+
+  // Nothing to show at all → render nothing (keeps a 0-round banner clean).
+  if (!anyDamage && !anyKills && !econ && bars.length === 0) return null;
+
+  return (
+    <div className="victory-dashboard" data-testid="victory-dashboard">
+      {anyDamage && (
+        <section className="dash-section" data-testid="dash-damage-arc">
+          <div className="dash-section-head">
+            <span className="dash-section-title">damage arc</span>
+            <span className="dash-legend">
+              <DashLegend color={colorA} text="dealt" />
+              <DashLegend color={colorB} text="taken" />
+            </span>
+          </div>
+          <Sparkline
+            series={[
+              { points: dealt, color: colorA },
+              { points: taken, color: colorB },
+            ]}
+            ariaLabel={`damage per round — dealt vs taken over ${roundHistory.length} rounds`}
+          />
+        </section>
+      )}
+
+      {anyKills && (
+        <section className="dash-section" data-testid="dash-kills">
+          <div className="dash-section-head">
+            <span className="dash-section-title">kills per round</span>
+          </div>
+          <Sparkline
+            series={[{ points: kills, color: '#8d8675' }]}
+            ariaLabel={`units destroyed each round over ${roundHistory.length} rounds`}
+          />
+        </section>
+      )}
+
+      {econ && (
+        <section className="dash-section dash-economy" data-testid="dash-economy">
+          <div className="dash-section-head">
+            <span className="dash-section-title">economy</span>
+          </div>
+          <div className="dash-economy-grid">
+            <DashSpark label="credits" series={[{ points: credits, color: '#C8A45B' }]} ariaLabel="player credits per round" />
+            <DashSpark label="bases" series={[{ points: bases, color: colorA }]} ariaLabel="player bases held per round" />
+            <DashSpark label="army" series={[{ points: army, color: colorA }]} ariaLabel="player army size per round" />
+          </div>
+        </section>
+      )}
+
+      {bars.length > 0 && (
+        <section className="dash-section" data-testid="dash-casualties">
+          <div className="dash-section-head">
+            <span className="dash-section-title">casualties by type</span>
+            <span className="dash-legend">
+              <DashLegend color={colorA} text="yours" />
+              <DashLegend color={colorB} text="enemy" />
+            </span>
+          </div>
+          <BarHistogram bars={bars} ariaLabel="units lost by type — yours vs enemy" />
+        </section>
+      )}
+    </div>
+  );
+}
+
 /** v1.4 battle recap dashboard inside the banner: rounds fought, the two
  * chess-style icon rows (CasualtyPanel's exact vocabulary — fallen vs enemy
  * destroyed), and the fog-honest battle totals. Data comes straight from the
@@ -456,7 +601,9 @@ export function SummarySheet({
  * and `recap` (accumulated per round from the fog-filtered replay summaries;
  * see BattleRecap in state/store.ts for the field-by-field honesty argument).
  * Card style matches the round-summary sheet (.summary-cell), compacted so
- * the banner stays inside a 390×844 viewport without scrolling. */
+ * the banner stays inside a 390×844 viewport without scrolling.
+ * v1.5: the VICTORY DASHBOARD's data-viz sections (damage arc / kills /
+ * economy / casualties-by-type) are appended below the stat grid. */
 function BannerRecap({ conquest }: { conquest?: ConquestOutcome | null }) {
   const recap = useAppStore((s) => s.recap);
   const casualties = useAppStore((s) => s.casualties);
@@ -518,6 +665,7 @@ function BannerRecap({ conquest }: { conquest?: ConquestOutcome | null }) {
           </div>
         ))}
       </div>
+      <VictoryDashboard conquest={conquest} />
     </div>
   );
 }

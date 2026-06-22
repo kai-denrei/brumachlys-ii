@@ -55,3 +55,6 @@ export type { ImpactMark, ReplayFxData, ReplayFxProps, TrailMark } from './Repla
 export { DilationClock, DilationVignette, DILATION_CLOCK_TURNS } from './DilationOverlay';
 // v0.9 HUD: canvas split-flap round number + odometer credits (displays/).
 export { RoundFlap, CreditsOdometer } from './displays';
+// v1.5 VICTORY DASHBOARD: sparkline + bar-histogram viz primitives (charts/).
+export { Sparkline, BarHistogram } from './charts';
+export type { SparkSeries, HistBar } from './charts';
