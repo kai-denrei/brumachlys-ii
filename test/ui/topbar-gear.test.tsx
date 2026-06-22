@@ -19,7 +19,7 @@ beforeEach(() => {
   } catch {
     /* jsdom storage may be absent in some envs */
   }
-  useAppStore.setState({ unitRenderMode: 'icon', fullAuto: false });
+  useAppStore.setState({ unitRenderMode: 'icon', fullAuto: false, p1ArchetypeKey: 'balanced' });
 });
 
 const openMenu = (getByLabelText: (t: string) => HTMLElement) => {
@@ -34,9 +34,13 @@ describe('TopBar gear menu', () => {
     openMenu(getByLabelText);
     const menu = getByRole('menu');
     expect(menu).not.toBeNull();
-    const items = menu.querySelectorAll('[role="menuitemradio"]');
+    // The APPEARANCE skin radios (the Debug section adds its own P1-archetype
+    // radio group, so scope to the three skin options by their labels).
+    const items = [...menu.querySelectorAll('[role="menuitemradio"]')].filter((i) =>
+      ['Icons', 'Animated', 'Watercolor'].includes(i.textContent ?? ''),
+    );
     expect(items.length).toBe(3);
-    expect([...items].map((i) => i.textContent)).toEqual(['Icons', 'Animated', 'Watercolor']);
+    expect(items.map((i) => i.textContent)).toEqual(['Icons', 'Animated', 'Watercolor']);
   });
 
   it('selecting "Watercolor" sets the store mode and persists it', () => {
@@ -89,7 +93,10 @@ describe('TopBar gear menu', () => {
     openMenu(getByLabelText);
     const menu = getByRole('menu');
     // appearance radios are unaffected by the new section
-    expect(menu.querySelectorAll('[role="menuitemradio"]').length).toBe(3);
+    const skinRadios = [...menu.querySelectorAll('[role="menuitemradio"]')].filter((i) =>
+      ['Icons', 'Animated', 'Watercolor'].includes(i.textContent ?? ''),
+    );
+    expect(skinRadios.length).toBe(3);
     const check = getByLabelText('Full Auto (P1 bot)');
     expect(check.getAttribute('role')).toBe('menuitemcheckbox');
     expect(check.getAttribute('aria-checked')).toBe('false');
@@ -101,6 +108,29 @@ describe('TopBar gear menu', () => {
     // toggling again flips it back off
     fireEvent.click(getByLabelText('Full Auto (P1 bot)'));
     expect(useAppStore.getState().fullAuto).toBe(false);
+  });
+
+  it('the DEBUG section exposes a P1-bot archetype radio group bound to the store', () => {
+    const { getByLabelText, getByRole } = render(<TopBar phase="planning" />);
+    openMenu(getByLabelText);
+    const group = getByRole('group', { name: 'P1 bot archetype' });
+    const radios = group.querySelectorAll('[role="menuitemradio"]');
+    // One radio per registered archetype (>= 1; the greedy fallback alone if
+    // the ai registry is absent, all 5 when present).
+    expect(radios.length).toBeGreaterThanOrEqual(1);
+    // Default selection reflects the store (balanced after beforeEach reset).
+    const balanced = group.querySelector('[data-p1-archetype="balanced"]');
+    expect(balanced?.getAttribute('aria-checked')).toBe('true');
+
+    // Picking another style drives the store and STAYS open (state visible).
+    const swarm = group.querySelector('[data-p1-archetype="swarm"]') as HTMLElement;
+    fireEvent.click(swarm);
+    expect(useAppStore.getState().p1ArchetypeKey).toBe('swarm');
+    expect(getByRole('menu')).not.toBeNull();
+    expect(swarm.getAttribute('aria-checked')).toBe('true');
+    expect(
+      group.querySelector('[data-p1-archetype="balanced"]')?.getAttribute('aria-checked'),
+    ).toBe('false');
   });
 
   it('the menu carries a separator and section labels (Appearance / Debug)', () => {

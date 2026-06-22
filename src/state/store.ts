@@ -466,6 +466,11 @@ export type AppState = {
   /** v0.7 Item 4: the selected opponent archetype key (start screen). Persisted
    *  into the battle on startBattle; commit() instantiates its planner. */
   archetypeKey: string;
+  /** FULL AUTO: faction-0 (P1) bot archetype. In conquest Full Auto, P1 self-
+   *  plays its full conquest round (orders + buys) under THIS archetype via
+   *  commitAutopilot — the same skill-set the opponent (archetypeKey) has.
+   *  Gear-menu selectable; changing it mid-game takes effect next round. */
+  p1ArchetypeKey: string;
   /** Unit-render skin (gear menu, top bar): 'icon' flat glyphs · 'anim'
    *  animated infantry sprites · 'watercolor' static faction art (all types).
    *  Persisted to localStorage. */
@@ -529,6 +534,9 @@ export type AppState = {
   setRoundLimit: (limit: number | null) => void;
   /** v0.7 Item 4: start-screen opponent archetype select. */
   setArchetype: (key: string) => void;
+  /** Gear menu (DEBUG): set the FULL AUTO P1 bot archetype. Takes effect on the
+   *  next round's commitAutopilot. */
+  setP1Archetype: (key: string) => void;
   /** Gear menu: pick the unit-render skin (icon / anim / watercolor) and
    *  persist the choice to localStorage. */
   setUnitRenderMode: (mode: UnitRenderMode) => void;
@@ -580,10 +588,14 @@ export type AppState = {
   removeCapture: (unitId: string) => void;
 
   // --- game actions (P8) -------------------------------------------------------
-  /** Commit the round: player orders (or the override — the ?autopilot=greedy
-   * flag plans faction 0 too) + AI planOrders → resolveRound → replay. */
-  commit: (playerOrdersOverride?: Order[]) => void;
-  /** Dev/demo: plan faction 0 with the same greedy AI, then commit. */
+  /** Commit the round: player orders (or the override — Full Auto plans faction
+   * 0's orders too) + AI planOrders → resolveRound → replay. In conquest,
+   * `playerBuysOverride` lets Full Auto supply faction-0's PRODUCTION (P1 buys
+   * like a real AI); absent in normal play / skirmish (the player's own queued
+   * buys stand). */
+  commit: (playerOrdersOverride?: Order[], playerBuysOverride?: BuyOrder[]) => void;
+  /** Dev/demo: plan faction 0 through the canonical dispatcher (orders + buys
+   * in conquest, under p1ArchetypeKey), then commit — full self-play. */
   commitAutopilot: () => void;
   setReplaySpeed: (speed: ReplaySpeed) => void;
   /** Playback driver reached the last frame → round summary sheet. */
@@ -607,6 +619,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   mode: 'conquest',
   roundLimit: null,
   archetypeKey: defaultArchetypeKey(),
+  p1ArchetypeKey: defaultArchetypeKey(),
   unitRenderMode: loadUnitRenderMode(),
   // FULL AUTO seeds from the legacy ?autopilot=greedy URL flag (read once here);
   // the gear-menu toggle owns the value thereafter.
@@ -649,6 +662,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setMode: (mode) => set({ mode }),
   setRoundLimit: (roundLimit) => set({ roundLimit }),
   setArchetype: (archetypeKey) => set({ archetypeKey }),
+  setP1Archetype: (p1ArchetypeKey) => set({ p1ArchetypeKey }),
   setUnitRenderMode: (mode) => {
     saveUnitRenderMode(mode);
     set({ unitRenderMode: mode });
@@ -911,7 +925,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // --- game actions (P8) ---------------------------------------------------------
 
-  commit: (playerOrdersOverride) => {
+  commit: (playerOrdersOverride, playerBuysOverride) => {
     // v0.9 fix: flush a dangling pending-move PROPOSAL into orders before
     // resolving. Every other path (Enter, tap elsewhere, switch unit) commits
     // it, but the COMMIT button calls commit() directly — so a move the player
@@ -925,6 +939,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!game || game.outcome || uiPhase !== 'planning') return;
     const types = loadUnits();
     const playerOrders = playerOrdersOverride ?? flattenOrders(orders);
+    // FULL AUTO conquest: the autopilot plans faction-0 PRODUCTION too and
+    // supplies it here, so P1 builds units like a real AI. In normal play (and
+    // skirmish) the override is absent → the player's own queued buys stand.
+    const playerBuys = playerBuysOverride ?? flattenBuys(buys);
     const conquest = game.mode === 'conquest';
 
     // The AI plans when the player commits (spec §2.1, solo flow) — through
@@ -959,7 +977,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       { 0: playerOrders, 1: aiOrders },
       types,
       weewar,
-      conquest ? { 0: flattenBuys(buys), 1: aiBuys } : undefined,
+      conquest ? { 0: playerBuys, 1: aiBuys } : undefined,
     );
     const script = buildReplay(
       game.board,
@@ -1005,15 +1023,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   commitAutopilot: () => {
-    const { game, uiPhase } = get();
+    const { game, uiPhase, p1ArchetypeKey } = get();
     if (!game || game.outcome || uiPhase !== 'planning') return;
     const types = loadUnits();
+    const conquest = game.mode === 'conquest';
+    // Full Auto fix: plan faction-0 through the CANONICAL dispatcher, exactly
+    // like the opponent in commit(). planRound routes conquest views to
+    // planConquest → {orders, buys} (capture objectives + PRODUCTION), and
+    // skirmish views to planOrders → {orders, buys: []}. Previously this called
+    // greedyPlanner.planOrders directly (moves/attacks only) and the player's
+    // buys came from the empty store.buys, so P1 NEVER produced units. Now P1
+    // self-plays its full conquest round under its OWN archetype (p1Archetype-
+    // Key, gear-menu selectable) — the same skill-set the opponent has.
     const view = buildFactionView(game.board, game, PLAYER_FACTION, types);
-    const planned = greedyPlanner.planOrders(
+    const plan = ai.planRound(
+      archetypePlanner(p1ArchetypeKey),
       view,
       createRng(plannerSeed(game.rngSeed, game.round, PLAYER_FACTION)),
     );
-    get().commit(planned);
+    // In conquest, hand P1's buys to commit so it actually builds; in skirmish
+    // there are no buys (planRound → planOrders) and the override stays absent,
+    // leaving skirmish Full Auto behavior unchanged (no production).
+    get().commit(plan.orders, conquest ? plan.buys : undefined);
   },
 
   setReplaySpeed: (replaySpeed) => set({ replaySpeed }),

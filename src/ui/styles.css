@@ -174,6 +174,25 @@ body {
   line-height: 1;
 }
 
+/* P1-bot archetype picker (FULL AUTO). A quieter sub-eyebrow under Full Auto,
+   then a compact radio row. Items reuse the base item / active-coral styles. */
+.top-bar-gear-subsection-label {
+  font: 700 0.52rem/1 inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(74, 68, 58, 0.42);
+  padding: 0.35rem 0.6rem 0.2rem;
+  user-select: none;
+}
+.top-bar-gear-radiogroup {
+  display: flex;
+  flex-direction: column;
+}
+.top-bar-gear-item-radio {
+  font-size: 0.7rem;
+  padding: 0.34rem 0.6rem;
+}
+
 .top-bar-round {
   font-weight: 800;
   font-variant-numeric: tabular-nums;

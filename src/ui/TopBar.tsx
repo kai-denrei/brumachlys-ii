@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useAppStore, type UnitRenderMode } from '../state/store';
+import { archetypeList, useAppStore, type UnitRenderMode } from '../state/store';
 import { PipelineModal } from './PipelineModal';
 import { RulesModal } from './RulesModal';
 import { VersionBadge } from './VersionBadge';
@@ -38,8 +38,12 @@ function SettingsMenu() {
   const setUnitRenderMode = useAppStore((s) => s.setUnitRenderMode);
   const fullAuto = useAppStore((s) => s.fullAuto);
   const toggleFullAuto = useAppStore((s) => s.toggleFullAuto);
+  const p1ArchetypeKey = useAppStore((s) => s.p1ArchetypeKey);
+  const setP1Archetype = useAppStore((s) => s.setP1Archetype);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  // The P1-bot archetype options — from the ai registry (greedy fallback).
+  const archetypes = archetypeList();
 
   // Close on Escape or an outside pointer-down (lightweight popover dismissal).
   useEffect(() => {
@@ -113,6 +117,36 @@ function SettingsMenu() {
             </span>
             Full Auto (P1 bot)
           </button>
+          {/* FULL AUTO: the P1 bot's archetype (conquest self-play). A radio
+              set mirroring the opponent picker — changing it takes effect on
+              the next round. Keyboard-operable; the menu stays open. */}
+          <div className="top-bar-gear-subsection-label" role="presentation">
+            P1 bot style
+          </div>
+          <div
+            className="top-bar-gear-radiogroup"
+            role="group"
+            aria-label="P1 bot archetype"
+          >
+            {archetypes.map((a) => {
+              const active = p1ArchetypeKey === a.key;
+              return (
+                <button
+                  key={a.key}
+                  className={`top-bar-gear-item top-bar-gear-item-radio${
+                    active ? ' top-bar-gear-item-active' : ''
+                  }`}
+                  role="menuitemradio"
+                  aria-checked={active}
+                  aria-label={`P1 bot: ${a.label}`}
+                  data-p1-archetype={a.key}
+                  onClick={() => setP1Archetype(a.key)}
+                >
+                  {a.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
