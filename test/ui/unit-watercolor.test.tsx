@@ -79,6 +79,40 @@ describe('UnitRenderer — watercolor mode', () => {
     expect(img.getAttribute('data-watercolor-type')).toBe('tank');
   });
 
+  // ROUNDED CORNERS: the art is clipped to a rounded-corner rect, and the clip
+  // rect carries a non-zero corner radius proportional to the box.
+  it('the painting is clipped to a ROUNDED-CORNER rect', () => {
+    const { container } = renderToken(unit({ faction: 0, type: 'infantry' }));
+    const img = imageOf(container)!;
+    const clipRef = img.getAttribute('clip-path') ?? img.getAttribute('clipPath') ?? '';
+    expect(clipRef).toMatch(/^url\(#/); // the image is clipped
+    const clipRect = container.querySelector('.unit-watercolor clipPath rect')!;
+    expect(clipRect).not.toBeNull();
+    const rx = parseFloat(clipRect.getAttribute('rx') ?? '0');
+    expect(rx).toBeGreaterThan(0); // genuinely rounded, not a square clip
+  });
+
+  // FACTION FRAME: a thin border around the rounded box — RED for faction 0
+  // (player), BLACK for faction 1 (opponent). Untinted art INSIDE the frame.
+  it('faction 0 (player) gets a RED frame around the rounded box', () => {
+    const { container } = renderToken(unit({ faction: 0, type: 'infantry' }));
+    const frame = container.querySelector('.unit-watercolor-frame')!;
+    expect(frame).not.toBeNull();
+    expect(frame.getAttribute('stroke')).toBe('#c0392b'); // brick red
+    expect(frame.getAttribute('fill')).toBe('none'); // art stays untinted
+    expect(parseFloat(frame.getAttribute('rx') ?? '0')).toBeGreaterThan(0); // rounded
+    // "slight": a thin stroke relative to the 40px token (well under a tenth).
+    expect(parseFloat(frame.getAttribute('stroke-width') ?? '0')).toBeLessThan(40 * 0.1);
+  });
+
+  it('faction 1 (opponent) gets a BLACK frame around the rounded box', () => {
+    const { container } = renderToken(unit({ faction: 1, type: 'infantry' }));
+    const frame = container.querySelector('.unit-watercolor-frame')!;
+    expect(frame).not.toBeNull();
+    expect(frame.getAttribute('stroke')).toBe('#1a1a1a'); // charcoal black
+    expect(frame.getAttribute('fill')).toBe('none');
+  });
+
   it('minimal context keeps the glyph even in watercolor mode (no <image>)', () => {
     const { container } = renderToken(unit({ type: 'tank' }), true);
     expect(imageOf(container)).toBeNull();

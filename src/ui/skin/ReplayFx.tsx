@@ -30,6 +30,7 @@ import type { Board, CellId } from '../../board/types';
 import type { FactionId, UnitInstance } from '../../core/types';
 import type { Projectile } from '../../state/replay-timing';
 import type { FloaterCategory } from '../../state/replay';
+import type { UnitRenderMode } from '../../state/store';
 import { darken, desaturate, factionColor } from './palette';
 import { UnitRenderer } from './UnitRenderer';
 import { UnitGlyph } from './icons';
@@ -110,6 +111,12 @@ export type ReplayFxProps = {
   /** The viewing faction — "celebrate" pops use this color and fire only for
    *  the OTHER side's deaths. */
   player?: FactionId;
+  /** The active unit-render skin (gear menu). Threaded into the FX tokens
+   *  (consumed-capture, death, spawn) so a unit that was a watercolor / sprite
+   *  on the board DISSOLVES IN THE SAME SKIN — without it those tokens fell back
+   *  to the flat icon glyph for the duration of the FX, which read as a stale /
+   *  "wrong" image flashing over the watercolor capture. Defaults to 'icon'. */
+  renderMode?: UnitRenderMode;
   /** Tap a floating damage number → breakdown modal for its slot (§9.4). */
   onFloaterTap?: (slot: number) => void;
 };
@@ -622,12 +629,14 @@ function DeathFx({
   tokenSize,
   own,
   cheerColor,
+  renderMode,
 }: {
   unit: UnitInstance;
   at: Pt;
   tokenSize: number;
   own: boolean;
   cheerColor: string;
+  renderMode: UnitRenderMode;
 }) {
   const color = factionColor(unit.faction);
   const h = tokenSize / 2;
@@ -680,9 +689,11 @@ function DeathFx({
           );
         })}
       </g>
-      {/* the token itself: freeze/wobble, then it is gone (frags take over) */}
+      {/* the token itself: freeze/wobble, then it is gone (frags take over).
+          Renders in the active skin so a watercolor/sprite unit dies as itself,
+          not as a flat icon flashing in. */}
       <g className="fx-death-token">
-        <UnitRenderer unit={unit} x={0} y={0} size={tokenSize} />
+        <UnitRenderer unit={unit} x={0} y={0} size={tokenSize} renderMode={renderMode} />
       </g>
       {own && (
         <rect
@@ -764,6 +775,7 @@ function CaptureFx({
   cell,
   to,
   consumed,
+  renderMode,
 }: {
   board: Board;
   toScreen: ReplayFxProps['toScreen'];
@@ -771,6 +783,7 @@ function CaptureFx({
   cell: CellId;
   to: FactionId;
   consumed?: UnitInstance;
+  renderMode: UnitRenderMode;
 }) {
   const cellObj = board.cells.get(cell);
   if (!cellObj) return null;
@@ -806,7 +819,9 @@ function CaptureFx({
         {consumed && (
           <>
             <g className="fx-capture-consume">
-              <UnitRenderer unit={consumed} x={0} y={0} size={ts} />
+              {/* Same SKIN as on the board: a watercolor/sprite unit dissolves
+                  as its painting/sprite, not a flat icon (the capture flicker). */}
+              <UnitRenderer unit={consumed} x={0} y={0} size={ts} renderMode={renderMode} />
             </g>
             {sparks.map(({ sx, sy }, k) => (
               <circle
@@ -1002,7 +1017,7 @@ export function floaterSizeScale(text: string): number {
   return Math.min(1.4, 1 + (Math.sqrt(mag) - 1) * 0.115);
 }
 
-export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloaterTap }: ReplayFxProps) {
+export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, renderMode = 'icon', onFloaterTap }: ReplayFxProps) {
   // Stack same-cell floaters (brawl halves) side by side.
   const seenCells = new Map<CellId, number>();
   // R4: when the frame carries attack-motion primitives, render them (crawling
@@ -1149,6 +1164,7 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
             tokenSize={tokenSize}
             own={unit.faction === player}
             cheerColor={factionColor(player)}
+            renderMode={renderMode}
           />
         );
       })}
@@ -1165,7 +1181,7 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
             pointerEvents="none"
           >
             <g className="fx-spawn-pop">
-              <UnitRenderer unit={unit} x={0} y={0} size={tokenSize} />
+              <UnitRenderer unit={unit} x={0} y={0} size={tokenSize} renderMode={renderMode} />
             </g>
             <circle
               className="fx-spawn-ring"
@@ -1186,6 +1202,7 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
           cell={cell}
           to={to}
           consumed={consumed}
+          renderMode={renderMode}
         />
       ))}
       {(fx.promotions ?? []).map(({ cell, faction }, k) => {

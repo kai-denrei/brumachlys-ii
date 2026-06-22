@@ -47,7 +47,11 @@ const emptyFx = (): ReplayFxData => ({
   kills: [],
 });
 
-function renderFx(fx: Partial<ReplayFxData>, board = rowBoard(6)) {
+function renderFx(
+  fx: Partial<ReplayFxData>,
+  board = rowBoard(6),
+  renderMode: 'icon' | 'anim' | 'watercolor' = 'icon',
+) {
   return render(
     <svg>
       <ReplayFx
@@ -56,6 +60,7 @@ function renderFx(fx: Partial<ReplayFxData>, board = rowBoard(6)) {
         tokenSize={40}
         fx={{ ...emptyFx(), ...fx }}
         player={0}
+        renderMode={renderMode}
       />
     </svg>,
   );
@@ -274,5 +279,34 @@ describe('claim verb (capture: pulse → paint-fill → flag; consumed dissolve)
     const consume = container.querySelector('.fx-capture-consume')!;
     expect(consume).not.toBeNull();
     expect(consume.querySelector('[data-unit-id="pr"]')).not.toBeNull();
+  });
+
+  // FLICKER FIX: the consumed token must dissolve IN THE ACTIVE SKIN. Before the
+  // fix, CaptureFx rendered <UnitRenderer> with no renderMode, so a watercolor
+  // unit became the flat ICON glyph for the capture frame — a "wrong image"
+  // flashing over the watercolor capture. With renderMode threaded through, the
+  // consumed token is the SAME watercolor <image> it was on the board.
+  it('consumed token dissolves in the WATERCOLOR skin (no icon-glyph flash)', () => {
+    const inf = unit('pr', 0, 2, 'infantry'); // f0 → coral painting
+    const { container } = renderFx(
+      { captures: [{ cell: 2, to: 0, consumed: inf }] },
+      rowBoard(6),
+      'watercolor',
+    );
+    const consume = container.querySelector('.fx-capture-consume')!;
+    const img = consume.querySelector('.unit-watercolor image');
+    expect(img).not.toBeNull(); // a watercolor painting, not the flat icon
+    expect(img!.getAttribute('href') ?? '').toMatch(/f0-infantry/);
+    // the flat squircle body must NOT appear in the consume group
+    expect(consume.querySelector('.unit-body')).toBeNull();
+  });
+
+  it('a death token dissolves in the WATERCOLOR skin too (kills carry the skin)', () => {
+    const inf = unit('e1', 1, 2, 'tank'); // f1 → blue painting
+    const { container } = renderFx({ kills: [inf] }, rowBoard(6), 'watercolor');
+    const death = container.querySelector('.fx-death-token')!;
+    const img = death.querySelector('.unit-watercolor image');
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('href') ?? '').toMatch(/f1-tank/);
   });
 });

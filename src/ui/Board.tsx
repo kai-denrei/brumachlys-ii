@@ -1365,6 +1365,7 @@ export function Board({
             tokenSize={tokenSize}
             fx={replayFx.fx}
             player={PLAYER_FACTION}
+            renderMode={unitRenderMode}
             onFloaterTap={tapGuard(onFloaterTap)}
           />
         )}
