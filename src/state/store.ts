@@ -125,7 +125,64 @@ export function loadFullAutoFlag(): boolean {
 /** UI phase — orthogonal to GameState.phase (which the resolver owns). */
 export type UiPhase = 'planning' | 'replay' | 'summary' | 'over';
 
-export type ReplaySpeed = 1 | 2 | 'skip';
+/** RESOLUTION SLOW-DOWN SLIDER (operator feedback: the replay is still too
+ *  fast). replaySpeed is now a continuous NUMBER the slider sets — the fine
+ *  control — plus the discrete 'skip' action (jump to end). The range
+ *  emphasises SLOWER: 0.1× (bullet-time test) → 1× (normal) → 2×. A LOWER value
+ *  stretches the WHOLE resolution: the App divides each frame's duration by the
+ *  multiplier (0.5× → 2× longer), and the SAME value flows to the dilation clock
+ *  + audio (via elapsedReplayTime), so the clock glide/ticks + audio stretch
+ *  coherently with the board FX. Speed only scales playback WALL-CLOCK — it
+ *  never touches the resolved outcome or the frame data (determinism intact). */
+export type ReplaySpeed = number | 'skip';
+
+/** Slider bounds — min emphasises SLOWER (bullet-time), default normal. */
+export const REPLAY_SPEED_MIN = 0.1;
+export const REPLAY_SPEED_MAX = 2;
+export const REPLAY_SPEED_DEFAULT = 1;
+/** Slider step — 0.1 granularity over the [0.1, 2] range. */
+export const REPLAY_SPEED_STEP = 0.1;
+
+/** localStorage key for the persisted resolution speed (mirrors the unit-render
+ *  + audio preference key convention). */
+const REPLAY_SPEED_KEY = 'brumachlys.replaySpeed';
+
+/** Clamp a raw number into the slider's [min, max] range. PURE. */
+export function clampReplaySpeed(v: number): number {
+  if (!(typeof v === 'number') || Number.isNaN(v)) return REPLAY_SPEED_DEFAULT;
+  return Math.max(REPLAY_SPEED_MIN, Math.min(REPLAY_SPEED_MAX, v));
+}
+
+/** Read the persisted resolution speed. Defaults to 1× when unset, invalid, out
+ *  of range, or when storage is unavailable (jsdom may lack it; private mode can
+ *  block). Only NUMERIC speeds persist — 'skip' is a transient action. */
+export function loadReplaySpeed(): number {
+  try {
+    if (typeof localStorage === 'undefined') return REPLAY_SPEED_DEFAULT;
+    const raw = localStorage.getItem(REPLAY_SPEED_KEY);
+    if (raw === null) return REPLAY_SPEED_DEFAULT;
+    const n = Number(raw);
+    if (Number.isNaN(n) || n < REPLAY_SPEED_MIN || n > REPLAY_SPEED_MAX) {
+      return REPLAY_SPEED_DEFAULT;
+    }
+    return n;
+  } catch {
+    return REPLAY_SPEED_DEFAULT;
+  }
+}
+
+/** Persist a numeric resolution speed (clamped to range). No-op when storage is
+ *  unavailable, or when the value is out of range (so a bad save can't poison the
+ *  remembered choice). */
+export function saveReplaySpeed(speed: number): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (Number.isNaN(speed) || speed < REPLAY_SPEED_MIN || speed > REPLAY_SPEED_MAX) return;
+    localStorage.setItem(REPLAY_SPEED_KEY, String(speed));
+  } catch {
+    // storage blocked (private mode etc.) — preference simply won't persist.
+  }
+}
 
 export type ReplaySlice = {
   script: ReplayScript;
@@ -629,7 +686,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   game: null,
   uiPhase: 'planning',
   replay: null,
-  replaySpeed: 1,
+  // RESOLUTION SLOW-DOWN SLIDER: seed from the persisted choice so test sessions
+  // remember the last slow level (defaults to 1× when unset).
+  replaySpeed: loadReplaySpeed(),
 
   selectedUnitId: null,
   pendingMove: null,
@@ -1047,7 +1106,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().commit(plan.orders, conquest ? plan.buys : undefined);
   },
 
-  setReplaySpeed: (replaySpeed) => set({ replaySpeed }),
+  // RESOLUTION SLOW-DOWN SLIDER: the slider/presets set a NUMBER (clamped to
+  // range); the skip button sets the transient 'skip'. Numeric choices persist
+  // (so a test session remembers the slow level); 'skip' is an action, never
+  // persisted — the remembered numeric speed stands behind it.
+  setReplaySpeed: (replaySpeed) => {
+    if (typeof replaySpeed === 'number') {
+      const clamped = clampReplaySpeed(replaySpeed);
+      saveReplaySpeed(clamped);
+      set({ replaySpeed: clamped });
+    } else {
+      set({ replaySpeed });
+    }
+  },
 
   finishReplay: () => {
     if (get().uiPhase === 'replay') set({ uiPhase: 'summary' });

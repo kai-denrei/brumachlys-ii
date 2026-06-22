@@ -13,7 +13,15 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import type { FactionId, GameOutcome, UnitInstance, UnitType } from '../core/types';
 import { loadUnits } from '../io/data-loader';
 import type { RoundSummary, Strike, TimelineSlot } from '../state/replay';
-import { PLAYER_FACTION, useAppStore, type ReplaySpeed } from '../state/store';
+import {
+  PLAYER_FACTION,
+  REPLAY_SPEED_DEFAULT,
+  REPLAY_SPEED_MAX,
+  REPLAY_SPEED_MIN,
+  REPLAY_SPEED_STEP,
+  useAppStore,
+  type ReplaySpeed,
+} from '../state/store';
 import { CasualtyRow, groupCasualties } from './CasualtyPanel';
 import { BarHistogram, Sparkline, UnitRenderer, factionColor, type HistBar, type SparkSeries } from './skin';
 
@@ -29,6 +37,19 @@ const SLOT_KIND_BADGE: Record<TimelineSlot['kind'], string> = {
   promotion: '★',
   interrupt: '✕',
 };
+
+/** Format a speed multiplier for the slider's aria-valuetext / preset labels —
+ *  e.g. 0.5 → "0.5×", 1 → "1×", 2 → "2×". Trims a trailing ".0". */
+function fmtSpeed(v: number): string {
+  const s = Number.isInteger(v) ? String(v) : String(Number(v.toFixed(1)));
+  return `${s}×`;
+}
+
+/** The slider's numeric position for a given speed. 'skip' is a transient action,
+ *  not a slider position — fall back to the default so the thumb never goes NaN. */
+function sliderValue(speed: ReplaySpeed): number {
+  return typeof speed === 'number' ? speed : REPLAY_SPEED_DEFAULT;
+}
 
 function chipUnit(slot: TimelineSlot): UnitInstance | null {
   if (!slot.actorType || slot.actorFaction === null) return null;
@@ -221,12 +242,40 @@ export function ReplayDock({
         >
           {paused ? '▶' : '❚❚'}
         </button>
+        {/* RESOLUTION SLOW-DOWN SLIDER: the FINE control (operator feedback —
+            the replay is still too fast). Emphasises SLOWER (0.1× bullet-time →
+            1× → 2×); a LOWER value stretches the whole resolution (the App
+            divides each frame duration by it, and the same value drives the
+            dilation clock + audio). Keyboard-operable — an aria-label +
+            aria-valuetext ("0.5×") name the multiplier. The 1×/2× buttons are
+            PRESETS that snap it to discrete values; skip stays special. */}
+        <div className="replay-speed">
+          <input
+            type="range"
+            className="replay-speed-slider"
+            data-testid="replay-speed-slider"
+            min={REPLAY_SPEED_MIN}
+            max={REPLAY_SPEED_MAX}
+            step={REPLAY_SPEED_STEP}
+            value={sliderValue(speed)}
+            disabled={done}
+            aria-label="resolution speed — slow the replay down"
+            aria-valuetext={fmtSpeed(sliderValue(speed))}
+            onChange={(e) => onSpeed(Number(e.target.value))}
+          />
+          <span className="replay-speed-readout" aria-hidden="true">
+            {fmtSpeed(sliderValue(speed))}
+          </span>
+        </div>
+        {/* 1×/2× presets (snap the slider) + skip (jump to end). A preset reads
+            "active" when the slider sits exactly on its value. */}
         {([1, 2, 'skip'] as const).map((s) => (
           <button
             key={String(s)}
             className={`replay-button${speed === s ? ' replay-button-active' : ''}`}
             onClick={() => onSpeed(s)}
             disabled={done}
+            aria-label={s === 'skip' ? 'skip to end' : `set speed ${s}×`}
           >
             {s === 'skip' ? '≫' : `${s}×`}
           </button>

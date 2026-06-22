@@ -67,13 +67,16 @@ describe('R7 scrubber rendering', () => {
     expect(scrub.getAttribute('aria-valuetext')).toBe('frame 6 of 10');
   });
 
-  it('keeps play/pause, speed (1×/2×) and skip controls present', () => {
-    const { getByLabelText, getByText } = render(
+  it('keeps play/pause, speed (1×/2× presets + slider) and skip controls present', () => {
+    const { getByLabelText, getByText, getByTestId } = render(
       <ReplayDock {...baseProps} onSeekTime={() => {}} onSeekFrame={() => {}} />,
     );
     expect(getByLabelText('pause')).toBeTruthy();
-    expect(getByText('1×')).toBeTruthy();
-    expect(getByText('2×')).toBeTruthy();
+    // 1×/2× are now PRESETS (the fine control is the resolution slider) — target
+    // them by their aria-labels (the "1×" text also appears in the slider readout).
+    expect(getByLabelText('set speed 1×')).toBeTruthy();
+    expect(getByLabelText('set speed 2×')).toBeTruthy();
+    expect(getByTestId('replay-speed-slider')).toBeTruthy(); // the slow-down slider
     expect(getByText('≫')).toBeTruthy(); // skip
   });
 
