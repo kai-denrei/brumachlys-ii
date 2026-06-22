@@ -91,6 +91,71 @@ describe('R4 ReplayFx — ranged tracer (crawling, not an instant line)', () => 
   });
 });
 
+describe('R4 ReplayFx — tracer GEOMETRY (attacker → defender, right length)', () => {
+  // The guide line MUST run from center(from) to center(to) — the attacker token
+  // to the defender token, along the real vector, NOT off to some fixed point.
+  it('the guide line endpoints equal center(from) / center(to)', () => {
+    const board = rowBoard(8);
+    const { container } = renderFx({ projectiles: [proj({ kind: 'tracer', from: 0, to: 2 })] }, board);
+    const guide = container.querySelector<SVGLineElement>('.fx-tracer-guide')!;
+    expect(guide).not.toBeNull();
+    const aExp = toScreen(board.cells.get(0)!.center);
+    const bExp = toScreen(board.cells.get(2)!.center);
+    expect(Number(guide.getAttribute('x1'))).toBeCloseTo(aExp[0], 6);
+    expect(Number(guide.getAttribute('y1'))).toBeCloseTo(aExp[1], 6);
+    expect(Number(guide.getAttribute('x2'))).toBeCloseTo(bExp[0], 6);
+    expect(Number(guide.getAttribute('y2'))).toBeCloseTo(bExp[1], 6);
+    // length ≈ the attacker→defender distance (two cells = 200 screen units here),
+    // bounded — NOT a runaway off-board line.
+    const len = Math.hypot(bExp[0] - aExp[0], bExp[1] - aExp[1]);
+    expect(len).toBeCloseTo(200, 6);
+  });
+
+  // REGRESSION (this bug): the impact spark animates `transform: scale(...)` in
+  // CSS, and a CSS transform animation REPLACES an SVG `transform` presentation
+  // attribute. So the positioning translate to the IMPACT point (b) MUST live on
+  // an OUTER group, separate from the element carrying the animated class — else
+  // the scale clobbers the translate and the spark snaps to the layer origin,
+  // drawing a stray mark far from the defender (the reported off-board artifact).
+  it('the impact spark translate is on an OUTER group, not on the animated element', () => {
+    const board = rowBoard(8);
+    const { container } = renderFx({ projectiles: [proj({ kind: 'tracer', from: 0, to: 2 })] }, board);
+    const spark = container.querySelector<SVGGElement>('.fx-tracer-spark')!;
+    expect(spark).not.toBeNull();
+    // The animated element itself must NOT carry the positioning translate
+    // (a CSS scale animation would override it).
+    expect(spark.getAttribute('transform')).toBeNull();
+    // Its parent (or an ancestor up to the tracer root) carries the translate to b.
+    const bExp = toScreen(board.cells.get(2)!.center);
+    let node: Element | null = spark.parentElement;
+    let found: { x: number; y: number } | null = null;
+    while (node && !node.classList.contains('fx-tracer')) {
+      const t = node.getAttribute('transform');
+      const m = t && /translate\(\s*([-\d.]+)[ ,]+([-\d.]+)\s*\)/.exec(t);
+      if (m) { found = { x: Number(m[1]), y: Number(m[2]) }; break; }
+      node = node.parentElement;
+    }
+    expect(found).not.toBeNull();
+    expect(found!.x).toBeCloseTo(bExp[0], 6);
+    expect(found!.y).toBeCloseTo(bExp[1], 6);
+  });
+
+  it('the stab flash translate is likewise on an OUTER group (same clobber guard)', () => {
+    const board = rowBoard(8);
+    const { container } = renderFx({ projectiles: [proj({ kind: 'stab', from: 5, to: 6 })] }, board);
+    const flash = container.querySelector<SVGGElement>('.fx-stab-flash')!;
+    expect(flash).not.toBeNull();
+    expect(flash.getAttribute('transform')).toBeNull(); // animated element: no translate
+    const bExp = toScreen(board.cells.get(6)!.center);
+    const parent = flash.parentElement!;
+    const t = parent.getAttribute('transform');
+    const m = /translate\(\s*([-\d.]+)[ ,]+([-\d.]+)\s*\)/.exec(t ?? '')!;
+    expect(m).not.toBeNull();
+    expect(Number(m[1])).toBeCloseTo(bExp[0], 6);
+    expect(Number(m[2])).toBeCloseTo(bExp[1], 6);
+  });
+});
+
 describe('R4 ReplayFx — artillery shell (arc + dashed trail + dust/ring)', () => {
   it('renders the arcing shell with a dashed trail and an impact ring + dust', () => {
     const { container } = renderFx({ projectiles: [proj({ kind: 'shell', impact: 0.88 })] });

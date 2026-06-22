@@ -426,28 +426,37 @@ function Stab({
 }
 
 /** R4: a sharp, brief impact spark (4 radial spokes + a core) — the punctuation
- *  on a tracer / stab landing. The animation timing lives in CSS. */
+ *  on a tracer / stab landing. The animation timing lives in CSS.
+ *
+ *  P9 transform rule (see NOTE above ProjectileFx): the CSS keyframes animate
+ *  `transform: scale(...)`, and a CSS transform animation REPLACES an element's
+ *  SVG `transform` presentation attribute. So the positioning translate to the
+ *  IMPACT point MUST live on an OUTER group, with the animated class on an INNER
+ *  one — otherwise the scale clobbers the translate and the spark renders at the
+ *  layer origin (the bug: a stray mark far from the actual landing cell). */
 function ImpactSpark({ at, tokenSize, className }: { at: Pt; tokenSize: number; className: string }) {
   const r0 = tokenSize * 0.18;
   const r1 = tokenSize * 0.5;
   return (
-    <g className={className} transform={`translate(${at[0]} ${at[1]})`}>
-      {[0, 1, 2, 3].map((k) => {
-        const t = (k / 4) * Math.PI * 2 + Math.PI / 4;
-        return (
-          <line
-            key={k}
-            x1={Math.cos(t) * r0}
-            y1={Math.sin(t) * r0}
-            x2={Math.cos(t) * r1}
-            y2={Math.sin(t) * r1}
-            stroke="#fff"
-            strokeWidth={tokenSize * 0.07}
-            strokeLinecap="round"
-          />
-        );
-      })}
-      <circle r={r0 * 0.8} fill="#fff" />
+    <g transform={`translate(${at[0]} ${at[1]})`}>
+      <g className={className}>
+        {[0, 1, 2, 3].map((k) => {
+          const t = (k / 4) * Math.PI * 2 + Math.PI / 4;
+          return (
+            <line
+              key={k}
+              x1={Math.cos(t) * r0}
+              y1={Math.sin(t) * r0}
+              x2={Math.cos(t) * r1}
+              y2={Math.sin(t) * r1}
+              stroke="#fff"
+              strokeWidth={tokenSize * 0.07}
+              strokeLinecap="round"
+            />
+          );
+        })}
+        <circle r={r0 * 0.8} fill="#fff" />
+      </g>
     </g>
   );
 }
