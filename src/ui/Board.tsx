@@ -1048,6 +1048,13 @@ export function Board({
       <defs>
         <GrainFilterDef />
         <SpriteRedFilter />
+        {/* §6C: clip ALL replay FX to the board frame so no shot lasers off
+            screen (the aligned/same-level long shot was a beam to the edge). The
+            rect is in board screen-space — the same space the FX group lives in
+            INSIDE the view transform — so it tracks pan/zoom for free. */}
+        <clipPath id="board-fx-clip">
+          <rect x={bbox.x} y={bbox.y} width={bbox.width} height={bbox.height} />
+        </clipPath>
       </defs>
       <g transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}>
         <g className="board-cells">
@@ -1367,6 +1374,8 @@ export function Board({
             player={PLAYER_FACTION}
             renderMode={unitRenderMode}
             onFloaterTap={tapGuard(onFloaterTap)}
+            clipId="board-fx-clip"
+            frameBounds={bbox}
           />
         )}
         {stancePopover && selectedUnit && selectedCell && (

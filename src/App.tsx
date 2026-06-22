@@ -50,7 +50,8 @@ import { factionUpkeep, upkeepRateOf } from './core/economy';
 import { loadUnits } from './io/data-loader';
 import type { ReplayFrame } from './state/replay';
 import { dilationAt, spotlightAt } from './state/replay';
-import { clampFrame, frameAtTime, frameStartTime, totalDuration } from './state/replay-timing';
+import { activeCellsAt, clampFrame, frameAtTime, frameStartTime, totalDuration } from './state/replay-timing';
+import { elapsedReplayTime } from './state/dilation-clock';
 import { PLAYER_FACTION, useAppStore } from './state/store';
 import { Board, type CaptureToggleState, type StancePopoverState } from './ui/Board';
 import { BottomDock, type DockBuy } from './ui/BottomDock';
@@ -179,6 +180,13 @@ function BattleScreen() {
   const [frameIdx, setFrameIdx] = useState(0);
   const [paused, setPaused] = useState(false);
   const [breakdownSlot, setBreakdownSlot] = useState<number | null>(null);
+  // §4 FOCAL SPOTLIGHT: the active beat's cells WITHIN the current combat frame
+  // — a sub-frame read driven by activeCellsAt(frame.beats, tWithinFrame). null
+  // between beats / in a gap / on a non-combat frame ⇒ the board RESTORES (no
+  // per-beat dim). Set by the rAF beat clock below (mirrors the DilationClock's
+  // elapsed-time tracking). Determinism: a pure function of (frame, t); scrub /
+  // pause hold the cursor's beat. Reduced-motion bypasses this (static board).
+  const [focalCells, setFocalCells] = useState<readonly CellId[] | null>(null);
   // P9 auto-follow suspension: the slot during which the user grabbed the
   // camera. Following resumes when playback moves to a different slot (the
   // comparison below), or via the recenter button (clears + bumps the token).
@@ -1119,8 +1127,28 @@ function BattleScreen() {
   // replay end. One spotlight for the whole turn (computed once per round; the
   // `active` flag just gates whether the dim is drawn at THIS frame). Absent
   // outside replay/summary (planning never dims).
-  const spotlight =
+  const roundSpotlight =
     replayActive && script ? spotlightAt(script, frameIdx) : null;
+  // §4 FOCAL SPOTLIGHT: the finer per-beat read driven by activeCellsAt (NOT the
+  // whole-turn combatants set). `focalCells` from the beat clock above is:
+  //   • a NON-EMPTY list → spotlight JUST this beat's exchange (dim everything
+  //     else; the beat's attacker/defender + the units on those cells stay lit);
+  //   • an EMPTY list → a between-beats gap → the board RESTORES (active:false);
+  //   • null → the clock is NOT engaged (reduced-motion / non-combat / skip) →
+  //     fall back to the static round-wide R2 spotlight (the existing degraded
+  //     path; reduced-motion keeps a static dim, no flicker).
+  // Fog honesty holds: beat.activeCells never carries a withheld mist source.
+  // Units stay lit by standing on a lit cell (Board.unitSpotlight), so an empty
+  // units set is correct here.
+  const spotlight =
+    focalCells === null
+      ? roundSpotlight
+      : focalCells.length > 0
+        ? {
+            active: true,
+            combatants: { cells: new Set(focalCells), units: new Set<string>() },
+          }
+        : { active: false, combatants: (roundSpotlight ?? { combatants: { cells: new Set<CellId>(), units: new Set<string>() } }).combatants };
 
   // R3 (DILATION): a pure read of the script + cursor — engaged only on WAVE_A
   // (ranged/artillery) frames, released over the INTERLUDE into WAVE_B. It cools
@@ -1169,6 +1197,70 @@ function BattleScreen() {
     return () => anim?.cancel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frameIdx, boardShake, replaySpeed]);
+
+  // §4 FOCAL SPOTLIGHT beat clock: while a COMBAT frame is on screen, track the
+  // elapsed time WITHIN the frame (rAF, mirroring the DilationClock's
+  // elapsedReplayTime base + re-based enteredAt) and publish the active beat's
+  // cells via activeCellsAt(frame.beats, tWithinFrame). Between beats / in a gap
+  // / before the first / after the last beat it publishes null ⇒ the board
+  // restores. PURE read of (frame, t): scrub/pause hold the cursor's beat, so a
+  // given (turn, t) always yields the same spotlight. Skipped entirely under
+  // prefers-reduced-motion (the board stays static — no per-beat dim flicker)
+  // and on the 'skip' fast jump. The advance loop is frame-by-frame, so this is
+  // the ONLY sub-frame timing source the spotlight has.
+  const replayActiveForBeats = uiPhase !== 'planning' && script !== null;
+  useEffect(() => {
+    if (!replayActiveForBeats || !script) {
+      setFocalCells(null);
+      return;
+    }
+    const reduce =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const frame = script.frames[Math.min(frameIdx, script.frames.length - 1)];
+    const beats = frame?.beats;
+    // Non-combat frame (no beats), reduced-motion, or skip → no per-beat dim.
+    if (reduce || replaySpeed === 'skip' || !beats || beats.length === 0) {
+      setFocalCells(null);
+      return;
+    }
+    if (typeof requestAnimationFrame !== 'function') {
+      // jsdom / no rAF: settle on the first beat's cells (deterministic).
+      setFocalCells(beats[0]!.activeCells);
+      return;
+    }
+    const enteredAt = typeof performance !== 'undefined' ? performance.now() : 0;
+    const base = frameStartTime(script.frames, frameIdx);
+    let raf = 0;
+    let last: string | null = null;
+    const loop = () => {
+      const now = typeof performance !== 'undefined' ? performance.now() : 0;
+      const elapsed = elapsedReplayTime(
+        script.frames,
+        frameIdx,
+        replaySpeed,
+        paused,
+        now,
+        enteredAt,
+      );
+      const tWithinFrame = elapsed - base; // ms into THIS frame at 1× speed
+      const cells = activeCellsAt(beats, tWithinFrame);
+      // Clock ENGAGED: a non-empty list = the active beat's cells; an EMPTY list
+      // = a between-beats gap (the board RESTORES). null is reserved for "clock
+      // not engaged" (reduced-motion / non-combat) so the render can tell the two
+      // apart (an empty array ⇒ restore, null ⇒ keep the round-wide spotlight).
+      const key = cells.join(',');
+      if (key !== last) {
+        last = key;
+        setFocalCells(cells);
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replayActiveForBeats, script, frameIdx, paused, replaySpeed]);
 
   const own = units.filter((u) => u.faction === PLAYER_FACTION);
   const orderedIds = orderedUnitIds(orders);
@@ -1334,6 +1426,7 @@ function BattleScreen() {
               fx: {
                 arcs: frame.arcs,
                 projectiles: frame.projectiles,
+                beats: frame.beats,
                 floaters: fxFloaters,
                 bursts: frame.bursts,
                 kills: frame.kills,

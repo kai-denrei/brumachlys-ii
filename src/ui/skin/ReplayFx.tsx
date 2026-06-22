@@ -28,7 +28,7 @@
 
 import type { Board, CellId } from '../../board/types';
 import type { FactionId, UnitInstance } from '../../core/types';
-import type { Projectile } from '../../state/replay-timing';
+import type { Beat, Projectile } from '../../state/replay-timing';
 import type { FloaterCategory } from '../../state/replay';
 import type { Callout, CalloutKind } from '../../state/callouts';
 import type { UnitRenderMode } from '../../state/store';
@@ -56,6 +56,14 @@ export type ReplayFxData = {
    *  builder withholds a mist strike's projectile, so the source never leaks.
    *  Optional: absent ⇒ the legacy instant FlashArc renders for `arcs`. */
   projectiles?: Projectile[];
+  /** Sequencing pass (§3 / B): the frame's SEQUENCED beats. When present, the
+   *  projectiles are played PER BEAT — each beat's projectiles launch at the
+   *  beat's `start` and animate within its `dur` window, so exchanges play one
+   *  at a time (not the simultaneous burst). `frame.projectiles` stays the flat
+   *  union for any non-sequencing reader; `beats` is the finer source of truth
+   *  when set. Absent (movement / legacy / synthetic) → the flat `projectiles`
+   *  path with its CSS fixed-duration envelope. */
+  beats?: Beat[];
   /** `linger`: a "last volley" pill carried into later frames (P9) — still a
    *  breakdown tap target, but rendered settled (no pop animation, no
    *  re-expanding mist impact rings). */
@@ -128,6 +136,17 @@ export type ReplayFxProps = {
   renderMode?: UnitRenderMode;
   /** Tap a floating damage number → breakdown modal for its slot (§9.4). */
   onFloaterTap?: (slot: number) => void;
+  /** §6C: id of a board-frame clipPath (defined in Board's <defs>). When set the
+   *  whole FX layer is clipped to the board bounds so no projectile / guide can
+   *  extend off-screen (the aligned-long-shot laser fix). Optional — synthetic
+   *  callers omit it and render unclipped. */
+  clipId?: string;
+  /** §7: the board frame bounds (screen-space bbox, the same space the FX live
+   *  in inside the view transform). When set, a capture callout's box is CLAMPED
+   *  to stay inside these bounds and its font/width capped so the longest term
+   *  ("All your Bases Are Belong To Us!") is fully legible on-screen — even for
+   *  an edge/infantry capture. Optional — synthetic callers omit it. */
+  frameBounds?: { x: number; y: number; width: number; height: number };
 };
 
 const center = (board: Board, id: CellId, toScreen: ReplayFxProps['toScreen']): Pt | null => {
@@ -262,12 +281,17 @@ function Tracer({
   tokenSize,
   faction,
   delay,
+  dur,
 }: {
   a: Pt;
   b: Pt;
   tokenSize: number;
   faction: FactionId;
   delay: number;
+  /** Beat-scaled animation window (ms). When set the CSS reads `--proj-dur` so
+   *  the crawl/spark land at their fraction WITHIN this beat (sequencing §3.2);
+   *  absent → the CSS fixed-duration fallback (flat / legacy callers). */
+  dur?: number;
 }) {
   const color = factionColor(faction);
   const dx = b[0] - a[0];
@@ -277,10 +301,16 @@ function Tracer({
   const ux = dx / len;
   const uy = dy / len;
   const tail = Math.min(len * 0.4, tokenSize * 0.9);
-  const style = { '--proj-delay': `${delay}ms` } as React.CSSProperties;
+  const style = {
+    '--proj-delay': `${delay}ms`,
+    ...(dur ? { '--proj-dur': `${dur}ms` } : {}),
+  } as React.CSSProperties;
   return (
     <g className="fx-tracer" pointerEvents="none" style={style}>
-      {/* faint full-line guide along the whole shot */}
+      {/* faint DOTTED guide along the whole shot, terminating AT the target —
+          §6: an aligned/long shot must read as a contained dotted line, not a
+          laser to the frame edge (it runs a→b only; the FX layer is also clipped
+          to the board frame so nothing can extend off-screen). */}
       <line
         className="fx-tracer-guide"
         x1={a[0]}
@@ -288,8 +318,9 @@ function Tracer({
         x2={b[0]}
         y2={b[1]}
         stroke={color}
-        strokeWidth={tokenSize * 0.04}
+        strokeWidth={tokenSize * 0.045}
         strokeLinecap="round"
+        strokeDasharray={`${tokenSize * 0.05} ${tokenSize * 0.12}`}
       />
       {/* charge glint near the start */}
       <circle className="fx-tracer-charge" cx={a[0]} cy={a[1]} r={tokenSize * 0.16} fill="#fff" />
@@ -322,12 +353,17 @@ function Shell({
   tokenSize,
   faction,
   delay,
+  dur,
 }: {
   a: Pt;
   b: Pt;
   tokenSize: number;
   faction: FactionId;
   delay: number;
+  /** Beat-scaled flight window (ms). Drives BOTH the SMIL animateMotion dur and
+   *  the CSS opacity track so the lob fills its (deeper) artillery beat and
+   *  lands ~0.88 of it (§8). Absent → the fixed-duration fallback. */
+  dur?: number;
 }) {
   const color = factionColor(faction);
   const mx = (a[0] + b[0]) / 2;
@@ -335,12 +371,22 @@ function Shell({
   const dx = b[0] - a[0];
   const dy = b[1] - a[1];
   const len = Math.hypot(dx, dy) || 1;
-  // High lob: control point well ABOVE the midpoint (perpendicular, biased up).
-  const lob = Math.min(len * 0.55, tokenSize * 2.6) + tokenSize * 1.4;
+  // High lob (§8): control point well ABOVE the midpoint (perpendicular, biased
+  // up). Raised vs the prior pass so the shell reads as a lobbed shell, not a
+  // blink — a taller, more natural parabola. The hang-time fills the (now
+  // beat-scaled, deeper) artillery dilation; landing late (~0.88) below.
+  const lob = Math.min(len * 0.7, tokenSize * 3.4) + tokenSize * 2.2;
   const cx = mx - (dy / len) * lob * 0.25;
   const cy = my - lob; // straight up in screen space (y-down) → smaller y
   const d = `M${a[0]} ${a[1]} Q${cx} ${cy} ${b[0]} ${b[1]}`;
-  const style = { '--proj-delay': `${delay}ms` } as React.CSSProperties;
+  // Flight time: the beat window when sequenced, else the legacy 2.2 s. Longer
+  // flight = a proper lobbed shell (§8). The motion holds at launch until ~6%
+  // then lands at 88% (keyTimes), matching the opacity track's ~0.88 impact.
+  const flightMs = dur && dur > 0 ? dur : 2800;
+  const style = {
+    '--proj-delay': `${delay}ms`,
+    ...(dur ? { '--proj-dur': `${dur}ms` } : {}),
+  } as React.CSSProperties;
   return (
     <g className="fx-shell" pointerEvents="none" style={style}>
       {/* dashed ballistic trail — drawn-on then faded */}
@@ -371,7 +417,7 @@ function Shell({
       <g className="fx-shell-round" pointerEvents="none">
         <circle r={tokenSize * 0.13} fill={darken(color, 0.15)} stroke="#fff" strokeWidth={tokenSize * 0.035}>
           <animateMotion
-            dur="2.2s"
+            dur={`${flightMs}ms`}
             begin={`${delay}ms`}
             fill="freeze"
             rotate="auto"
@@ -414,12 +460,15 @@ function Stab({
   tokenSize,
   faction,
   delay,
+  dur,
 }: {
   a: Pt;
   b: Pt;
   tokenSize: number;
   faction: FactionId;
   delay: number;
+  /** Beat-scaled window (ms) for sequenced melee; absent → the CSS fixed dur. */
+  dur?: number;
 }) {
   const color = factionColor(faction);
   let dx = b[0] - a[0];
@@ -433,6 +482,7 @@ function Stab({
   const reach = 0.5; // ~half the distance toward the target
   const style = {
     '--proj-delay': `${delay}ms`,
+    ...(dur ? { '--proj-dur': `${dur}ms` } : {}),
     '--tx': `${dx * reach}px`,
     '--ty': `${dy * reach}px`,
   } as React.CSSProperties;
@@ -496,16 +546,32 @@ function ProjectileFx({
   toScreen,
   tokenSize,
   proj,
+  delayOffset = 0,
+  dur,
 }: {
   board: Board;
   toScreen: ReplayFxProps['toScreen'];
   tokenSize: number;
   proj: Projectile;
+  /** Sequencing (§3.2 / B): the owning beat's `start` (ms) — added to the
+   *  projectile's own crossfire delay so beat K's motion launches at beat K's
+   *  window, playing one exchange at a time. 0 for the flat / legacy path. */
+  delayOffset?: number;
+  /** The owning beat's window (ms) — the animation duration so the impact
+   *  fraction lands within the beat. Absent → the CSS fixed-duration fallback. */
+  dur?: number;
 }) {
   const a = center(board, proj.from, toScreen);
   const b = center(board, proj.to, toScreen);
   if (!a || !b) return null;
-  const common = { a, b, tokenSize, faction: proj.faction, delay: proj.delay };
+  const common = {
+    a,
+    b,
+    tokenSize,
+    faction: proj.faction,
+    delay: proj.delay + delayOffset,
+    dur,
+  };
   if (proj.kind === 'shell') return <Shell {...common} />;
   if (proj.kind === 'stab') return <Stab {...common} />;
   return <Tracer {...common} />;
@@ -996,6 +1062,7 @@ function CalloutMark({
   tokenSize,
   callout,
   stackIndex,
+  frameBounds,
 }: {
   at: Pt;
   tokenSize: number;
@@ -1003,19 +1070,44 @@ function CalloutMark({
   /** Position in this cell's concurrent stack (0 = first); offsets the anchor up
    *  so simultaneous callouts on one cell don't overlap. */
   stackIndex: number;
+  /** §7: board frame bounds (screen-space) — when set, the callout box is fit +
+   *  clamped to stay fully on-screen (the long capture term overflowed). */
+  frameBounds?: { x: number; y: number; width: number; height: number };
 }) {
   const { text, kind } = callout;
-  const fs = tokenSize * 0.3;
-  const w = Math.max(text.length, 3) * fs * 0.62 + fs * 1.6;
-  const h = fs * 1.8;
+  let fs = tokenSize * 0.3;
+  const charW = (f: number) => Math.max(text.length, 3) * f * 0.62 + f * 1.6;
+  let w = charW(fs);
+  let h = fs * 1.8;
+  // §7: the longest term ("All your Bases Are Belong To Us!") overflowed the
+  // frame — shrink the font so the box fits the frame width (with margin), then
+  // clamp the box center so it never spills off any edge. A bounded shrink keeps
+  // even an edge/infantry capture fully legible on-screen.
+  if (frameBounds) {
+    const maxW = frameBounds.width - tokenSize * 0.5; // small margin
+    if (w > maxW && w > 0) {
+      fs = fs * (maxW / w);
+      w = charW(fs);
+      h = fs * 1.8;
+    }
+  }
   // Base anchor sits above the token; each further callout on the cell climbs.
-  const y = at[1] - tokenSize * 1.05 - stackIndex * h * 1.25;
+  let cx = at[0];
+  let y = at[1] - tokenSize * 1.05 - stackIndex * h * 1.25;
+  if (frameBounds) {
+    const minX = frameBounds.x + w / 2;
+    const maxX = frameBounds.x + frameBounds.width - w / 2;
+    cx = maxX >= minX ? Math.max(minX, Math.min(maxX, cx)) : (frameBounds.x + frameBounds.width / 2);
+    const minY = frameBounds.y + h / 2;
+    const maxY = frameBounds.y + frameBounds.height - h / 2;
+    y = maxY >= minY ? Math.max(minY, Math.min(maxY, y)) : (frameBounds.y + frameBounds.height / 2);
+  }
   const { fill, text: textColor, stroke } = calloutColors(kind);
   return (
     <g
       className="fx-callout"
       data-callout-kind={kind}
-      transform={`translate(${at[0]} ${y})`}
+      transform={`translate(${cx} ${y})`}
       pointerEvents="none"
     >
       {/* the rise+fade animation lives on this INNER group — see the transform NOTE */}
@@ -1094,7 +1186,7 @@ export function floaterSizeScale(text: string): number {
   return Math.min(1.4, 1 + (Math.sqrt(mag) - 1) * 0.115);
 }
 
-export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, renderMode = 'icon', onFloaterTap }: ReplayFxProps) {
+export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, renderMode = 'icon', onFloaterTap, clipId, frameBounds }: ReplayFxProps) {
   // Stack same-cell floaters (brawl halves) side by side.
   const seenCells = new Map<CellId, number>();
   // R4: when the frame carries attack-motion primitives, render them (crawling
@@ -1103,30 +1195,51 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, renderMod
   // a projectile (the source is withheld), so the impact alone shows either way.
   // Frames without projectiles (or older callers) keep the legacy FlashArc.
   const projectiles = fx.projectiles ?? [];
-  const useProjectiles = projectiles.length > 0;
+  // Sequencing (§3 / B): when the frame carries laid-out beats, play each beat's
+  // projectiles in ITS window — beat K's motions launch at beat K's `start` and
+  // animate over its `dur`, so the exchanges sequence (one at a time) instead of
+  // the old simultaneous burst. The flat `fx.projectiles` (the beats' union)
+  // stays the fallback for legacy / synthetic callers with no beats.
+  const beats = fx.beats ?? [];
+  const useBeats = beats.some((b) => b.projectiles.length > 0);
+  const useProjectiles = !useBeats && projectiles.length > 0;
   return (
-    <g className="board-replay-fx">
-      {useProjectiles
-        ? projectiles.map((proj, k) => (
-            <ProjectileFx
-              key={`pj${k}`}
-              board={board}
-              toScreen={toScreen}
-              tokenSize={tokenSize}
-              proj={proj}
-            />
-          ))
-        : fx.arcs.map((arc, k) => (
-            <FlashArc
-              key={`a${k}`}
-              board={board}
-              toScreen={toScreen}
-              tokenSize={tokenSize}
-              from={arc.from}
-              to={arc.to}
-              faction={arc.faction}
-            />
-          ))}
+    <g className="board-replay-fx" clipPath={clipId ? `url(#${clipId})` : undefined}>
+      {useBeats
+        ? beats.flatMap((beat, bi) =>
+            beat.projectiles.map((proj, k) => (
+              <ProjectileFx
+                key={`bp${bi}-${k}`}
+                board={board}
+                toScreen={toScreen}
+                tokenSize={tokenSize}
+                proj={proj}
+                delayOffset={beat.start}
+                dur={beat.dur}
+              />
+            )),
+          )
+        : useProjectiles
+          ? projectiles.map((proj, k) => (
+              <ProjectileFx
+                key={`pj${k}`}
+                board={board}
+                toScreen={toScreen}
+                tokenSize={tokenSize}
+                proj={proj}
+              />
+            ))
+          : fx.arcs.map((arc, k) => (
+              <FlashArc
+                key={`a${k}`}
+                board={board}
+                toScreen={toScreen}
+                tokenSize={tokenSize}
+                from={arc.from}
+                to={arc.to}
+                faction={arc.faction}
+              />
+            ))}
       {fx.bursts.map((cell, k) => {
         const at = center(board, cell, toScreen);
         return at ? <ClashBurst key={`b${k}`} at={at} tokenSize={tokenSize} /> : null;
@@ -1310,6 +1423,7 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, renderMod
               tokenSize={tokenSize}
               callout={callout}
               stackIndex={stack}
+              frameBounds={frameBounds}
             />
           );
         });

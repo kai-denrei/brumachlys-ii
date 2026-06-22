@@ -1270,7 +1270,7 @@ body {
 /* faint full-line guide: fades in immediately, holds dim */
 .fx-tracer-guide {
   opacity: 0;
-  animation: fx-tracer-guide 1.8s ease-out var(--proj-delay, 0ms) forwards;
+  animation: fx-tracer-guide var(--proj-dur, 1.8s) ease-out var(--proj-delay, 0ms) forwards;
 }
 @keyframes fx-tracer-guide {
   0% { opacity: 0; }
@@ -1283,7 +1283,7 @@ body {
   transform-box: fill-box;
   transform-origin: center;
   opacity: 0;
-  animation: fx-tracer-charge 1.8s ease-out var(--proj-delay, 0ms) forwards;
+  animation: fx-tracer-charge var(--proj-dur, 1.8s) ease-out var(--proj-delay, 0ms) forwards;
 }
 @keyframes fx-tracer-charge {
   0% { opacity: 0; transform: scale(0.4); }
@@ -1295,7 +1295,7 @@ body {
 /* the crawling round + speed-streak tail: translate start→impact, reaching the
    target at ~0.80 of the window, then vanish into the spark */
 .fx-tracer-round {
-  animation: fx-tracer-crawl 1.8s linear var(--proj-delay, 0ms) forwards;
+  animation: fx-tracer-crawl var(--proj-dur, 1.8s) linear var(--proj-delay, 0ms) forwards;
 }
 @keyframes fx-tracer-crawl {
   0% { transform: translate(0, 0); opacity: 0; }
@@ -1313,7 +1313,7 @@ body {
   transform-box: fill-box;
   transform-origin: center;
   opacity: 0;
-  animation: fx-proj-spark 1.8s ease-out var(--proj-delay, 0ms) forwards;
+  animation: fx-proj-spark var(--proj-dur, 1.8s) ease-out var(--proj-delay, 0ms) forwards;
 }
 @keyframes fx-proj-spark {
   0%, 79% { opacity: 0; transform: scale(0.3); }
@@ -1327,7 +1327,7 @@ body {
 .fx-shell-trail {
   stroke-dasharray: 6 8;
   opacity: 0;
-  animation: fx-shell-trail 2.2s ease-in var(--proj-delay, 0ms) forwards;
+  animation: fx-shell-trail var(--proj-dur, 2.8s) ease-in var(--proj-delay, 0ms) forwards;
 }
 @keyframes fx-shell-trail {
   0% { opacity: 0; }
@@ -1344,7 +1344,7 @@ body {
    the animateMotion. */
 .fx-shell-round {
   opacity: 0;
-  animation: fx-shell-fly 2.2s linear var(--proj-delay, 0ms) forwards;
+  animation: fx-shell-fly var(--proj-dur, 2.8s) linear var(--proj-delay, 0ms) forwards;
 }
 @keyframes fx-shell-fly {
   0% { opacity: 0; }
@@ -1359,7 +1359,7 @@ body {
   transform-box: fill-box;
   transform-origin: center;
   opacity: 0;
-  animation: fx-shell-ring 2.2s ease-out var(--proj-delay, 0ms) forwards;
+  animation: fx-shell-ring var(--proj-dur, 2.8s) ease-out var(--proj-delay, 0ms) forwards;
 }
 .fx-shell-ring-2 {
   animation-delay: calc(var(--proj-delay, 0ms) + 0.04s);
@@ -1373,7 +1373,7 @@ body {
   transform-box: fill-box;
   transform-origin: center;
   opacity: 0;
-  animation: fx-shell-dust 2.2s ease-out forwards; /* per-circle delay inline */
+  animation: fx-shell-dust var(--proj-dur, 2.8s) ease-out forwards; /* per-circle delay inline */
 }
 @keyframes fx-shell-dust {
   0%, 87% { opacity: 0; transform: scale(0.3) translate(0, 0); }
@@ -1384,7 +1384,7 @@ body {
 /* MELEE STAB ---------------------------------------------------------------- */
 /* short dash toward the target (~0.5 reach) — fast + punchy, lands ~0.50 */
 .fx-stab-dash {
-  animation: fx-stab-dash 0.42s cubic-bezier(0.3, 0, 0.2, 1) var(--proj-delay, 0ms) forwards;
+  animation: fx-stab-dash var(--proj-dur, 0.42s) cubic-bezier(0.3, 0, 0.2, 1) var(--proj-delay, 0ms) forwards;
 }
 @keyframes fx-stab-dash {
   0% { transform: translate(0, 0); opacity: 0; }
@@ -1397,7 +1397,7 @@ body {
   transform-box: fill-box;
   transform-origin: center;
   opacity: 0;
-  animation: fx-stab-flash 0.42s ease-out var(--proj-delay, 0ms) forwards;
+  animation: fx-stab-flash var(--proj-dur, 0.42s) ease-out var(--proj-delay, 0ms) forwards;
 }
 @keyframes fx-stab-flash {
   0%, 45% { opacity: 0; transform: scale(0.3); }
