@@ -22,10 +22,12 @@
 //   (settled, still tappable → breakdown) for ~2 s after their frame ends or
 //   until the next volley replaces them.
 //
-// ?autopilot=greedy (dev/demo flag, kept on purpose): faction 0 is planned by
-// the same greedy AI on commit-less rounds — auto-commits each planning phase
-// and auto-dismisses summaries, so a full game fast-forwards to the banner
-// organically. Useful for demos and for exercising long games by hand.
+// FULL AUTO (store.fullAuto, gear menu → DEBUG, seeded from ?autopilot=greedy):
+// faction 0 is planned by the same greedy AI on commit-less rounds — auto-
+// commits each planning phase and auto-dismisses summaries, so a full game
+// fast-forwards to the banner organically. The store field is read as a
+// selector below, so toggling it live drives self-play ON/OFF mid-game. Useful
+// for demos and for exercising long games by hand. The URL flag still seeds it.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -82,11 +84,6 @@ type SheetState =
   | { kind: 'build'; focusBase: CellId | null }
   | null;
 
-function urlFlag(name: string): string | null {
-  if (typeof window === 'undefined') return null;
-  return new URLSearchParams(window.location.search).get(name);
-}
-
 function BattleScreen() {
   const board = useAppStore((s) => s.board);
   const game = useAppStore((s) => s.game);
@@ -124,7 +121,12 @@ function BattleScreen() {
 
   const [sheet, setSheet] = useState<SheetState>(null);
   const types = useMemo(() => loadUnits(), []);
-  const autopilot = useMemo(() => urlFlag('autopilot') === 'greedy', []);
+  // FULL AUTO: read from the store (seeded from ?autopilot=greedy at store
+  // creation, then toggled live via the ⚙ gear menu). Reading it as a store
+  // selector makes the autopilot effects below REACTIVE — flipping fullAuto ON
+  // mid-game fires commitAutopilot on the next planning phase + auto-closes
+  // summaries; flipping it OFF hands control back to the player.
+  const autopilot = useAppStore((s) => s.fullAuto);
 
   // v0.9 radar: the unit whose shooting-range distances are displayed on the
   // board. null = overlay hidden. Toggled by tapping the bottom-left radar pip

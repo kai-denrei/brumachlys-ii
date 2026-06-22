@@ -109,6 +109,19 @@ export function saveUnitRenderMode(mode: UnitRenderMode): void {
   }
 }
 
+/** FULL AUTO seed: the historical ?autopilot=greedy demo flag is now just the
+ *  initial value of the runtime-toggleable `fullAuto` store field. The URL is
+ *  read ONCE at store creation (here); after that the gear-menu toggle owns the
+ *  value. Returns false in non-browser / test envs (no window). */
+export function loadFullAutoFlag(): boolean {
+  try {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('autopilot') === 'greedy';
+  } catch {
+    return false;
+  }
+}
+
 /** UI phase — orthogonal to GameState.phase (which the resolver owns). */
 export type UiPhase = 'planning' | 'replay' | 'summary' | 'over';
 
@@ -457,6 +470,12 @@ export type AppState = {
    *  animated infantry sprites · 'watercolor' static faction art (all types).
    *  Persisted to localStorage. */
   unitRenderMode: UnitRenderMode;
+  /** FULL AUTO debug/test mode (gear menu → DEBUG section): when true, P1
+   *  (faction 0) is planned by the same greedy AI as P2, so the game self-plays
+   *  — the App autopilot effects auto-commit each planning phase and auto-close
+   *  each summary. Seeded from the legacy ?autopilot=greedy URL flag at store
+   *  creation, then runtime-toggleable. NOT persisted (a debug affordance). */
+  fullAuto: boolean;
   /** Generated battle board (null until startBattle). game.board === board. */
   board: Board | null;
 
@@ -513,6 +532,12 @@ export type AppState = {
   /** Gear menu: pick the unit-render skin (icon / anim / watercolor) and
    *  persist the choice to localStorage. */
   setUnitRenderMode: (mode: UnitRenderMode) => void;
+  /** Gear menu (DEBUG): set FULL AUTO on/off. ON makes the App autopilot the
+   *  loop reactive — P1 auto-commits + summaries auto-close; OFF hands the
+   *  player back control mid-game. */
+  setFullAuto: (v: boolean) => void;
+  /** Convenience flip of fullAuto (menuitemcheckbox onClick). */
+  toggleFullAuto: () => void;
   startBattle: () => void;
   exitBattle: () => void;
 
@@ -583,6 +608,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   roundLimit: null,
   archetypeKey: defaultArchetypeKey(),
   unitRenderMode: loadUnitRenderMode(),
+  // FULL AUTO seeds from the legacy ?autopilot=greedy URL flag (read once here);
+  // the gear-menu toggle owns the value thereafter.
+  fullAuto: loadFullAutoFlag(),
   board: null,
 
   game: null,
@@ -625,6 +653,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveUnitRenderMode(mode);
     set({ unitRenderMode: mode });
   },
+  setFullAuto: (v) => set({ fullAuto: v }),
+  toggleFullAuto: () => set((s) => ({ fullAuto: !s.fullAuto })),
 
   startBattle: () => {
     const { donorId, seed, mode, roundLimit } = get();

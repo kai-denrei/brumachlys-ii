@@ -144,6 +144,36 @@ body {
   background: #e8806b;
 }
 
+/* Section label inside the settings menu (APPEARANCE / DEBUG-TEST). A quiet,
+   uppercase eyebrow — not interactive, not a menuitem. */
+.top-bar-gear-section-label {
+  font: 700 0.58rem/1 inherit;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(74, 68, 58, 0.5);
+  padding: 0.35rem 0.6rem 0.25rem;
+  user-select: none;
+}
+
+/* Visual divider between the APPEARANCE and DEBUG sections. */
+.top-bar-gear-separator {
+  height: 1px;
+  margin: 0.3rem 0.4rem;
+  background: rgba(74, 68, 58, 0.16);
+}
+
+/* The Full Auto checkbox item: a leading box glyph + label. Inherits the base
+   .top-bar-gear-item layout; the active (checked) state reuses the coral fill. */
+.top-bar-gear-item-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.top-bar-gear-check {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
 .top-bar-round {
   font-weight: 800;
   font-variant-numeric: tabular-nums;

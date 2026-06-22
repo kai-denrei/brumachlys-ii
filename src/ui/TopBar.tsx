@@ -25,13 +25,19 @@ const RENDER_MODE_OPTIONS: readonly { mode: UnitRenderMode; label: string }[] = 
   { mode: 'watercolor', label: 'Watercolor' },
 ];
 
-/** The unit-render skin picker: a ⚙ button opening a small popover menu of the
- *  three skins (Icons / Animated / Watercolor). Replaces the old binary "anim"
- *  toggle. The active mode is highlighted (aria-checked). Keyboard-operable:
- *  Escape closes; the menu items are real buttons (Tab/Enter/Space). */
-function RenderModeMenu() {
+/** The game-settings menu: a ⚙ button opening a small popover with two
+ *  sections — APPEARANCE (the Icons / Animated / Watercolor unit skin, an
+ *  aria-checked menuitemradio set) and DEBUG / TEST (a "Full Auto (P1 bot)"
+ *  menuitemcheckbox that self-plays the game). The active skin is highlighted
+ *  (aria-checked); Full Auto reflects store.fullAuto. Keyboard-operable: Escape
+ *  closes; the menu items are real buttons (Tab/Enter/Space). Selecting a skin
+ *  closes the menu; toggling Full Auto keeps it open (so the player sees the
+ *  state flip and the game start moving underneath). */
+function SettingsMenu() {
   const unitRenderMode = useAppStore((s) => s.unitRenderMode);
   const setUnitRenderMode = useAppStore((s) => s.setUnitRenderMode);
+  const fullAuto = useAppStore((s) => s.fullAuto);
+  const toggleFullAuto = useAppStore((s) => s.toggleFullAuto);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -57,17 +63,20 @@ function RenderModeMenu() {
       <button
         className={`top-bar-gear${open ? ' top-bar-gear-open' : ''}`}
         onClick={() => setOpen((o) => !o)}
-        aria-label="unit appearance"
+        aria-label="game settings"
         aria-haspopup="menu"
         aria-expanded={open}
-        title="unit appearance"
+        title="game settings"
       >
         <span className="top-bar-gear-glyph" aria-hidden="true">
           ⚙
         </span>
       </button>
       {open && (
-        <div className="top-bar-gear-menu" role="menu" aria-label="unit appearance options">
+        <div className="top-bar-gear-menu" role="menu" aria-label="game settings options">
+          <div className="top-bar-gear-section-label" role="presentation">
+            Appearance
+          </div>
           {RENDER_MODE_OPTIONS.map(({ mode, label }) => {
             const active = unitRenderMode === mode;
             return (
@@ -86,6 +95,24 @@ function RenderModeMenu() {
               </button>
             );
           })}
+          <div className="top-bar-gear-separator" role="separator" />
+          <div className="top-bar-gear-section-label" role="presentation">
+            Debug / Test
+          </div>
+          <button
+            className={`top-bar-gear-item top-bar-gear-item-check${
+              fullAuto ? ' top-bar-gear-item-active' : ''
+            }`}
+            role="menuitemcheckbox"
+            aria-checked={fullAuto}
+            aria-label="Full Auto (P1 bot)"
+            onClick={() => toggleFullAuto()}
+          >
+            <span className="top-bar-gear-check" aria-hidden="true">
+              {fullAuto ? '☑' : '☐'}
+            </span>
+            Full Auto (P1 bot)
+          </button>
         </div>
       )}
     </div>
@@ -129,9 +156,9 @@ export function TopBar({
       >
         <span className="top-bar-pipeline-glyph">⌬</span>
       </button>
-      {/* Phase chip + the gear (unit-appearance skin picker), right side. */}
+      {/* Phase chip + the gear (game-settings menu: appearance + debug), right side. */}
       <span className="top-bar-status">
-        <RenderModeMenu />
+        <SettingsMenu />
         <span className={`phase-chip phase-chip-${phase}`}>{phase}</span>
       </span>
       {/* portal: .top-bar's backdrop-filter would otherwise become the

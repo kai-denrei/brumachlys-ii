@@ -5,7 +5,12 @@
 // matches how it runs in the app).
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { STANDARD_ARMY, loadUnitRenderMode, useAppStore } from '../../src/state/store';
+import {
+  STANDARD_ARMY,
+  loadFullAutoFlag,
+  loadUnitRenderMode,
+  useAppStore,
+} from '../../src/state/store';
 
 describe('app store', () => {
   beforeEach(() => {
@@ -100,6 +105,25 @@ describe('app store', () => {
     localStorage.setItem('brumachlys.unitRenderMode', 'nonsense');
     expect(loadUnitRenderMode()).toBe('icon');
     localStorage.removeItem('brumachlys.unitRenderMode');
+  });
+
+  it('fullAuto defaults to the URL flag (false in tests — no ?autopilot=greedy)', () => {
+    // jsdom has a window but no autopilot query param → the seed reads false.
+    expect(loadFullAutoFlag()).toBe(false);
+    expect(useAppStore.getState().fullAuto).toBe(false);
+  });
+
+  it('setFullAuto / toggleFullAuto flip the runtime FULL AUTO field', () => {
+    useAppStore.setState({ fullAuto: false });
+    useAppStore.getState().setFullAuto(true);
+    expect(useAppStore.getState().fullAuto).toBe(true);
+    useAppStore.getState().setFullAuto(false);
+    expect(useAppStore.getState().fullAuto).toBe(false);
+
+    useAppStore.getState().toggleFullAuto();
+    expect(useAppStore.getState().fullAuto).toBe(true);
+    useAppStore.getState().toggleFullAuto();
+    expect(useAppStore.getState().fullAuto).toBe(false);
   });
 
   it('seed controls: setSeed truncates, randomizeSeed changes the seed', () => {
