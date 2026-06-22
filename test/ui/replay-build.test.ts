@@ -737,8 +737,8 @@ describe('replay builder — promotion events (v0.8 veterancy)', () => {
 
 // --- Forced-crossing combat: the "path interrupted!" sign (addendum §5) --------
 
-describe('replay builder — path-interrupted sign (forced crossing, §5)', () => {
-  it('a crossing on a VISIBLE cell yields a sign frame + a log line', () => {
+describe('replay builder — path-interrupted callout (forced crossing, §5; Feature A)', () => {
+  it('a crossing on a VISIBLE cell yields a crossing-callout frame + a log line', () => {
     // Player infantry (vision 2) at cell 2 sees cells 0..4. Two enemy movers
     // (one own, one AI) crossed and were halted on cell 3 — inside vision.
     const units = [
@@ -753,11 +753,16 @@ describe('replay builder — path-interrupted sign (forced crossing, §5)', () =
     const script = build(units, events);
     // One interrupt slot for the crossing beat (deduped to ONE per cell).
     expect(script.slots.filter((s) => s.kind === 'interrupt').length).toBe(1);
-    const signFrame = script.frames.find((f) => (f.signs?.length ?? 0) > 0)!;
-    expect(signFrame).toBeDefined();
-    expect(signFrame.signs).toEqual([{ cell: 3, text: 'path interrupted!' }]);
-    // The sign frames the crossing cell.
-    expect(signFrame.focus).toEqual([3]);
+    // Feature A: the CrossSign migrated into a CALLOUT (the callout is the sign).
+    const coFrame = script.frames.find((f) => (f.callouts?.length ?? 0) > 0)!;
+    expect(coFrame).toBeDefined();
+    expect(coFrame.callouts!.length).toBe(1);
+    expect(coFrame.callouts![0]!.cell).toBe(3);
+    expect(coFrame.callouts![0]!.kind).toBe('crossing');
+    // No legacy literal sign text survives.
+    expect((coFrame.signs ?? []).map((s) => s.text)).not.toContain('path interrupted!');
+    // The callout frames the crossing cell.
+    expect(coFrame.focus).toEqual([3]);
     // A skirmish-log line announces the interruption.
     const line = script.log.find((e) =>
       e.segs.some((s) => s.t.includes('path interrupted!')),
@@ -765,7 +770,7 @@ describe('replay builder — path-interrupted sign (forced crossing, §5)', () =
     expect(line).toBeDefined();
   });
 
-  it('two crossers on the SAME cell collapse to a single sign (no double label)', () => {
+  it('two crossers on the SAME cell collapse to a single callout (no double label)', () => {
     const units = [
       makeUnit('pi', 0, 2),
       makeUnit('pc', 0, 0, 'ranger'),
@@ -776,15 +781,14 @@ describe('replay builder — path-interrupted sign (forced crossing, §5)', () =
       { type: 'path-interrupted', unitId: 'ec', crossedWithId: 'pc', cell: 3 },
     ];
     const script = build(units, events);
-    const signFrame = script.frames.find((f) => (f.signs?.length ?? 0) > 0)!;
-    expect(signFrame.signs!.length).toBe(1); // one cell → one sign
+    const coFrame = script.frames.find((f) => (f.callouts?.length ?? 0) > 0)!;
+    expect(coFrame.callouts!.length).toBe(1); // one cell → one callout
   });
 
-  it('a crossing on a NON-visible cell yields NO sign (fog secrecy)', () => {
+  it('a crossing on a NON-visible cell yields NO callout (fog secrecy)', () => {
     // Player infantry (vision 2) at cell 2 sees cells 0..4 only. Two ENEMY
     // movers cross at cell 8 — dark to the player. The crossing stays secret:
-    // no sign, no interrupt slot, no log line — exactly like an enemy brawl in
-    // the dark.
+    // no callout, no interrupt slot, no log line — like an enemy brawl in the dark.
     const units = [
       makeUnit('pi', 0, 2),
       makeUnit('e1', 1, 7, 'ranger'),
@@ -797,15 +801,15 @@ describe('replay builder — path-interrupted sign (forced crossing, §5)', () =
     const script = build(units, events, 12);
     expect(script.frames.length).toBe(1); // establishing only — nothing witnessed
     expect(script.slots.length).toBe(0);
-    expect(script.frames.every((f) => (f.signs?.length ?? 0) === 0)).toBe(true);
+    expect(script.frames.every((f) => (f.callouts?.length ?? 0) === 0)).toBe(true);
     expect(script.log.length).toBe(0);
   });
 
-  it('every frame carries an empty signs array by default (emptyFx contract)', () => {
+  it('every frame carries an empty callouts array by default (emptyFx contract)', () => {
     const script = build([makeUnit('pi', 0, 2)], []);
     for (const f of script.frames) {
-      expect(Array.isArray(f.signs)).toBe(true);
-      expect(f.signs).toEqual([]);
+      expect(Array.isArray(f.callouts)).toBe(true);
+      expect(f.callouts).toEqual([]);
     }
   });
 });

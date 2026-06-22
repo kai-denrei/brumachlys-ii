@@ -1338,6 +1338,7 @@ function BattleScreen() {
                 impacts: fxImpacts,
                 promotions: frame.promotions,
                 signs: frame.signs,
+                callouts: frame.callouts,
               },
             }}
             trails={trails}

@@ -5,6 +5,9 @@
 // dissolving into it). Markup-level: timing/easing live in CSS, but the
 // structure each verb needs must exist and stay fog-honest.
 
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { Board as BoardGraph, Cell, CellId, Vec2 } from '../../src/board/types';
@@ -230,31 +233,101 @@ describe('damage-number categories (R5: colour by category, size ∝ magnitude)'
   });
 });
 
-describe('forced-crossing sign ("path interrupted!", addendum §5)', () => {
-  it('renders a transient sign label at the crossing cell', () => {
-    const { container } = renderFx({ signs: [{ cell: 2, text: 'path interrupted!' }] });
-    const sign = container.querySelector('.fx-cross-sign')!;
-    expect(sign).not.toBeNull();
+describe('combat callouts (Feature A — board-anchored military-font pop-ups)', () => {
+  it('renders a transient callout label at the event cell', () => {
+    const { container } = renderFx({
+      callouts: [{ cell: 2, text: 'CONTACT!', kind: 'crossing' }],
+    });
+    const co = container.querySelector('.fx-callout')!;
+    expect(co).not.toBeNull();
     // The cell-2 center on this board projects to x=250 (toScreen scales ×100).
-    expect(sign.getAttribute('transform')).toContain('250');
-    // The hyphen-free announcement copy is present.
-    const text = [...sign.querySelectorAll('text')].map((t) => t.textContent).join(' ');
-    expect(text).toContain('path interrupted!');
+    expect(co.getAttribute('transform')).toContain('250');
+    const text = [...co.querySelectorAll('text')].map((t) => t.textContent).join(' ');
+    expect(text).toContain('CONTACT!');
   });
 
-  it('renders one sign per crossing cell', () => {
+  it('renders one callout per event', () => {
     const { container } = renderFx({
-      signs: [
-        { cell: 1, text: 'path interrupted!' },
-        { cell: 3, text: 'path interrupted!' },
+      callouts: [
+        { cell: 1, text: 'Tango Down!', kind: 'kill-enemy' },
+        { cell: 3, text: 'CAPT!', kind: 'captured' },
       ],
     });
-    expect(container.querySelectorAll('.fx-cross-sign').length).toBe(2);
+    expect(container.querySelectorAll('.fx-callout').length).toBe(2);
   });
 
-  it('no signs → nothing rendered (fog secrecy passes through)', () => {
+  it('tags the callout kind as a data attribute / class for styling', () => {
+    const { container } = renderFx({
+      callouts: [{ cell: 2, text: 'KIA!', kind: 'kill-own' }],
+    });
+    const co = container.querySelector('.fx-callout')!;
+    expect(co.getAttribute('data-callout-kind')).toBe('kill-own');
+  });
+
+  it('staggers multiple callouts on the SAME cell so they do not overlap illegibly', () => {
+    const { container } = renderFx({
+      callouts: [
+        { cell: 2, text: 'Hit!', kind: 'kill-enemy' },
+        { cell: 2, text: 'Neutralized!', kind: 'kill-enemy' },
+        { cell: 2, text: 'Destroyed!', kind: 'kill-enemy' },
+      ],
+    });
+    const ys = [...container.querySelectorAll('.fx-callout')].map((el) => {
+      const m = /translate\(\s*[\d.-]+[ ,]+([\d.-]+)/.exec(el.getAttribute('transform') ?? '');
+      return m ? parseFloat(m[1]!) : NaN;
+    });
+    // Three callouts, three distinct vertical anchors (a stagger offset each).
+    expect(new Set(ys).size).toBe(3);
+  });
+
+  it('uses the military display font (Black Ops One) on the callout text', () => {
+    const { container } = renderFx({
+      callouts: [{ cell: 2, text: 'CONTACT!', kind: 'crossing' }],
+    });
+    const txt = container.querySelector('.fx-callout-text')!;
+    expect(txt).not.toBeNull();
+    // The class drives the @font-face family; the inline/attr font-family names it.
+    const family = (txt.getAttribute('font-family') ?? '') +
+      ((txt as HTMLElement).style?.fontFamily ?? '');
+    expect(family).toContain('Black Ops One');
+  });
+
+  it('no callouts → nothing rendered (fog secrecy passes through)', () => {
     const { container } = renderFx({});
-    expect(container.querySelector('.fx-cross-sign')).toBeNull();
+    expect(container.querySelector('.fx-callout')).toBeNull();
+  });
+
+  it('caps concurrent callouts on one cell (a multi-kill wave never spams)', () => {
+    const { container } = renderFx({
+      callouts: Array.from({ length: 7 }, (_, i) => ({
+        cell: 2,
+        text: `Down ${i}!`,
+        kind: 'kill-enemy' as const,
+      })),
+    });
+    // CALLOUT_STACK_CAP = 3 — at most 3 rendered per cell.
+    expect(container.querySelectorAll('.fx-callout').length).toBe(3);
+  });
+});
+
+describe('combat callouts — CSS contract (font + reduced-motion static)', () => {
+  // Timing/easing/font wiring live in styles.css; assert the load-bearing rules
+  // exist (the markup tests above confirm the structure they hook onto).
+  const css = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), '../../src/ui/styles.css'),
+    'utf8',
+  );
+
+  it('vendors the Black Ops One @font-face pointing at the woff2', () => {
+    expect(css).toMatch(/@font-face[\s\S]*?Black Ops One/);
+    expect(css).toContain('black-ops-one-latin.woff2');
+  });
+
+  it('reduced-motion degrades the callout to a STATIC end-state (no rise)', () => {
+    const rm = css.slice(css.indexOf('prefers-reduced-motion'));
+    expect(rm).toContain('.fx-callout-rise');
+    // the rule sets a static, non-animated end state
+    expect(rm).toMatch(/\.fx-callout-rise\s*\{[\s\S]*?(opacity:\s*1|transform:\s*none)/);
   });
 });
 

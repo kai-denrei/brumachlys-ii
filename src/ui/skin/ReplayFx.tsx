@@ -30,6 +30,7 @@ import type { Board, CellId } from '../../board/types';
 import type { FactionId, UnitInstance } from '../../core/types';
 import type { Projectile } from '../../state/replay-timing';
 import type { FloaterCategory } from '../../state/replay';
+import type { Callout, CalloutKind } from '../../state/callouts';
 import type { UnitRenderMode } from '../../state/store';
 import { darken, desaturate, factionColor } from './palette';
 import { UnitRenderer } from './UnitRenderer';
@@ -99,8 +100,16 @@ export type ReplayFxData = {
    *  signs at crossing cells — a short transient label announcing that two
    *  enemy movers' paths crossed and were halted here (the brawl that follows
    *  uses the existing brawl FX). Fog-gated upstream (state/replay.ts) — this
-   *  draws exactly what it is given. Optional: most frames send none. */
+   *  draws exactly what it is given. Optional: most frames send none.
+   *  Feature A SUPERSEDES this for crossings (now a `callout`); kept for
+   *  backward compatibility / any non-callout sign caller. */
   signs?: Array<{ cell: CellId; text: string }>;
+  /** Feature A (callouts §2): transient board-anchored combat callouts — a
+   *  military-font pop-up at the event's cell (crossing / no-target / capture /
+   *  kill), floating up + fading. The flavor term + fog gating are resolved
+   *  upstream (state/replay.ts); this draws exactly what it is given. Multiple
+   *  callouts on the same cell are staggered so they stay legible. Optional. */
+  callouts?: Callout[];
 };
 
 export type ReplayFxProps = {
@@ -920,55 +929,94 @@ function PromotionFx({ at, tokenSize, color }: { at: Pt; tokenSize: number; colo
   );
 }
 
-// --- Forced-crossing combat: the "path interrupted!" sign ---------------------
-// A short transient label floating above the crossing cell, announcing that two
-// enemy movers' paths crossed and were halted here (addendum 2026-06-21 §5).
-// Reuses the floater-pill visual vocabulary (a rounded label with the same rise
-// motion) but as a wider banner with a small ✕ glyph — it reads as an
-// announcement, not a damage number, and carries no breakdown tap target. The
-// ensuing brawl renders via the existing brawl FX.
+// --- Feature A: combat CALLOUTS (board-anchored military-font pop-ups) --------
+// A transient banner floating up above the event cell, announcing a combat beat
+// in a stencil military display font (Black Ops One, vendored OFL under
+// ui/fonts/) — system/log text stays JetBrains Mono. It GENERALIZES the old
+// "path interrupted!" sign (the callout IS the sign now) and covers crossings,
+// no-target fizzles, base captures, and unit kills. The flavor word + fog gating
+// are resolved upstream (state/replay.ts); this draws what it is given.
+//
+// STACKING: multiple callouts on the SAME cell (e.g. several kills in one wave)
+// are staggered upward by `stackIndex` so they never overlap illegibly, and the
+// concurrent set per cell is CAPPED so a wipe doesn't spam the board.
+//
+// The colour is keyed by kind (loss reads heavier/muted; enemy kills + captures
+// read as a win in the player's gold; crossings/fizzles are neutral steel). The
+// rise+fade motion reuses the shared .fx-callout-rise; reduced-motion (CSS)
+// drops it to a static fade.
 
-function CrossSign({ at, tokenSize, text }: { at: Pt; tokenSize: number; text: string }) {
+/** Cap concurrent callouts on one cell so a multi-kill wave stays legible. */
+const CALLOUT_STACK_CAP = 3;
+
+/** Per-kind callout colours: { fill, text, stroke }. Own-loss is a muted ink
+ *  (a casualty notice, not a celebration); enemy kill + capture ride the gold
+ *  win colour; crossing + no-target are a neutral steel announcement. */
+function calloutColors(kind: CalloutKind): { fill: string; text: string; stroke: string } {
+  switch (kind) {
+    case 'kill-enemy':
+    case 'captured':
+      // GOLD — a win beat (kill confirmed / base taken).
+      return { fill: 'var(--gold)', text: '#2a2620', stroke: 'rgba(42,38,32,0.5)' };
+    case 'kill-own':
+      // Muted danger red — a loss notice (own unit down).
+      return { fill: '#9c2f1d', text: '#fdeee6', stroke: 'rgba(255,255,255,0.5)' };
+    case 'no-target':
+      // Steel grey — a fizzle (held fire, no target).
+      return { fill: '#5d5648', text: '#f2eee3', stroke: 'rgba(255,255,255,0.4)' };
+    case 'crossing':
+    default:
+      // Ink steel — contact / meeting-engagement announce.
+      return { fill: '#3a4250', text: '#eef2f7', stroke: 'rgba(255,255,255,0.5)' };
+  }
+}
+
+function CalloutMark({
+  at,
+  tokenSize,
+  callout,
+  stackIndex,
+}: {
+  at: Pt;
+  tokenSize: number;
+  callout: Callout;
+  /** Position in this cell's concurrent stack (0 = first); offsets the anchor up
+   *  so simultaneous callouts on one cell don't overlap. */
+  stackIndex: number;
+}) {
+  const { text, kind } = callout;
   const fs = tokenSize * 0.3;
-  const w = text.length * fs * 0.56 + fs * 2.2;
-  const h = fs * 1.7;
-  const y = at[1] - tokenSize * 1.05;
+  const w = Math.max(text.length, 3) * fs * 0.62 + fs * 1.6;
+  const h = fs * 1.8;
+  // Base anchor sits above the token; each further callout on the cell climbs.
+  const y = at[1] - tokenSize * 1.05 - stackIndex * h * 1.25;
+  const { fill, text: textColor, stroke } = calloutColors(kind);
   return (
     <g
-      className="fx-cross-sign"
+      className="fx-callout"
+      data-callout-kind={kind}
       transform={`translate(${at[0]} ${y})`}
       pointerEvents="none"
     >
-      {/* the rise animation lives on this INNER group — see the transform NOTE */}
-      <g className="fx-floater-rise">
+      {/* the rise+fade animation lives on this INNER group — see the transform NOTE */}
+      <g className="fx-callout-rise">
         <rect
           x={-w / 2}
           y={-h / 2}
           width={w}
           height={h}
-          rx={h / 2}
-          fill="#9c2f1d"
-          stroke="#fff"
-          strokeWidth={tokenSize * 0.035}
+          rx={h * 0.28}
+          fill={fill}
+          stroke={stroke}
+          strokeWidth={tokenSize * 0.04}
         />
-        {/* ✕ glyph at the left, echoing the crossing */}
         <text
-          x={-w / 2 + fs * 0.9}
+          className="fx-callout-text"
           textAnchor="middle"
           dominantBaseline="central"
-          fontSize={fs * 0.9}
-          fontWeight={700}
-          fill="#fff"
-        >
-          ✕
-        </text>
-        <text
-          x={fs * 0.5}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fontSize={fs * 0.78}
-          fontWeight={700}
-          fill="#fff"
+          fontSize={fs * 0.82}
+          fontFamily="'Black Ops One', 'Impact', 'Arial Narrow Bold', sans-serif"
+          fill={textColor}
         >
           {text}
         </text>
@@ -1225,12 +1273,27 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, renderMod
           />
         ) : null;
       })}
-      {(fx.signs ?? []).map(({ cell, text }, k) => {
-        const at = center(board, cell, toScreen);
-        return at ? (
-          <CrossSign key={`sign${k}`} at={at} tokenSize={tokenSize} text={text} />
-        ) : null;
-      })}
+      {/* Feature A: combat callouts — staggered per cell (cap CALLOUT_STACK_CAP)
+          so a multi-kill wave stays legible. Built fog-gated upstream. */}
+      {(() => {
+        const stackOnCell = new Map<CellId, number>();
+        return (fx.callouts ?? []).map((callout, k) => {
+          const at = center(board, callout.cell, toScreen);
+          if (!at) return null;
+          const stack = stackOnCell.get(callout.cell) ?? 0;
+          stackOnCell.set(callout.cell, stack + 1);
+          if (stack >= CALLOUT_STACK_CAP) return null; // cap concurrent spam
+          return (
+            <CalloutMark
+              key={`co${k}`}
+              at={at}
+              tokenSize={tokenSize}
+              callout={callout}
+              stackIndex={stack}
+            />
+          );
+        });
+      })()}
     </g>
   );
 }

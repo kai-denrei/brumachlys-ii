@@ -51,6 +51,7 @@
 // and the HUD ticks exactly when the replay shows the cause.
 
 import type { Board, CellId } from '../board/types';
+import { calloutTerm, type Callout } from './callouts';
 import { visibleCells } from '../core/fog';
 import type {
   AttackBreakdown,
@@ -200,6 +201,15 @@ export type ReplayFrame = {
    *  spatial beats — a crossing in the dark surfaces no sign (it stays secret,
    *  like an enemy brawl the player cannot see). Empty by default. */
   signs?: Array<{ cell: CellId; text: string }>;
+  /** Feature A (callouts §2): transient board-anchored combat callouts fired
+   *  this frame — a military-font pop-up at each event's cell (crossing /
+   *  no-target / capture / kill), the flavor term chosen deterministically by
+   *  FNV hash of a stable per-event key (so scrub/replay show the SAME word).
+   *  Fog-gated exactly like the other spatial beats: a callout never fires for
+   *  an event the player could not witness (a mist kill surfaces nothing). The
+   *  path-interrupted CrossSign migrated INTO this (the callout is now the
+   *  sign). Empty by default. */
+  callouts?: Callout[];
   /** v1.3: active movement origin trails (fog-filtered, see TrailFx). */
   trails: TrailFx[];
   /** Cells the camera should keep in view this frame (auto-follow, P9).
@@ -451,6 +461,22 @@ export function buildReplay(
 
   const nameOf = (type: string | null): string =>
     type === null ? '?' : (unitTypes[type]?.name ?? type);
+  /** Feature A: a kill callout for a SHOWN casualty — routed to the own table
+   *  (PLAYER) or the enemy table, anchored at the victim's cell. The eventKey
+   *  is stable (unitId + cell) so the term is identical across scrub/replay.
+   *  The own table interpolates the unit's display name (`{type} Down!`). */
+  const killCallout = (victim: UnitInstance): Callout => {
+    const own = victim.faction === player;
+    return {
+      cell: victim.cell,
+      kind: own ? 'kill-own' : 'kill-enemy',
+      text: calloutTerm(
+        own ? 'kill-own' : 'kill-enemy',
+        `kill:${victim.id}:${victim.cell}`,
+        own ? nameOf(victim.type) : undefined,
+      ),
+    };
+  };
   const lastFrame = (): number => Math.max(0, frames.length - 1);
   const logKills = (shown: readonly UnitInstance[], atFrame: number): void => {
     for (const k of shown) {
@@ -474,6 +500,7 @@ export function buildReplay(
     captures: [] as ReplayFrame['captures'],
     promotions: [] as ReplayFrame['promotions'],
     signs: [] as ReplayFrame['signs'],
+    callouts: [] as Callout[],
     trails: [] as TrailFx[],
     focus: [] as CellId[],
   });
@@ -734,29 +761,42 @@ export function buildReplay(
       // crossing wholly in the dark surfaces nothing (it stays secret, exactly
       // like an enemy brawl the player cannot witness).
       const vis = vision();
-      const signCells: CellId[] = [];
+      // Feature A: the path-interrupted CrossSign migrates into a CALLOUT — the
+      // callout becomes the sign (spec §2.2). One per distinct crossing cell;
+      // the first interrupted unit witnessed on that cell owns the eventKey so
+      // the flavor term is deterministic + stable across scrub/replay.
+      const crossCells: CellId[] = [];
+      const crossKeyer = new Map<CellId, string>();
       let j = i;
       while (j < events.length && events[j]!.type === 'path-interrupted') {
         const pe = events[j] as Extract<ResolutionEvent, { type: 'path-interrupted' }>;
         const u = sim.get(pe.unitId);
         const shown = u ? seen(u.faction, pe.cell, vis) : vis.has(pe.cell);
-        if (shown && !signCells.includes(pe.cell)) signCells.push(pe.cell);
+        if (shown && !crossCells.includes(pe.cell)) {
+          crossCells.push(pe.cell);
+          crossKeyer.set(pe.cell, `cross:${pe.unitId}:${pe.cell}`);
+        }
         j++;
       }
-      if (signCells.length > 0) {
+      if (crossCells.length > 0) {
         const slot = slots.length;
         slots.push({ kind: 'interrupt', actorType: null, actorFaction: null, strikes: [] });
+        const callouts: Callout[] = crossCells.map((cell) => ({
+          cell,
+          kind: 'crossing',
+          text: calloutTerm('crossing', crossKeyer.get(cell)!),
+        }));
         frames.push({
           duration: SIGN_MS,
           slot,
           units: renderUnits(vis),
           ...fogFields(vis),
           ...emptyFx(),
-          signs: signCells.map((cell) => ({ cell, text: 'path interrupted!' })),
-          focus: [...signCells],
+          callouts,
+          focus: [...crossCells],
         });
-        // One announce line for the beat (the signs carry the cells spatially;
-        // every crossing here shares the same hyphen-free announcement copy).
+        // One announce line for the beat (the callouts carry the cells + flavor
+        // spatially; the log keeps the plain crossing announcement copy).
         log.push({
           atFrame: frames.length - 1,
           segs: [{ t: 'path interrupted!' }],
@@ -826,6 +866,9 @@ export function buildReplay(
       let fizzleGlyphType: string | null = null;
       let fizzleGlyphFaction: FactionId | null = null;
       const fizzleFloaters: Floater[] = [];
+      // Feature A: no-target callouts for SHOWN fizzles, anchored at the
+      // attacker's cell. Deterministic key per fizzle (attacker + target cell).
+      const fizzleCallouts: Callout[] = [];
 
       // We'll scan forward to collect the full run of attacks (each may have a
       // counter + kills inline) plus any interleaved lost-target fizzles. The
@@ -863,6 +906,11 @@ export function buildReplay(
               { t: nameOf(lAtt.type), f: lAtt.faction },
               { t: ' holds fire — target lost' },
             ]);
+            fizzleCallouts.push({
+              cell: lAtt.cell,
+              kind: 'no-target',
+              text: calloutTerm('no-target', `lost:${le.attackerId}:${le.targetCell}`),
+            });
             if (fizzleGlyphType === null && fizzleGlyphFaction === null) {
               fizzleGlyphType = lAtt.type;
               fizzleGlyphFaction = lAtt.faction;
@@ -1054,6 +1102,10 @@ export function buildReplay(
           // blow but the victim does not fall here. It is recorded as DOOMED and
           // dissolves on the appended SETTLE beat. (No `kills` on a wave frame.)
           kills: [],
+          // Feature A: a kill callout per shown casualty of this beat (the
+          // lethal blow is announced here, even though the visual fall waits for
+          // SETTLE). Fog-honest: waveKills are the SHOWN casualties only.
+          callouts: waveKills.map(killCallout),
           focus: [...focus],
           wave: w,
           band: beatBand,
@@ -1100,6 +1152,8 @@ export function buildReplay(
           ...fogFields(visAfter),
           ...emptyFx(),
           floaters: fizzleFloaters,
+          // Feature A: surface a no-target callout at each shown fizzle.
+          callouts: fizzleCallouts,
           focus: [...focus],
         });
         for (const line of combinedLogLines) log.push({ atFrame: frames.length - 1, segs: line });
@@ -1109,6 +1163,12 @@ export function buildReplay(
         // of this run. No extra floater beat — the floater belonged to the
         // standalone fizzle case; here the strikes carry the visuals.
         for (const line of combinedLogLines) log.push({ atFrame: lastFrame(), segs: line });
+        // Feature A: the no-target callouts still surface (the player witnessed
+        // the held fire), riding the last combat frame of this run.
+        if (fizzleCallouts.length > 0) {
+          const last = frames[lastFrame()]!;
+          (last.callouts ??= []).push(...fizzleCallouts);
+        }
       }
 
       i = j;
@@ -1180,6 +1240,9 @@ export function buildReplay(
       // the DOOMED hold and falls in SETTLE. Brawl/crossfire MUTUAL deaths share
       // this one frame, so they fall TOGETHER on the SETTLE beat. (No `kills`.)
       fx.kills = [];
+      // Feature A: a kill callout per shown brawl casualty (announced on the
+      // clash frame; the visual fall waits for SETTLE). Fog-honest.
+      fx.callouts = kills.shown.map(killCallout);
       if (shown) {
         // R2 spotlight: a shown brawl's participants (both factions, same cell)
         // are combatants. The strikes already carry both ends.
@@ -1272,6 +1335,13 @@ export function buildReplay(
             ? { cell: ev.cell, to: ev.to, consumed: consumedSnapshot }
             : { cell: ev.cell, to: ev.to },
         );
+        // Feature A: a base-captured callout alongside the claim FX, anchored at
+        // the base cell, term deterministic per (cell, new owner).
+        fx.callouts.push({
+          cell: ev.cell,
+          kind: 'captured',
+          text: calloutTerm('captured', `capture:${ev.cell}:${ev.to}`),
+        });
         frames.push({
           duration: CAPTURE_MS,
           slot,
@@ -1564,6 +1634,7 @@ function insertSettleBeat(
     captures: [],
     promotions: [],
     signs: [],
+    callouts: [],
     trails: [],
     focus: [],
     settle: true,
