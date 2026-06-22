@@ -14,6 +14,8 @@ import {
   handAngle,
   shiftBloom,
   STEP_DEG,
+  tickCount,
+  tickIndexAt,
   W_GLIDE,
 } from '../../src/state/dilation-clock';
 import type { Wave } from '../../src/state/replay-timing';
@@ -187,6 +189,65 @@ describe('elapsedReplayTime — drive t from the replay (pause/speed/skip/scrub)
   it('clamps to [0, total]', () => {
     expect(elapsedReplayTime(fr, 0, 1, false, -50, 0)).toBeGreaterThanOrEqual(0);
     expect(elapsedReplayTime(fr, fr.length - 1, 1, false, 1e9, 0)).toBeLessThanOrEqual(TOTAL);
+  });
+});
+
+describe('tickIndexAt / tickCount — the current clock-tick index at t (Phase 3 audio sync)', () => {
+  it('is −1 before the dilation window (GLIDE / SHIFT) and 0 at the first boundary', () => {
+    const acts = dilationActs(script());
+    expect(tickIndexAt(0, acts)).toBe(-1);
+    expect(tickIndexAt(acts.glideEnd - 1, acts)).toBe(-1);
+    // exactly at glideEnd the first boundary (ticks[0] === 0 relative) is crossed.
+    expect(tickIndexAt(acts.glideEnd, acts)).toBe(0);
+  });
+
+  it('advances ONE index per crossed tick boundary, in step with handAngle', () => {
+    const acts = dilationActs(script());
+    expect(acts.ticks.length).toBeGreaterThanOrEqual(3);
+    // just before the k-th boundary the index is k−1; just past it the index is
+    // k (sampled off the exact float boundary, as the rAF never lands on it).
+    for (let k = 1; k < acts.ticks.length; k++) {
+      const at = acts.glideEnd + acts.ticks[k]!;
+      expect(tickIndexAt(at - 0.5, acts)).toBe(k - 1);
+      expect(tickIndexAt(at + 0.5, acts)).toBe(k);
+    }
+  });
+
+  it('is MONOTONIC NON-DECREASING across the whole window (never re-fires backward)', () => {
+    const acts = dilationActs(script());
+    let prev = -1;
+    for (let t = 0; t <= acts.total; t += 7) {
+      const k = tickIndexAt(t, acts);
+      expect(k).toBeGreaterThanOrEqual(prev);
+      prev = k;
+    }
+  });
+
+  it('RELEASE holds at the final index (ticks have ended, like the hand)', () => {
+    const acts = dilationActs(script());
+    const last = acts.ticks.length - 1;
+    expect(tickIndexAt(acts.dilEnd, acts)).toBe(last);
+    expect(tickIndexAt(acts.dilEnd + 50, acts)).toBe(last);
+    expect(tickIndexAt(acts.total, acts)).toBe(last);
+  });
+
+  it('a combat-less round has no ticks: index stays −1, count 0', () => {
+    const acts = dilationActs([f(200), f(200), f(900)]);
+    expect(tickCount(acts)).toBe(0);
+    expect(tickIndexAt(0, acts)).toBe(-1);
+    expect(tickIndexAt(acts.total, acts)).toBe(-1);
+  });
+
+  it('tickCount equals the number of boundaries (the audio denominator)', () => {
+    const acts = dilationActs(script());
+    expect(tickCount(acts)).toBe(acts.ticks.length);
+  });
+
+  it('PURE: the same (t, acts) always yields the same index (scrub/replay stable)', () => {
+    const acts = dilationActs(script());
+    for (const t of [0, 600, 800, 1200, 1600, 2200]) {
+      expect(tickIndexAt(t, acts)).toBe(tickIndexAt(t, acts));
+    }
   });
 });
 

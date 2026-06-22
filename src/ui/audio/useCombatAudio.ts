@@ -9,9 +9,23 @@
 // real cue is instant and the browser's autoplay policy is satisfied. Turning it
 // OFF disposes the context.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReplayFrame } from '../../state/replay';
 import { CombatAudio, loadAudioPref, saveAudioPref } from './combatAudio';
+
+/** Phase 3 (DILATION AUDIO): the dilation-clock voice surface the
+ *  DilationClock fires from its rAF on FORWARD play only. Every call is a no-op
+ *  while the toggle is OFF (no AudioContext is touched), mirroring playFrame. */
+export type DilationAudioApi = {
+  /** SHIFT handover swoop (saw 420→55 Hz + reverb). One-shot. */
+  whoom: (speed?: number) => void;
+  /** Start the sustained ~46 Hz drone (fades in). */
+  startDrone: () => void;
+  /** Release the sustained drone (fades out). */
+  stopDrone: () => void;
+  /** One decelerating clock tick (pitched down + more reverb as i/total rises). */
+  dilationTick: (i: number, total: number, speed?: number) => void;
+};
 
 export type CombatAudioApi = {
   /** Current toggle state — true when audio is ON. */
@@ -22,6 +36,9 @@ export type CombatAudioApi = {
   /** Emit the cues for a shown replay frame. No-op while OFF. The App calls this
    *  exactly once per advanced frame. */
   playFrame: (frame: ReplayFrame, speed?: number) => void;
+  /** Phase 3: the dilation-clock voices (whoom / drone / decelerating ticks).
+   *  Each gated by the toggle — no-op while OFF. */
+  dilation: DilationAudioApi;
 };
 
 /** R8: the audio toggle + synth. The synth instance lives in a ref so flipping
@@ -64,5 +81,32 @@ export function useCombatAudio(): CombatAudioApi {
     [enabled],
   );
 
-  return { enabled, toggle, playFrame };
+  // Phase 3 (DILATION AUDIO): the clock-driven voices, each gated by the toggle
+  // exactly like playFrame — OFF → no synth call, no AudioContext touched. The
+  // DilationClock fires these from its rAF on forward play only.
+  const dilation = useMemo<DilationAudioApi>(
+    () => ({
+      whoom: (speed = 1) => {
+        if (!enabled) return;
+        synthRef.current?.whoom(speed);
+      },
+      startDrone: () => {
+        if (!enabled) return;
+        synthRef.current?.startDrone();
+      },
+      stopDrone: () => {
+        // Releasing the drone is safe even after a toggle-off (dispose already
+        // stops it); guarding on `enabled` keeps it a strict no-op while OFF.
+        if (!enabled) return;
+        synthRef.current?.stopDrone();
+      },
+      dilationTick: (i: number, total: number, speed = 1) => {
+        if (!enabled) return;
+        synthRef.current?.dilationTick(i, total, speed);
+      },
+    }),
+    [enabled],
+  );
+
+  return { enabled, toggle, playFrame, dilation };
 }

@@ -147,6 +147,42 @@ export function dilationActs(frames: readonly WaveFrame[]): DilationActs {
   return { glideEnd, shiftEnd, dilEnd, total, ticks, hasDilation: true };
 }
 
+/** PURE: the CURRENT clock-tick index at an elapsed time `t` — the index of the
+ *  last decelerating tick BOUNDARY at or before `t` within the dilation window.
+ *
+ *  This is the audio-side companion to `handAngle`'s internal tick walk: the
+ *  dilation audio fires ONE `dilationTick(i, total)` per NEW index this returns
+ *  as forward playback crosses each boundary (the same boundaries the hand steps
+ *  on), so the click is synced to the visible tick.
+ *
+ *   • −1 before the dilation window (GLIDE / SHIFT, or no WAVE_A window at all):
+ *     no tick has fired yet.
+ *   •  k once `t` has crossed the (k)th boundary (0-based); held through RELEASE
+ *     at the final index (ticks have ended — the hand holds, so does the index).
+ *
+ *  Deterministic closed read of (t, acts) — the SAME basis as the hand model, so
+ *  a scrub/replay to the same `t` reports the same index. */
+export function tickIndexAt(t: number, acts: DilationActs): number {
+  if (!acts.hasDilation) return -1;
+  const ticks = acts.ticks;
+  if (ticks.length === 0) return -1;
+  if (t < acts.glideEnd) return -1;
+  // clamp into the window (RELEASE holds at the final index, like handAngle).
+  const d = Math.min(t, acts.dilEnd) - acts.glideEnd;
+  let k = -1;
+  for (let i = 0; i < ticks.length; i++) {
+    if (d >= ticks[i]!) k = i;
+    else break;
+  }
+  return k;
+}
+
+/** PURE: how many dilation ticks the round has (the denominator the audio uses
+ *  to pitch each tick DOWN as i/total rises). 0 with no dilation window. */
+export function tickCount(acts: DilationActs): number {
+  return acts.ticks.length;
+}
+
 /** PURE: which act an elapsed time falls in. SHIFT is the brief bloom window
  *  [glideEnd, shiftEnd) at the handover; DILATION runs to dilEnd; after that is
  *  RELEASE. With no WAVE_A window the whole run is GLIDE. */

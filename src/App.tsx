@@ -1405,6 +1405,8 @@ function BattleScreen() {
           frameIdx={frameIdx}
           speed={replaySpeed}
           paused={paused}
+          audio={audio.dilation}
+          audioOn={audio.enabled}
         />
       )}
       {/* v0.9 HUD: top-left column — Round + Credits cluster on top, casualty

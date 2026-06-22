@@ -254,6 +254,133 @@ describe('R8 CombatAudio — toggle default OFF + lazy/guarded context', () => {
   });
 });
 
+// --- Phase 3 (DILATION AUDIO): the bullet-time clock voices ------------------
+// whoom (saw 420→55 Hz + reverb), the sustained ~46 Hz drone, the decelerating
+// reverbed dilation ticks. All synthesised, all gated/guarded like the rest.
+
+describe('Phase 3 CombatAudio — dilation-clock voices (whoom / drone / dilationTick)', () => {
+  it('with AudioContext ABSENT (jsdom) every dilation voice no-ops, no context touched', () => {
+    expect(audioAvailable()).toBe(false);
+    const synth = new CombatAudio();
+    expect(() => synth.whoom()).not.toThrow();
+    expect(() => synth.startDrone()).not.toThrow();
+    expect(() => synth.dilationTick(0, 5)).not.toThrow();
+    expect(() => synth.stopDrone()).not.toThrow();
+    expect(synth.created).toBe(false);
+    expect(synth.droneActive).toBe(false);
+  });
+
+  it('whoom lazily creates exactly one context and builds a reverb convolver', () => {
+    const ctor = vi.fn(() => makeStubCtx());
+    vi.stubGlobal('AudioContext', ctor as unknown as typeof AudioContext);
+    const synth = new CombatAudio();
+    expect(synth.created).toBe(false);
+    synth.whoom();
+    expect(ctor).toHaveBeenCalledTimes(1);
+    expect(synth.created).toBe(true);
+    synth.dispose();
+  });
+
+  it('a dilationTick uses a square oscillator pitched DOWN as i/total rises', () => {
+    const ctx = makeStubCtx();
+    vi.stubGlobal('AudioContext', vi.fn(() => ctx) as unknown as typeof AudioContext);
+    const synth = new CombatAudio();
+
+    // capture the base frequency set on each tick's oscillator.
+    const baseFreqs: number[] = [];
+    const createOsc = ctx.createOscillator as unknown as ReturnType<typeof vi.fn>;
+    createOsc.mockClear();
+
+    const total = 6;
+    for (let i = 0; i < total; i++) {
+      const before = createOsc.mock.results.length;
+      synth.dilationTick(i, total);
+      // the LAST oscillator created is this tick's.
+      const osc = createOsc.mock.results[createOsc.mock.results.length - 1]!.value;
+      const setAt = osc.frequency.setValueAtTime as ReturnType<typeof vi.fn>;
+      const f = setAt.mock.calls[0]![0] as number;
+      baseFreqs.push(f);
+      expect(osc.type).toBe('square');
+      expect(createOsc.mock.results.length).toBeGreaterThan(before);
+    }
+    // first tick is the highest, last is the lowest — monotonic pitch-down.
+    expect(baseFreqs[0]!).toBeGreaterThan(baseFreqs[total - 1]!);
+    for (let i = 1; i < baseFreqs.length; i++) {
+      expect(baseFreqs[i]!).toBeLessThanOrEqual(baseFreqs[i - 1]! + 1e-9);
+    }
+    synth.dispose();
+  });
+
+  it('dilationTick is DISTINCT from the per-hit tick cue (square vs triangle)', () => {
+    const ctx = makeStubCtx();
+    vi.stubGlobal('AudioContext', vi.fn(() => ctx) as unknown as typeof AudioContext);
+    const synth = new CombatAudio();
+    const createOsc = ctx.createOscillator as unknown as ReturnType<typeof vi.fn>;
+
+    createOsc.mockClear();
+    synth.play('tick'); // the existing felt-mallet per-hit cue
+    const hitOsc = createOsc.mock.results[createOsc.mock.results.length - 1]!.value;
+    expect(hitOsc.type).toBe('triangle');
+
+    synth.dilationTick(0, 4); // the clock's mechanical click
+    const clockOsc = createOsc.mock.results[createOsc.mock.results.length - 1]!.value;
+    expect(clockOsc.type).toBe('square');
+    synth.dispose();
+  });
+
+  it('drone lifecycle: startDrone marks it active, stopDrone releases it', () => {
+    vi.stubGlobal('AudioContext', vi.fn(() => makeStubCtx()) as unknown as typeof AudioContext);
+    const synth = new CombatAudio();
+    expect(synth.droneActive).toBe(false);
+    synth.startDrone();
+    expect(synth.droneActive).toBe(true);
+    synth.stopDrone();
+    expect(synth.droneActive).toBe(false);
+    // stopping again is a safe no-op.
+    expect(() => synth.stopDrone()).not.toThrow();
+    synth.dispose();
+  });
+
+  it('startDrone is idempotent — only ONE drone runs (a second call replaces it)', () => {
+    const ctx = makeStubCtx();
+    vi.stubGlobal('AudioContext', vi.fn(() => ctx) as unknown as typeof AudioContext);
+    const synth = new CombatAudio();
+    const createOsc = ctx.createOscillator as unknown as ReturnType<typeof vi.fn>;
+
+    synth.startDrone();
+    const first = createOsc.mock.results[createOsc.mock.results.length - 1]!.value;
+    synth.startDrone();
+    // the first drone's oscillator was stopped (released) before the new one.
+    expect((first.stop as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
+    expect(synth.droneActive).toBe(true);
+    synth.dispose();
+  });
+
+  it('dispose stops a running drone (no oscillator leaks past teardown)', () => {
+    const ctx = makeStubCtx();
+    vi.stubGlobal('AudioContext', vi.fn(() => ctx) as unknown as typeof AudioContext);
+    const synth = new CombatAudio();
+    const createOsc = ctx.createOscillator as unknown as ReturnType<typeof vi.fn>;
+    synth.startDrone();
+    const droneOsc = createOsc.mock.results[createOsc.mock.results.length - 1]!.value;
+    expect(synth.droneActive).toBe(true);
+    synth.dispose();
+    expect(synth.droneActive).toBe(false);
+    expect((droneOsc.stop as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
+    expect(synth.created).toBe(false);
+  });
+
+  it('every dilation voice builds without throwing on the stubbed context', () => {
+    vi.stubGlobal('AudioContext', vi.fn(() => makeStubCtx()) as unknown as typeof AudioContext);
+    const synth = new CombatAudio();
+    expect(() => synth.whoom(2)).not.toThrow();
+    expect(() => synth.dilationTick(3, 8, 2)).not.toThrow();
+    expect(() => synth.startDrone()).not.toThrow();
+    expect(() => synth.stopDrone()).not.toThrow();
+    synth.dispose();
+  });
+});
+
 // A minimal WebAudio stub — just enough surface for the synth's voices. Every
 // node method is a no-op recorder so no real sound is produced (and nothing
 // throws under the node graph the synth builds).
@@ -299,6 +426,8 @@ function makeStubCtx() {
     createBuffer: vi.fn((_ch: number, len: number) => ({
       getChannelData: vi.fn(() => new Float32Array(len)),
     })),
+    // Phase 3 (DILATION AUDIO): the convolver reverb shared by whoom + ticks.
+    createConvolver: vi.fn(() => ({ ...node(), buffer: null })),
   };
   return ctx as unknown as AudioContext;
 }

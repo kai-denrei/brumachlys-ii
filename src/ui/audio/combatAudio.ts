@@ -119,6 +119,13 @@ export class CombatAudio {
   private master: GainNode | null = null;
   private active = 0;
   private lastAt: Partial<Record<CombatCue, number>> = {};
+  // Phase 3 (DILATION AUDIO): a lazy convolver IMPULSE RESPONSE shared by the
+  // dilation `whoom` + decelerating ticks (built once on first dilation cue —
+  // still zero assets, it's synthesised here like the SOURCE's IR buffer).
+  private ir: AudioBuffer | null = null;
+  // The SUSTAINED low drone (~46 Hz sine) — the module's first sustained voice.
+  // Tracked so stopDrone() releases it and dispose() never leaks an oscillator.
+  private drone: { osc: OscillatorNode; gain: GainNode } | null = null;
 
   /** Lazily create (or resume) the AudioContext. Called on the first gesture /
    *  first cue. Returns the live context, or null if audio is unavailable or the
@@ -158,13 +165,18 @@ export class CombatAudio {
     return this.ctx !== null;
   }
 
-  /** Tear down the context (toggle → OFF, or unmount). Safe to call repeatedly. */
+  /** Tear down the context (toggle → OFF, or unmount). Safe to call repeatedly.
+   *  Phase 3: also stops the sustained drone so disposing never leaks a running
+   *  oscillator, and drops the convolver IR (rebuilt lazily next time). */
   dispose(): void {
+    this.stopDrone();
     const ctx = this.ctx;
     this.ctx = null;
     this.master = null;
     this.active = 0;
     this.lastAt = {};
+    this.ir = null;
+    this.drone = null;
     if (ctx) void ctx.close().catch(() => {});
   }
 
@@ -194,6 +206,166 @@ export class CombatAudio {
   playFrame(frame: ReplayFrame, speed = 1): void {
     if (!audioAvailable()) return;
     for (const cue of cuesForFrame(frame)) this.play(cue, speed);
+  }
+
+  // --- Phase 3 (DILATION AUDIO): the bullet-time clock voices ----------------
+  // The Swiss-railway dilation clock fires these from its rAF on FORWARD play
+  // only (never scrub/seek). All synthesised — zero assets — and all no-op when
+  // audio is unavailable (jsdom) or the context could not be created. Ported
+  // from the SOURCE: whoom() (saw 420→55 Hz + reverb), dilationTick() (square
+  // pitched-down + MORE reverb as it slows), startDrone()/stopDrone() (~46 Hz
+  // sine). They share the lazy convolver IR built here.
+
+  /** Lazily build + cache the convolver impulse response (the SOURCE's noise
+   *  burst with a (1−i/len)^2.6 decay). UI layer — Math.random is allowed here
+   *  (the purity guard covers core/board/ai only). */
+  private impulse(ctx: AudioContext): AudioBuffer | null {
+    if (this.ir) return this.ir;
+    try {
+      const len = Math.max(1, Math.floor(ctx.sampleRate * 1.6));
+      const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = buf.getChannelData(ch);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+      }
+      this.ir = buf;
+      return buf;
+    } catch {
+      return null;
+    }
+  }
+
+  /** A fresh convolver node wired to the shared IR (one per voice — convolvers
+   *  are cheap and a shared one can't overlap tails cleanly). Null if the IR
+   *  could not be built. */
+  private reverb(ctx: AudioContext): ConvolverNode | null {
+    const ir = this.impulse(ctx);
+    if (!ir) return null;
+    const c = ctx.createConvolver();
+    c.buffer = ir;
+    return c;
+  }
+
+  /** WHOOM — the SHIFT handover swoop (saw 420→55 Hz over ~0.5 s) with a reverb
+   *  tail. One-shot; fired once when forward play crosses INTO the shift act.
+   *  `speed` (replay multiplier) tightens the envelope so a 2× pass swoops
+   *  faster. No-op when audio is unavailable / off. */
+  whoom(speed = 1): void {
+    const ctx = this.ensure();
+    if (!ctx || !this.master) return;
+    const spd = speed > 0 ? speed : 1;
+    try {
+      const n = ctx.currentTime;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(420, n);
+      o.frequency.exponentialRampToValueAtTime(55, n + 0.5 / spd);
+      g.gain.setValueAtTime(0.0001, n);
+      g.gain.exponentialRampToValueAtTime(0.16, n + 0.05 / spd);
+      g.gain.exponentialRampToValueAtTime(0.001, n + 0.6 / spd);
+      o.connect(g);
+      g.connect(this.master);
+      // reverb tail (shared IR) into a wet send.
+      const cv = this.reverb(ctx);
+      if (cv) {
+        const w = ctx.createGain();
+        w.gain.value = 0.5;
+        g.connect(cv);
+        cv.connect(w);
+        w.connect(this.master);
+      }
+      o.start(n);
+      o.stop(n + 0.65 / spd);
+    } catch {
+      // a failed voice must never break playback.
+    }
+  }
+
+  /** DILATION TICK — the decelerating bullet-time click. A square pitched DOWN
+   *  and reverbed MORE as i/total rises (time grinding to a crawl). Distinct
+   *  from the per-hit `tick` cue (felt-mallet triangle): this is the CLOCK's
+   *  mechanical second-hand click. Fired once per NEW clock-tick index on
+   *  forward play. No-op when off / unavailable. */
+  dilationTick(i: number, total: number, speed = 1): void {
+    const ctx = this.ensure();
+    if (!ctx || !this.master) return;
+    const spd = speed > 0 ? speed : 1;
+    const denom = Math.max(1, total - 1);
+    const frac = Math.max(0, Math.min(1, i / denom));
+    try {
+      const n = ctx.currentTime;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      // ticks LOWER as time grinds (220 → 150 Hz across the window).
+      const fHz = 220 + (150 - 220) * frac;
+      o.type = 'square';
+      o.frequency.setValueAtTime(fHz, n);
+      o.frequency.exponentialRampToValueAtTime(fHz * 0.6, n + 0.06 / spd);
+      g.gain.setValueAtTime(0.14, n);
+      g.gain.exponentialRampToValueAtTime(0.001, n + 0.1 / spd);
+      o.connect(g);
+      g.connect(this.master);
+      // MORE reverb as it slows (0.25 → 0.7 wet).
+      const cv = this.reverb(ctx);
+      if (cv) {
+        const w = ctx.createGain();
+        w.gain.value = 0.25 + (0.7 - 0.25) * frac;
+        g.connect(cv);
+        cv.connect(w);
+        w.connect(this.master);
+      }
+      o.start(n);
+      o.stop(n + 0.12 / spd);
+    } catch {
+      // a failed voice must never break playback.
+    }
+  }
+
+  /** Start the SUSTAINED low drone (~46 Hz sine, gain fades IN). The dilation
+   *  bed under the slow-mo beat. Idempotent — a second call releases the prior
+   *  drone first so only ONE ever runs. No-op when off / unavailable. */
+  startDrone(): void {
+    const ctx = this.ensure();
+    if (!ctx || !this.master) return;
+    this.stopDrone();
+    try {
+      const n = ctx.currentTime;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = 46;
+      g.gain.setValueAtTime(0.0001, n);
+      g.gain.exponentialRampToValueAtTime(0.05, n + 0.4);
+      o.connect(g);
+      g.connect(this.master);
+      o.start(n);
+      this.drone = { osc: o, gain: g };
+    } catch {
+      this.drone = null;
+    }
+  }
+
+  /** Release the sustained drone (gain fades OUT, then the oscillator stops).
+   *  Safe to call when no drone runs. */
+  stopDrone(): void {
+    const d = this.drone;
+    this.drone = null;
+    if (!d) return;
+    try {
+      const ctx = this.ctx;
+      const n = ctx ? ctx.currentTime : 0;
+      d.gain.gain.exponentialRampToValueAtTime(0.0001, n + 0.3);
+      d.osc.stop(n + 0.35);
+    } catch {
+      // already stopped / context gone — nothing to release.
+    }
+  }
+
+  /** True while the sustained drone is running — TESTS assert its lifecycle
+   *  (started once at dilation, stopped at the end + on dispose). */
+  get droneActive(): boolean {
+    return this.drone !== null;
   }
 
   /** Build + schedule one synth voice. Pure oscillator/gain envelopes — ZERO

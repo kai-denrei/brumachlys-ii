@@ -31,9 +31,12 @@ import {
   elapsedReplayTime,
   handAngle,
   shiftBloom,
+  tickCount,
+  tickIndexAt,
   type DilationActs,
 } from '../../state/dilation-clock';
 import type { ReplayFrame } from '../../state/replay';
+import type { DilationAudioApi } from '../audio/useCombatAudio';
 
 /** Swiss-railway (SBB) palette — white face, black batons, red second hand. */
 const SBB_FACE = '#ffffff';
@@ -183,6 +186,14 @@ export type DilationClockProps = {
   paused: boolean;
   /** Force the static reduced-motion end-state (defaults to matchMedia). */
   reducedMotion?: boolean;
+  /** Phase 3 (DILATION AUDIO): the App's CombatAudio voice surface (shared
+   *  instance — NOT a second AudioContext) + the toggle. When `audioOn`, the
+   *  rAF fires whoom + drone at the SHIFT act, one dilationTick per NEW clock
+   *  tick during DILATION, and releases the drone at the dilation END — on
+   *  FORWARD play only (a scrub/seek/skip re-bases without re-triggering). */
+  audio?: DilationAudioApi;
+  /** Whether the audio toggle is ON (the clock only schedules cues when true). */
+  audioOn?: boolean;
 };
 
 /** Phase 2: the Swiss-railway BULLET-TIME clock — a fixed top-right canvas
@@ -195,6 +206,8 @@ export function DilationClock({
   speed,
   paused,
   reducedMotion,
+  audio,
+  audioOn,
 }: DilationClockProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -211,6 +224,25 @@ export function DilationClock({
   frameIdxRef.current = frameIdx;
   speedRef.current = speed;
   pausedRef.current = paused;
+  // Phase 3 (DILATION AUDIO): the live audio surface + toggle, read via refs so
+  // the long-lived rAF closure always sees the current value (toggling audio or
+  // swapping the instance never needs to restart the loop).
+  const audioRef = useRef<DilationAudioApi | undefined>(audio);
+  const audioOnRef = useRef<boolean>(!!audioOn);
+  audioRef.current = audio;
+  audioOnRef.current = !!audioOn;
+  // FORWARD-ONLY cue fired-trackers. The rAF only fires a cue when t advances
+  // SMOOTHLY past a not-yet-fired boundary. Forward play (per-rAF, even across a
+  // frame boundary) advances t CONTINUOUSLY in small deltas; a SCRUB/SEEK/SKIP
+  // (cursor jump or pause) moves t DISCONTINUOUSLY. The loop detects the jump
+  // (|Δt| over JUMP_MS, or any backward move) and SYNCS the trackers to the new
+  // t WITHOUT firing — so a jump never machine-guns the skipped ticks nor
+  // re-whooms, while a fresh forward replay (t falls back near 0, then advances
+  // smoothly) re-fires the cues cleanly. lastT < 0 marks "no sample yet".
+  const firedShiftRef = useRef(false); // whoom + drone-on (the SHIFT handover)
+  const stoppedDroneRef = useRef(false); // drone-off at the dilation END
+  const lastTickRef = useRef(-1); // last dilationTick index already fired
+  const lastTRef = useRef(-1); // last elapsed-t the loop sampled (jump detect)
 
   // The act timeline is a pure read of the frame durations + waves — memoized so
   // a scrub/pause doesn't recompute it (only a new script does).
@@ -221,6 +253,13 @@ export function DilationClock({
   // Re-base the elapsed-time offset whenever the cursor (or pause/speed) changes.
   // Also repaints immediately so a seek/resume (and the reduced-motion static
   // path) lands on the new frame's time without waiting for the next rAF.
+  //
+  // Phase 3 (FORWARD-ONLY audio): the cue scheduling is driven purely by the
+  // continuity of `t` in the loop (a jump → sync-not-fire), so this re-base does
+  // NOT need to touch the audio trackers — a normal per-frame advance keeps t
+  // continuous (frameStart jumps up by the prior frame's duration while the
+  // in-frame offset resets to ≈0), while a scrub/seek/skip is a discontinuous
+  // jump the loop detects on its own.
   useEffect(() => {
     enteredAtRef.current = typeof performance !== 'undefined' ? performance.now() : 0;
     drawRef.current?.();
@@ -269,8 +308,61 @@ export function DilationClock({
     };
     drawRef.current = paint;
 
+    // Phase 3 (DILATION AUDIO): fire the time-synced cues on FORWARD play only.
+    // Called from the rAF loop (advancing playback) — NEVER from the re-base
+    // repaint or the reduced-motion static paint, so a paused/static frame is
+    // silent. FORWARD-ONLY is enforced by the CONTINUITY of t:
+    //   • smooth forward advance (per-rAF Δt within JUMP_MS) → fire the cues for
+    //     boundaries crossed since the last sample;
+    //   • a discontinuous jump (Δt > JUMP_MS, or backward) → a SCRUB/SEEK/SKIP:
+    //     SYNC the fired-trackers to the new t WITHOUT firing (no machine-gun of
+    //     the skipped ticks, no re-whoom), then resume firing from there. A
+    //     fresh forward replay falls back to t≈0 (before glideEnd) so the sync
+    //     resets the trackers and the cues re-fire on the next forward pass.
+    const JUMP_MS = 250; // a per-rAF delta above this is a jump, not playback.
+    const fireCues = (): void => {
+      const a = audioRef.current;
+      if (!a || !audioOnRef.current || !acts.hasDilation) return;
+      const t = elapsed();
+      const total = tickCount(acts);
+      const spd = typeof speedRef.current === 'number' && speedRef.current > 0 ? speedRef.current : 1;
+      const prev = lastTRef.current;
+      lastTRef.current = t;
+
+      // First sample, or a discontinuous jump → SYNC to t without firing.
+      const jumped = prev < 0 || t < prev - 1e-6 || t - prev > JUMP_MS;
+      if (jumped) {
+        firedShiftRef.current = t >= acts.glideEnd;
+        stoppedDroneRef.current = t > acts.dilEnd;
+        lastTickRef.current = tickIndexAt(t, acts);
+        return;
+      }
+
+      // SHIFT handover: whoom + start the drone, once, as t crosses into shift.
+      if (!firedShiftRef.current && t >= acts.glideEnd) {
+        firedShiftRef.current = true;
+        a.whoom(spd);
+        a.startDrone();
+      }
+      // DILATION: one tick per NEW clock-tick index (catch up if a frame spanned
+      // several boundaries, but never re-fire an index already played).
+      if (t >= acts.glideEnd && t <= acts.dilEnd) {
+        const k = tickIndexAt(t, acts);
+        if (k > lastTickRef.current) {
+          for (let i = lastTickRef.current + 1; i <= k; i++) a.dilationTick(i, total, spd);
+          lastTickRef.current = k;
+        }
+      }
+      // RELEASE: drop the drone once t passes the dilation end.
+      if (!stoppedDroneRef.current && t > acts.dilEnd) {
+        stoppedDroneRef.current = true;
+        a.stopDrone();
+      }
+    };
+
     if (reduce) {
-      // Static end-state: paint once at the cursor's frame time, no rAF loop.
+      // Static end-state: paint once at the cursor's frame time, no rAF loop,
+      // NO audio cues (reduced motion degrades to a silent static end-state).
       paint();
       return () => {
         drawRef.current = null;
@@ -278,6 +370,7 @@ export function DilationClock({
     }
 
     const loop = () => {
+      fireCues();
       paint();
       rafRef.current = requestAnimationFrame(loop);
     };
@@ -286,6 +379,10 @@ export function DilationClock({
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
       drawRef.current = null;
+      // Phase 3: a teardown mid-dilation (unmount / new script) must release the
+      // sustained drone so it never outlives the clock. No-op while audio is off
+      // (the hook guards it) or when no drone is running.
+      if (audioOnRef.current) audioRef.current?.stopDrone();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frames, acts, reduce]);
