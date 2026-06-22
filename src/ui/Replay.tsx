@@ -14,6 +14,10 @@ import type { FactionId, GameOutcome, UnitInstance, UnitType } from '../core/typ
 import { loadUnits } from '../io/data-loader';
 import type { RoundSummary, Strike, TimelineSlot } from '../state/replay';
 import {
+  DILATION_DEPTH_DEFAULT,
+  DILATION_DEPTH_MAX,
+  DILATION_DEPTH_MIN,
+  DILATION_DEPTH_STEP,
   PLAYER_FACTION,
   REPLAY_SPEED_DEFAULT,
   REPLAY_SPEED_MAX,
@@ -51,6 +55,14 @@ function sliderValue(speed: ReplaySpeed): number {
   return typeof speed === 'number' ? speed : REPLAY_SPEED_DEFAULT;
 }
 
+/** Sequencing §5: format the combat-dilation depth for the second slider's
+ *  aria-valuetext / readout — e.g. 1.6 → "1.6× deep", 2 → "2.0× deep". The
+ *  ".0" is KEPT (always one decimal) so the depth reads as a continuous knob
+ *  distinct from the integer-ish speed multiplier. */
+function fmtDepth(v: number): string {
+  return `${v.toFixed(1)}× deep`;
+}
+
 function chipUnit(slot: TimelineSlot): UnitInstance | null {
   if (!slot.actorType || slot.actorFaction === null) return null;
   return {
@@ -75,6 +87,8 @@ export function ReplayDock({
   paused,
   done,
   onSpeed,
+  dilationDepth = DILATION_DEPTH_DEFAULT,
+  onDilationDepth = () => {},
   onTogglePause,
   onSlotTap,
   onSeekFrame,
@@ -100,6 +114,15 @@ export function ReplayDock({
   /** Playback finished — the strip stays browsable under the summary. */
   done: boolean;
   onSpeed: (s: ReplaySpeed) => void;
+  /** Sequencing §5: the COMBAT DILATION DEPTH (second knob) — scales combat beat
+   *  durations only ([1.0, 4.0], deeper = slower combat). Independent of speed;
+   *  the two compose. Takes effect on the NEXT resolved round (the laid-out
+   *  beats bake it in at build time), so the slider tunes how deep the next
+   *  combat dilates. */
+  dilationDepth?: number;
+  /** Sequencing §5: set the combat dilation depth (clamped + persisted by the
+   *  store). The slider's onChange. */
+  onDilationDepth?: (depth: number) => void;
   onTogglePause: () => void;
   onSlotTap: (slot: number) => void;
   /** R7 (SEEK): step the cursor to a specific FRAME (keyboard arrow keys — one
@@ -265,6 +288,31 @@ export function ReplayDock({
           />
           <span className="replay-speed-readout" aria-hidden="true">
             {fmtSpeed(sliderValue(speed))}
+          </span>
+        </div>
+        {/* SECOND SLIDER (sequencing §5): COMBAT DILATION DEPTH — a knob SEPARATE
+            from the resolution-speed slider above. It deepens COMBAT ONLY (the
+            laid-out beat windows scale by it; movement frames stay brisk — the
+            fast→slow contrast). Range 1.0× (shallow) → 4.0× (deep); the two knobs
+            compose (effective per-beat wall time = beatDur(depth)/speed). It feeds
+            buildReplay, so a change takes effect on the next resolved round.
+            Keyboard-operable — aria-label + aria-valuetext ("2.0× deep") name the
+            depth. NOT disabled when playback is done (it tunes the NEXT round). */}
+        <div className="replay-dilation">
+          <input
+            type="range"
+            className="replay-dilation-slider"
+            data-testid="replay-dilation-slider"
+            min={DILATION_DEPTH_MIN}
+            max={DILATION_DEPTH_MAX}
+            step={DILATION_DEPTH_STEP}
+            value={dilationDepth}
+            aria-label="combat dilation — deepen combat slow-motion (shallow → deep)"
+            aria-valuetext={fmtDepth(dilationDepth)}
+            onChange={(e) => onDilationDepth(Number(e.target.value))}
+          />
+          <span className="replay-dilation-readout" aria-hidden="true">
+            {fmtDepth(dilationDepth)}
           </span>
         </div>
         {/* 1×/2× presets (snap the slider) + skip (jump to end). A preset reads

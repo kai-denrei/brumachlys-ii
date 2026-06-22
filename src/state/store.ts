@@ -1054,7 +1054,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!playerOrdersOverride && get().uiPhase === 'planning' && get().pendingMove) {
       get().commitPendingMove();
     }
-    const { game, orders, buys, uiPhase, archetypeKey } = get();
+    const { game, orders, buys, uiPhase, archetypeKey, dilationDepth } = get();
     if (!game || game.outcome || uiPhase !== 'planning') return;
     const types = loadUnits();
     const playerOrders = playerOrdersOverride ?? flattenOrders(orders);
@@ -1110,6 +1110,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       conquest && game.bases && game.credits
         ? { bases: game.bases, credits: game.credits[PLAYER_FACTION] }
         : undefined,
+      // R1 phase-window timing keeps its source-spec defaults (no override).
+      undefined,
+      // Sequencing §5: the SECOND knob — scales COMBAT BEAT durations only
+      // (movement frames are untouched). Passing the persisted store value here
+      // is what makes the dilation-depth slider deepen combat; replaySpeed still
+      // divides every frame's wall-clock in the App advance loop (the two
+      // compose: effective per-beat wall time = beatDur(dilationDepth)/speed).
+      dilationDepth,
     );
 
     // E1 discovery accrual (addendum §A): the player's set ran frame-by-frame

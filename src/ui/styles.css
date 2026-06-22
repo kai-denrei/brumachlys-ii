@@ -1815,6 +1815,72 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* SECOND SLIDER (sequencing §5): combat dilation depth — mirrors the resolution
+   speed slider but with a combat-red thumb so the two knobs read distinctly
+   (speed = whole-replay wall-clock; dilation = combat-only depth). */
+.replay-dilation {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+}
+.replay-dilation-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 72px;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.replay-dilation-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(74, 68, 58, 0.22);
+}
+.replay-dilation-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(74, 68, 58, 0.22);
+}
+.replay-dilation-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: #e8362a;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-dilation-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e8362a;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-dilation-slider:focus-visible {
+  outline: none;
+}
+.replay-dilation-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 54, 42, 0.4);
+}
+.replay-dilation-slider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 54, 42, 0.4);
+}
+.replay-dilation-readout {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: #c22;
+  opacity: 0.8;
+  min-width: 4.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .replay-button {
   border: 1.5px solid rgba(74, 68, 58, 0.2);
   border-radius: 9px;

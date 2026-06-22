@@ -90,6 +90,11 @@ function BattleScreen() {
   const uiPhase = useAppStore((s) => s.uiPhase);
   const replay = useAppStore((s) => s.replay);
   const replaySpeed = useAppStore((s) => s.replaySpeed);
+  // Sequencing §5: the SECOND knob — combat dilation depth (deepens combat
+  // beats only; movement stays brisk). Read here for the replay dock's second
+  // slider; the value flows into buildReplay via the store's commit().
+  const dilationDepth = useAppStore((s) => s.dilationDepth);
+  const setDilationDepth = useAppStore((s) => s.setDilationDepth);
   const orders = useAppStore((s) => s.orders);
   const buys = useAppStore((s) => s.buys);
   const directive = useAppStore((s) => s.directive);
@@ -1450,6 +1455,8 @@ function BattleScreen() {
           paused={paused}
           done={uiPhase !== 'replay'}
           onSpeed={setReplaySpeed}
+          dilationDepth={dilationDepth}
+          onDilationDepth={setDilationDepth}
           onTogglePause={() => setPaused((p) => !p)}
           onSlotTap={(slot) => setBreakdownSlot(slot)}
           onSeekFrame={seekToFrame}

@@ -25,10 +25,14 @@
 //                 holds at its last tick, the clock recedes/fades.
 
 import { frameStartTime, totalDuration } from './replay-timing';
-import type { Wave } from './replay-timing';
+import type { Beat, Wave } from './replay-timing';
 
-/** A frame-like value carrying just the fields the act mapping reads. PURE. */
-type WaveFrame = { duration: number; wave?: Wave };
+/** A frame-like value carrying just the fields the act mapping reads. PURE.
+ *  Sequencing §5: a combat frame may carry its SEQUENCED `beats` — when present
+ *  the clock maps ONE decelerating tick per BEAT (one tick = one exchange), so
+ *  the ticks finally MEAN something. A frame without beats (or a synthetic test
+ *  frame) falls back to the closed-form decelerating cadence. */
+type WaveFrame = { duration: number; wave?: Wave; beats?: readonly Beat[] };
 
 /** PURE: the replay's elapsed time (ms at 1×) driving the clock, from the
  *  cursor + a wall-clock delta. This is the SAME read the spec mandates
@@ -131,8 +135,32 @@ export function dilationActs(frames: readonly WaveFrame[]): DilationActs {
   const dilEnd = glideEnd + dilSpan;
   const shiftEnd = glideEnd + Math.min(SHIFT_MS, dilSpan);
 
-  // Decelerating tick boundaries over [0, dilSpan] (relative to glideEnd):
-  // each interval grows fast→slow via easeOutCubic, as in the source.
+  // Sequencing §5: ONE tick per BEAT — the clock's decelerating ticks now map to
+  // EXCHANGES (one tick = one shown strike/exchange), so a deeper dilation depth
+  // (longer beats) spreads the ticks wider automatically. Collect each WAVE_A
+  // frame's beat-start boundaries in absolute (elapsed) time, then express them
+  // RELATIVE to glideEnd (the dilation window origin). Beat starts are already
+  // ascending within a frame and frames are contiguous, so the boundaries are
+  // monotonic non-decreasing by construction. PURE — a closed read of the
+  // already-laid-out beats; no Math.random, scrub/replay identical.
+  const beatTicks: number[] = [];
+  for (let i = 0; i < frames.length; i++) {
+    const fr = frames[i]!;
+    if (fr.wave !== 'A' || !fr.beats || fr.beats.length === 0) continue;
+    const frameAbsStart = frameStartTime(frames, i);
+    for (const b of fr.beats) {
+      const rel = frameAbsStart + b.start - glideEnd;
+      if (rel >= 0 && rel < dilSpan) beatTicks.push(rel);
+    }
+  }
+  if (beatTicks.length > 0) {
+    beatTicks.sort((a, b) => a - b);
+    return { glideEnd, shiftEnd, dilEnd, total, ticks: beatTicks, hasDilation: true };
+  }
+
+  // Fallback (frames carry no beats — synthetic test frames / legacy scripts):
+  // the closed-form decelerating cadence over [0, dilSpan] (relative to
+  // glideEnd); each interval grows fast→slow via easeOutCubic, as in the source.
   const ticks: number[] = [];
   const slow = TICK_SPACING_SLOW;
   const fast = TICK_SPACING_SLOW * TICK_SPACING_FAST_FRAC;
