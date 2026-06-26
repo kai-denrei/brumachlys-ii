@@ -185,6 +185,19 @@ describe('R4 ReplayFx — artillery shell (arc + dashed trail + dust/ring)', () 
     expect(shell.querySelectorAll('.fx-shell-dust').length).toBeGreaterThan(0);
   });
 
+  it('starts the shell motion mount-relative (begin="indefinite"), not document-time', () => {
+    // Regression: SMIL begin="<delay>ms" is DOCUMENT-time relative. Because Board
+    // remounts this FX group every frame, on a 2nd+ combat frame the begin time is
+    // already past and fill="freeze" snapped the round to the landing point — the
+    // shell never flew (only the mount-relative CSS dashed trail animated, so it
+    // read as "arc shown, no shell"). The fix arms the motion via beginElement()
+    // on mount, so begin MUST be "indefinite" (a literal ms value would regress).
+    const { container } = renderFx({ projectiles: [proj({ kind: 'shell', impact: 0.88, delay: 120 })] });
+    const motion = container.querySelector('.fx-shell-round animateMotion')!;
+    expect(motion.getAttribute('begin')).toBe('indefinite');
+    expect(motion.getAttribute('begin')).not.toMatch(/ms/);
+  });
+
   it('the shell motion lands exactly on the defender cell (endpoint = center(to)), not a stray far point', () => {
     // Regression for the live-captured artifact: trail a→b length ~178px but the
     // moving shell-round rendered ~470px away near the board edge (offset-path

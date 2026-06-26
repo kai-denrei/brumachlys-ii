@@ -26,6 +26,7 @@
 // arrives with `mist: true`, impacts arrive with attackerCell null, and there
 // is simply no arc (or recoil) to draw.
 
+import { useEffect, useRef } from 'react';
 import type { Board, CellId } from '../../board/types';
 import type { FactionId, UnitInstance } from '../../core/types';
 import type { Beat, Projectile } from '../../state/replay-timing';
@@ -45,6 +46,9 @@ export type ImpactMark = {
   attackerCell: CellId | null;
   defenderId: string;
   defenderCell: CellId;
+  /** Damage this strike dealt the (surviving) defender — drives the HP flip-down
+   *  on the defender's count pip (combat readability §2). 0 for a no-damage hit. */
+  damage: number;
 };
 
 export type ReplayFxData = {
@@ -387,6 +391,24 @@ function Shell({
     '--proj-delay': `${delay}ms`,
     ...(dur ? { '--proj-dur': `${dur}ms` } : {}),
   } as React.CSSProperties;
+  // SMIL <animateMotion begin="..ms"> is DOCUMENT-time relative, not mount-time:
+  // because Board remounts this FX group every frame, on a 2nd+ combat frame the
+  // begin time is already in the past and fill="freeze" snaps the round straight
+  // to the landing point — the shell never flew (the dashed CSS trail, which is
+  // mount-relative, animated fine, so it read as "arc shown, no shell"). Fix:
+  // begin="indefinite" and START it on mount via beginElement(), after the same
+  // `delay` the CSS tracks use — so the flight is mount-relative like everything
+  // else and re-arms cleanly each frame. Timer-scheduled (wall-clock from mount),
+  // exactly like every other FX here (the CSS `--proj-delay` tracks, recoil, the
+  // dashed trail): replay-pause never freezes in-frame FX in this codebase, so
+  // this stays consistent. Pre-begin the round sits at the group origin but the
+  // CSS opacity track (`.fx-shell-round`, animation-delay=`delay`) holds it at 0
+  // through the same `delay`, so it is never painted before it launches.
+  const motionRef = useRef<SVGAnimateMotionElement>(null);
+  useEffect(() => {
+    const t = setTimeout(() => motionRef.current?.beginElement?.(), Math.max(0, delay));
+    return () => clearTimeout(t);
+  }, [delay, d, flightMs]);
   return (
     <g className="fx-shell" pointerEvents="none" style={style}>
       {/* dashed ballistic trail — drawn-on then faded */}
@@ -417,8 +439,9 @@ function Shell({
       <g className="fx-shell-round" pointerEvents="none">
         <circle r={tokenSize * 0.13} fill={darken(color, 0.15)} stroke="#fff" strokeWidth={tokenSize * 0.035}>
           <animateMotion
+            ref={motionRef}
             dur={`${flightMs}ms`}
-            begin={`${delay}ms`}
+            begin="indefinite"
             fill="freeze"
             rotate="auto"
             path={d}

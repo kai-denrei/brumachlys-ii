@@ -89,48 +89,65 @@ fold) but render it natively in the SVG token so it pans/zooms/clips with the
 board for free. NOT the canvas `splitflap.ts` driver (rejected: per-token canvas
 overlays are heavy and misalign on a moving token).
 
-### Data (builder, pure — `src/state/replay.ts` + `ReplayFx`/Board types)
+### Data — AS BUILT (pure timing in `replay-timing.ts`, computed in Board)
 The token needs three things per hit defender this frame: the OLD count, the NEW
-count, and WHEN to flip (the impact time within the turn).
+count, and WHEN to flip (frame-relative ms of the witnessed impact).
 
-- Extend `ImpactMark` (`ReplayFx.tsx:43`) with `damage: number` and the beat
-  timing needed to place the flip: `flipAtMs` — the absolute ms (within the
-  replay turn clock the token animations already use) at which the impact lands
-  for this strike's beat. Derive from the owning beat: `beat.start +
-  beat.dur * impactFraction` where `impactFraction` is the band's impact frac
-  (`projectileKind(band).impact`, e.g. `WAVE_A_TRACER_IMPACT` / shell ~0.88 /
-  stab ~0.5). Mist strikes still surface an impact (flash) and may flip too.
-- `fxImpacts` builder (`src/App.tsx:1110-1123`) maps `s.damage` and the computed
-  `flipAtMs` onto each surviving-defender impact. NEW count = the frame's
-  post-combat `unit.count`; OLD count = `newCount + s.damage`.
+- `ImpactMark` (`ReplayFx.tsx:43`) gains ONE field: `damage: number`. `fxImpacts`
+  (`src/App.tsx:1110`) populates it from `s.damage`. (We did NOT put `flipAtMs`
+  on `ImpactMark` — timing is derived from the beats instead, see below.)
+- Two PURE helpers in `src/state/replay-timing.ts` (unit-tested,
+  `test/ui/hp-flip-timing.test.ts`):
+  - `impactTimeByCell(beats)` → `Map<CellId, ms>`: the LAST witnessed impact
+    time per target cell, `beat.start + p.delay + p.impact × beat.dur` (the SAME
+    frame-relative basis the projectile CSS/SMIL delays ride, so the fold lands
+    on the spark).
+  - `buildHpFlips(impacts, beats, countOf)` → `Map<defenderId, HpFlip>`: sums
+    damage per defender, arms a flip ONLY when a witnessed projectile lands on
+    the defender's cell (FOG HONESTY — a mist hit has no projectile, so no flip
+    and no timing leak), and sets `fromCount = countOf(id) + Σdamage`,
+    `toCount = countOf(id)`, `flipAtMs`.
+- Frame-relative (not turn-relative): the token re-arms via a keyed inner remount
+  each frame (like recoil), so the CountFlap clock starts at frame mount — the
+  same mount the projectiles use. No `frameStartTime` offset is needed.
 
-### Render (`src/ui/Board.tsx` board-units + `UnitRenderer`)
-- Board already iterates `unitById` for tokens. For a unit whose id is in this
-  frame's impacts, pass the flip descriptor (`fromCount`, `toCount`, `flipAtMs`,
-  and a per-frame `key`/`recoilKey` so it re-arms each frame like `recoil`) into
+### Render — AS BUILT (`Board.tsx` + `UnitRenderer` + `CountFlap`)
+- Board computes `flipByUnit = buildHpFlips(replayFx.fx.impacts, replayFx.fx.beats,
+  id => unitById.get(id)?.count)` in a `useMemo` (mirrors `recoilByUnit`) and
+  threads `flip={flipByUnit.get(unit.id) ?? null}` + `flipKey={replayFx.key}` into
   `UnitRenderer`.
-- `UnitRenderer`'s count pip renders a small flip-card component (new, in
-  `src/ui/skin/`, e.g. `CountFlap.tsx`) when a flip descriptor is present;
-  otherwise it renders the static numeral exactly as today. The flip-card:
-  - Holds `fromCount` until `flipAtMs` (a CSS `animation-delay` keyed off the
-    same per-turn clock origin the other token FX use, so it stays in sync with
-    the impact spark — NO JS timer if a pure-CSS delay suffices).
-  - Steps down `fromCount → toCount` one value per card with the split-flap
-    downward-fold (a CSS 3D `rotateX` fold per step, staggered). Cap the step
-    count visually for large deltas (cascade fast).
-  - Lands on `toCount` and holds static (`forwards`).
-  - Color follows the existing count-as-health grading
-    (`UnitRenderer.tsx:241`): the landed value re-grades black/amber/red.
-- Reduced-motion: snap directly to `toCount` (no fold), matching `RoundFlap` /
-  `splitflap` `animate:false` convention.
+- `UnitRenderer`'s count pip renders `CountFlap` (new, `src/ui/skin/CountFlap.tsx`)
+  when a flip is armed, keyed by `flip${flipKey}` so each frame re-arms it; else
+  the static numeral exactly as today.
+- `CountFlap`:
+  - Holds `fromCount`, then after `flipAtMs` steps down one value per `STEP_MS`
+    (90 ms) to `toCount`, driven by frame-relative timers (`setTimeout`). Each
+    stepped value is a `<text key={idx}>` so it remounts and replays the CSS
+    `.count-flap-card` downward fold (`scaleY` with a small overshoot); the held
+    value carries no class and does not animate.
+  - Color follows the existing count-as-health grading on the CURRENT value.
+- Reduced-motion: `prefersReducedMotion()` (matchMedia, guarded) → snap straight
+  to `toCount`, no hold, no class. `.count-flap-card` is also in the
+  `prefers-reduced-motion` CSS block as a belt-and-suspenders.
 
 ### Sequencing / determinism
-- The flip is placed on the same deterministic beat clock as the projectile and
-  spotlight (no wall-clock). Same script + cursor ⇒ identical flip → scrub and
-  replay are pixel-identical.
-- A defender hit by multiple strikes in one turn (e.g. attack + counter on the
-  same unit across beats) flips once per landing, stepping further down each
-  time, in beat order.
+- Determinism lives in the PURE builder: `buildHpFlips` derives
+  (`fromCount`, `toCount`, `flipAtMs`) deterministically from the script + cursor
+  with NO wall-clock (no `Date.now`/`performance.now`/`Math.random`) — same input
+  ⇒ same output (unit-tested). The token re-arms via a per-frame keyed remount
+  (`flipKey = replayFx.key`), so landing on a frame always replays the identical
+  flip → scrub-identical.
+- The PLAYBACK schedules off element mount (the CountFlap timers / the Shell
+  `beginElement`), exactly like every other FX in this layer — the CSS
+  `--proj-delay` projectile tracks, the recoil (`fx-recoil`, re-armed by
+  `recoilKey`), the dashed shell trail. This codebase has NO `animation-play-state`
+  and does not thread `paused` into the FX layer: replay-pause halts FRAME
+  ADVANCE, never in-frame FX. The flip is therefore consistent with the shipped
+  FX model — it is NOT a separate replay-time clock, and intentionally so (a
+  per-effect replay-time rewrite would desync it from every other effect).
+- A defender hit by multiple strikes in one frame flips ONCE, through the full
+  summed delta, after its last witnessed impact (same-cell brawlers each settle
+  together after the exchange — see `buildHpFlips`).
 
 ### Acceptance
 - Hitting a unit for N shows: impact spark/flash → THEN the count pip folds down
@@ -143,28 +160,46 @@ count, and WHEN to flip (the impact time within the turn).
 
 ---
 
-## §3 — Files touched (anticipated)
-- `src/ui/skin/ReplayFx.tsx` — `Shell` SMIL begin fix; `ImpactMark` type +
-  `damage`/`flipAtMs`.
-- `src/state/replay.ts` — surface `damage` + impact timing for surviving
-  defenders (the beat clock already exists here / replay-timing).
-- `src/App.tsx` — `fxImpacts` carries `damage` + `flipAtMs`; thread flip
-  descriptors to Board.
-- `src/ui/Board.tsx` — pass flip descriptor into `UnitRenderer` for hit units.
+## §3 — Files touched (AS BUILT)
+- `src/state/replay-timing.ts` — `impactTimeByCell`, `buildHpFlips`, `HpFlip`
+  (pure, the flip data + timing).
+- `src/ui/skin/ReplayFx.tsx` — `Shell` SMIL begin fix; `ImpactMark` gains
+  `damage` (NOT `flipAtMs` — timing is derived from beats).
+- `src/App.tsx` — `fxImpacts` carries `damage`.
+- `src/ui/Board.tsx` — `flipByUnit` (calls `buildHpFlips`), threads `flip`/
+  `flipKey` into `UnitRenderer` (mirrors `recoilByUnit`).
 - `src/ui/skin/UnitRenderer.tsx` — render `CountFlap` for the count pip when a
-  flip is armed; static otherwise.
+  flip is armed; static numeral otherwise.
 - `src/ui/skin/CountFlap.tsx` (new) — the native SVG/CSS split-flap count card.
-- `src/ui/styles.css` — `fx-shell-round` unchanged (opacity only); new
-  `.count-flap*` keyframes for the downward fold.
-- Tests: pure builder tests for the new `damage`/`flipAtMs` derivation; a
-  `CountFlap` step/snap (reduced-motion) test.
+- `src/ui/styles.css` — new `.count-flap-card` keyframes (downward fold) + its
+  reduced-motion entry. (`fx-shell-round` unchanged.)
+- `src/state/replay.ts` — NOT touched (the strike `damage` was already there).
+- Tests: `hp-flip-timing` (pure), `count-flap` (step/snap/reduced-motion),
+  `hp-flip-wiring` (UnitRenderer), `hp-flip-board` (Board integration),
+  `r4-projectile-fx` (+ shell `begin="indefinite"` regression).
 
-## §4 — Risks / open questions
-- SMIL `beginElement()` browser support: fine on all evergreen targets; mobile
-  Safari supported. Verify on the actual deploy target during impl.
-- Two-digit counts: the flip-card must handle 1- and 2-digit values (10+). The
-  count pip is small — the fold must stay legible at fit-zoom; may render the
-  whole number as one folding card rather than per-digit drums (simpler, still
-  reads as a flap). Decide in plan.
-- `flipAtMs` clock origin must match whatever origin the spotlight/projectile
-  delays already use so the fold lands ON the spark, not before/after.
+## §4 — Risks / open questions (resolved)
+- SMIL `beginElement()` browser support: fine on evergreen + mobile Safari.
+- Two-digit counts (10): CountFlap uses the SAME font sizing as the static pip,
+  which already renders "10" today — no NEW overflow introduced. Left as-is so
+  the flip stays visually identical to the static pip (revisit both together if
+  legibility ever needs work).
+- Clock origin: resolved — `flipAtMs` is frame-relative (`beat.start + p.delay +
+  p.impact × beat.dur`), the SAME basis the projectile delays ride, so the fold
+  lands ON the spark.
+
+## §5 — Adversarial review outcomes
+A multi-agent review (4 dimensions, each finding independently verified) ran on
+the diff. Disposition:
+- **Fixed:** defensive last-impact-cell tracking in `buildHpFlips` (+test);
+  dropped an unexplained `eslint-disable` and tightened CountFlap's effect deps;
+  clarified the Shell pre-begin opacity-gate comment.
+- **Refuted (consistency with the existing FX architecture):** "wall-clock timers
+  violate determinism / pause / scrub" — the ENTIRE shipped FX layer (recoil,
+  projectiles, trail) is wall-clock-from-mount with no `animation-play-state` and
+  no `paused` thread; determinism is met by the pure builder; the flip is
+  intentionally consistent with that model, not a separate replay-time clock.
+- **Refuted (not a regression):** two-digit pip overflow is identical to the
+  pre-existing static pip.
+- **Accepted, low impact (documented):** same-cell brawl flips both defenders
+  after the decisive impact (~75 ms), which reads as synchronized HP ticks.

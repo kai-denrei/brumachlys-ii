@@ -1119,6 +1119,7 @@ function BattleScreen() {
         attackerCell: s.attackerCell,
         defenderId: s.defenderId,
         defenderCell: s.defenderCell,
+        damage: s.damage,
       }));
   })();
 

@@ -231,6 +231,72 @@ export function activeCellsAt(beats: readonly Beat[], tWithinFrame: number): Cel
   return b ? b.activeCells : [];
 }
 
+// --- HP flip-down (combat readability: "show the hit land, then the HP tick") -
+// The defender's count pip HOLDS its old value, then flips DOWN to the new value
+// the instant the witnessed shot LANDS — same frame-relative clock the
+// projectiles ride, so the flip punctuates the impact spark, not the frame edge.
+
+/** PURE: ms-from-frame-start at which each target cell takes its LAST witnessed
+ *  projectile impact — `beat.start + p.delay + p.impact × beat.dur`, max per
+ *  cell (a cell hit twice flips after the decisive, later landing). Deterministic
+ *  → scrub-safe. */
+export function impactTimeByCell(beats: readonly Beat[]): Map<CellId, number> {
+  const out = new Map<CellId, number>();
+  for (const b of beats) {
+    for (const p of b.projectiles) {
+      const t = b.start + p.delay + p.impact * b.dur;
+      const prev = out.get(p.to);
+      if (prev === undefined || t > prev) out.set(p.to, t);
+    }
+  }
+  return out;
+}
+
+/** A surviving defender's HP flip: hold `fromCount`, then fold DOWN to `toCount`
+ *  at `flipAtMs` (frame-relative ms). */
+export type HpFlip = { fromCount: number; toCount: number; flipAtMs: number };
+
+/** PURE: per-defender HP flip descriptors for one combat frame. Damage is summed
+ *  per defender (a unit hit by several strikes flips ONCE, through the full
+ *  delta, after its LAST witnessed impact). A flip is armed ONLY when a witnessed
+ *  projectile lands on the defender's cell — fog honesty: a mist hit (no
+ *  projectile) keeps its `−N` floater but never flips, so a hidden shooter's
+ *  presence is never leaked through the pip. `countOf` returns the post-combat
+ *  count; `fromCount = countOf + Σdamage`. Deterministic → scrub-identical. */
+export function buildHpFlips(
+  impacts: readonly { defenderId: string; defenderCell: CellId; damage: number }[],
+  beats: readonly Beat[],
+  countOf: (defenderId: string) => number | undefined,
+): Map<string, HpFlip> {
+  const times = impactTimeByCell(beats);
+  const dmg = new Map<string, { cell: CellId; total: number }>();
+  for (const im of impacts) {
+    if (im.damage <= 0) continue;
+    const cur = dmg.get(im.defenderId);
+    if (cur) {
+      // A defender occupies one cell per frame, so this only fires for repeated
+      // strikes ON THAT CELL — but track the LAST impact's cell defensively, so
+      // the flip always times off the decisive (final) landing. NOTE: same-cell
+      // mutual combat (a brawl) puts two DIFFERENT defenderIds on one cell; each
+      // gets its own entry, both timed to that cell's last (later) impact — both
+      // pips settle together after the exchange, which reads correctly.
+      cur.cell = im.defenderCell;
+      cur.total += im.damage;
+    } else {
+      dmg.set(im.defenderId, { cell: im.defenderCell, total: im.damage });
+    }
+  }
+  const out = new Map<string, HpFlip>();
+  for (const [defenderId, { cell, total }] of dmg) {
+    const flipAtMs = times.get(cell);
+    if (flipAtMs === undefined) continue;
+    const newCount = countOf(defenderId);
+    if (newCount === undefined) continue;
+    out.set(defenderId, { fromCount: newCount + total, toCount: newCount, flipAtMs });
+  }
+  return out;
+}
+
 /** One laid-out phase window: absolute start/end (ms) and its duration. */
 export type PhaseWindow = { start: number; end: number; duration: number };
 

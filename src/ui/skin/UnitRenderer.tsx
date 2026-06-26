@@ -19,6 +19,8 @@ import { watercolorUrl } from './watercolors/watercolor-data';
 import type { Motion } from './sprites/sprite-data';
 import { darken, desaturate, factionColor } from './palette';
 import { SPOTLIGHT_DESATURATION, SPOTLIGHT_DIM_OPACITY } from './CellRenderer';
+import { CountFlap } from './CountFlap';
+import type { HpFlip } from '../../state/replay-timing';
 
 export type UnitRendererProps = {
   unit: UnitInstance;
@@ -57,6 +59,13 @@ export type UnitRendererProps = {
    * consecutive volleys restart it. ~220 ms: 120 ms back + 100 ms settle. */
   recoil?: { dx: number; dy: number } | null;
   recoilKey?: number;
+  /** Combat-readability HP flip (§2): when this unit is HIT this replay frame,
+   * its count pip HOLDS `fromCount`, then folds DOWN through the intermediate
+   * values to `toCount` at `flipAtMs` (frame-relative ms — the witnessed impact),
+   * so the loss READS after the spark. Absent ⇒ the static numeral. Remounts on
+   * `flipKey` (= replayFx.key) so each frame re-arms it, mirroring recoil. */
+  flip?: HpFlip | null;
+  flipKey?: number;
   /** v0.8 veterancy: the unit type's credit cost — used to compute XP sliver
    * progress toward the next rank. Absent → sliver is not drawn. */
   unitTypeCost?: number;
@@ -101,6 +110,8 @@ export const UnitRenderer = memo(function UnitRenderer({
   pulse = false,
   recoil = null,
   recoilKey = 0,
+  flip = null,
+  flipKey = 0,
   unitTypeCost,
   onTap,
   onRadar,
@@ -230,18 +241,30 @@ export const UnitRenderer = memo(function UnitRenderer({
       {!minimal && (
         <g className="unit-count" transform={`translate(${h * 0.78} ${h * 0.78})`} pointerEvents="none">
           <circle r={pipR} fill="#fff" stroke={darken(color, 0.18)} strokeWidth={pipR * 0.14} />
-          <text
-            y={pipR * 0.06}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontSize={pipR * 1.35}
-            fontWeight={700}
-            // v0.9: count doubles as a health readout — high black, mid amber,
-            // low red (8–10 black · 5–7 orange · 1–4 red).
-            fill={unit.count >= 8 ? '#1a1a1a' : unit.count >= 5 ? '#d97706' : '#dc2626'}
-          >
-            {unit.count}
-          </text>
+          {flip ? (
+            // Hit this frame: HOLD the old count, then fold DOWN to the new one
+            // on the witnessed impact. Keyed by flipKey so each frame re-arms it.
+            <CountFlap
+              key={`flip${flipKey}`}
+              fromCount={flip.fromCount}
+              toCount={flip.toCount}
+              flipAtMs={flip.flipAtMs}
+              pipR={pipR}
+            />
+          ) : (
+            <text
+              y={pipR * 0.06}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={pipR * 1.35}
+              fontWeight={700}
+              // v0.9: count doubles as a health readout — high black, mid amber,
+              // low red (8–10 black · 5–7 orange · 1–4 red).
+              fill={unit.count >= 8 ? '#1a1a1a' : unit.count >= 5 ? '#d97706' : '#dc2626'}
+            >
+              {unit.count}
+            </text>
+          )}
         </g>
       )}
       {/* v0.9 radar: bottom-left pip — mirrors the count pip (bottom-right).

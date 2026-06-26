@@ -72,7 +72,7 @@ function renderFx(
 describe('impact verb (flash + recoil)', () => {
   it('a surviving-defender strike renders a hit flash at the defender cell', () => {
     const { container } = renderFx({
-      impacts: [{ attackerId: 'a', attackerCell: 0, defenderId: 'e', defenderCell: 2 }],
+      impacts: [{ attackerId: 'a', attackerCell: 0, defenderId: 'e', defenderCell: 2, damage: 2 }],
     });
     const flash = container.querySelector('.fx-hit-flash')!;
     expect(flash).not.toBeNull();
@@ -114,7 +114,7 @@ describe('impact verb (flash + recoil)', () => {
           fx: {
             ...emptyFx(),
             impacts: [
-              { attackerId: null, attackerCell: null, defenderId: 'own', defenderCell: 1 },
+              { attackerId: null, attackerCell: null, defenderId: 'own', defenderCell: 1, damage: 2 },
             ],
           },
         }}

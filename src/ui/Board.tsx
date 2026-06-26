@@ -41,6 +41,7 @@ import type { Board as BoardGraph, CellId, Vec2 } from '../board/types';
 import { orderedUnitIds } from '../core/orders';
 import type { FactionId, Stance, UnitInstance, UnitType } from '../core/types';
 import { PLAYER_FACTION, useAppStore } from '../state/store';
+import { buildHpFlips, type HpFlip } from '../state/replay-timing';
 import {
   BuildPips,
   BuyGhosts,
@@ -846,6 +847,16 @@ export function Board({
     return out;
   }, [replayFx, board, toScreen, tokenSize]);
 
+  // --- Combat readability §2 (HP flip): per HIT defender, hold the pre-hit count
+  // then fold DOWN to the post-combat count on the witnessed impact. buildHpFlips
+  // is PURE/tested (replay-timing): it sums damage per defender, arms ONLY where a
+  // witnessed projectile lands (fog honesty), and times the fold to the spark.
+  const flipByUnit = useMemo(() => {
+    const impacts = replayFx?.fx.impacts;
+    if (!impacts) return new Map<string, HpFlip>();
+    return buildHpFlips(impacts, replayFx?.fx.beats ?? [], (id) => unitById.get(id)?.count);
+  }, [replayFx, unitById]);
+
   // --- v1.4: idle "awaiting orders" pulse --------------------------------------
   // Own units with NO queued order get a slow breathing halo during the
   // planning phase — an on-board echo of the hollow dock chips. The Board
@@ -1271,6 +1282,8 @@ export function Board({
                 pulse={idlePulse(unit)}
                 recoil={recoilByUnit.get(unit.id) ?? null}
                 recoilKey={replayFx?.key ?? 0}
+                flip={flipByUnit.get(unit.id) ?? null}
+                flipKey={replayFx?.key ?? 0}
                 unitTypeCost={unitTypes ? unitTypes[unit.type]?.cost : undefined}
                 onTap={tapGuard(onUnitTap)}
                 onRadar={showRadar ? () => onUnitRadarTap(unit.id) : undefined}

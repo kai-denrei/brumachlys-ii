@@ -4034,6 +4034,32 @@ body {
   }
 }
 
+/* Combat-readability §2: the count pip's split-flap "card". Each value that
+   FLIPS IN (as HP ticks down 8→7→6→5) unfolds from the top with a small
+   mechanical overshoot — the held value (the pre-hit count) carries no class
+   and so does not animate. transform-box keeps the fold pivoting on the
+   numeral's own box; the stepping cadence is driven in CountFlap (JS timers). */
+.count-flap-card {
+  transform-box: fill-box;
+  transform-origin: center top;
+  animation: count-flap-card 0.13s ease-out;
+}
+
+@keyframes count-flap-card {
+  0% {
+    transform: scaleY(0);
+    opacity: 0.25;
+  }
+  70% {
+    transform: scaleY(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
 /* death = crumble / shrink / smoke-puff — hit-spark (0–120 ms) → brief
    freeze/wobble on the token → 4 vector fragments fly + smoke puff
    (120–400 ms). Enemy deaths end on a tiny radial celebration pop in the
@@ -4514,6 +4540,7 @@ body {
 
   .fx-hit-flash,
   .fx-recoil,
+  .count-flap-card,
   .fx-death-spark,
   .fx-death-token,
   .fx-death-frag,
