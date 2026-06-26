@@ -28,7 +28,7 @@ export function BottomDock({
   /** E3 conquest: queued buys, base-cell ascending (ghost instances). */
   buys?: readonly DockBuy[];
   onChipTap?: (unitId: string) => void;
-  /** Tap a buy chip → center the base + reopen its build sheet. */
+  /** Tap a buy chip → center the base + reopen the build dashboard on it. */
   onBuyChipTap?: (baseCell: CellId) => void;
 }) {
   return (

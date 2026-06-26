@@ -74,13 +74,24 @@ describe('replay builder — grouping', () => {
     ];
     const script = build(units, events);
     expect(script.slots.length).toBe(1); // one timeline slot for the whole exchange
-    expect(script.frames.length).toBe(2); // establish + ONE volley frame
+    // R6 RE-BASELINE: establish + ONE volley frame + the appended SETTLE beat.
+    // The exchange still groups as ONE visual tick (one slot, one volley frame);
+    // what changed is the dissolve is DEFERRED to a dedicated SETTLE beat.
+    expect(script.frames.length).toBe(3);
     const frame = script.frames[1]!;
     expect(frame.arcs.length).toBe(2); // both halves flash together
     expect(frame.floaters.map((f) => f.text).sort()).toEqual(['−4', '−5']);
-    expect(frame.kills.map((u) => u.id)).toEqual(['re']);
-    expect(frame.units.some((u) => u.id === 're')).toBe(false); // dead
+    // R6: the victim does NOT dissolve on the volley frame — it is DOOMED here
+    // (greyed + glyph) and dissolves later, in SETTLE.
+    expect(frame.kills).toEqual([]);
+    expect(frame.doomed?.map((u) => u.id)).toEqual(['re']);
+    expect(frame.units.some((u) => u.id === 're')).toBe(false); // dead → not living
+    // R6: the dissolve lands on the SETTLE beat (the last frame here).
+    const settle = script.frames[2]!;
+    expect(settle.settle).toBe(true);
+    expect(settle.kills.map((u) => u.id)).toEqual(['re']);
     expect(script.slots[0]!.strikes.map((s) => s.kind)).toEqual(['attack', 'counter']);
+    // OUTCOMES UNCHANGED: casualty accounting + damage are exactly as before.
     expect(script.summary.kills).toEqual([{ id: 're', type: 'ranger', faction: 1 }]);
     expect(script.summary.damageDealt).toEqual([5, 4]);
   });
@@ -129,9 +140,10 @@ describe('replay builder — grouping', () => {
     });
     const script = build(units, [exchange(4, 5, 5, 6), exchange(3, 1, 4, 3)]);
     expect(script.slots.length).toBe(2);
-    // First exchange: full volley beat. Second (same cell + pair): compressed.
-    // (MOVE_STEP_MS=160, VOLLEY_MS=520, BRAWL_FOLLOWUP_MS=240 — Phase 4.2 constants)
-    expect(script.frames[1]!.duration).toBe(520);
+    // First exchange: a full SEQUENCED beat — its duration is now beat-driven
+    // (melee base 700 × default dilationDepth 1.6 = 1120). The second exchange
+    // (same cell + pair) stays compressed at BRAWL_FOLLOWUP_MS=240 (P9 pacing).
+    expect(script.frames[1]!.duration).toBe(1120);
     expect(script.frames[2]!.duration).toBe(240);
     // Floaters show RUNNING totals: −4/−5, then −7/−6 — the sum stays readable.
     expect(script.frames[1]!.floaters.map((f) => f.text)).toEqual(['−4', '−5']);
@@ -163,8 +175,8 @@ describe('replay builder — grouping', () => {
     const script = build(units, [exchange, move, exchange]);
     const brawlFrames = script.frames.filter((f) => f.bursts.length > 0);
     expect(brawlFrames.length).toBe(2);
-    expect(brawlFrames[0]!.duration).toBe(520); // Phase 4.2 constant: VOLLEY_MS=520
-    expect(brawlFrames[1]!.duration).toBe(520); // chain broken — full beat again (Phase 4.2)
+    expect(brawlFrames[0]!.duration).toBe(1120); // beat-driven (melee 700 × 1.6)
+    expect(brawlFrames[1]!.duration).toBe(1120); // chain broken — full beat again
     expect(brawlFrames[1]!.floaters.map((f) => f.text)).toEqual(['−4', '−5']); // fresh totals
   });
 
@@ -186,6 +198,167 @@ describe('replay builder — grouping', () => {
     expect(script.slots[0]!.kind).toBe('fizzle');
     expect(script.frames[1]!.floaters[0]!.text).toBe('no target');
     expect(script.summary.fizzles).toBe(1);
+  });
+});
+
+describe('replay builder — damage-number categories (R5, pure)', () => {
+  // R5: each damage floater carries a CATEGORY derived purely from the event —
+  // a lethal blow (target → 0) is 'kill', a counter / brawl-return is 'counter',
+  // any other damage is 'taken'. The mist (fog) flag is orthogonal and kept.
+  it('a normal (non-lethal) attack damage floater is category "taken"', () => {
+    const units = [makeUnit('pi', 0, 2), makeUnit('er', 1, 3, 'ranger')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pi',
+        defenderId: 'er',
+        attackerCell: 2,
+        defenderCell: 3,
+        damage: 4,
+        bonusB: 0,
+        defenderCountAfter: 6, // survives → not a kill
+        counterFired: false,
+        breakdown: bd({ damage: 4 }),
+      },
+    ];
+    const script = build(units, events);
+    const fl = script.frames[1]!.floaters[0]!;
+    expect(fl.text).toBe('−4');
+    expect(fl.category).toBe('taken');
+  });
+
+  it('a lethal blow (defender → 0) floater is category "kill"', () => {
+    const units = [makeUnit('pi', 0, 2), makeUnit('er', 1, 3, 'ranger')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pi',
+        defenderId: 'er',
+        attackerCell: 2,
+        defenderCell: 3,
+        damage: 9,
+        bonusB: 0,
+        defenderCountAfter: 0, // killed
+        counterFired: false,
+        breakdown: bd({ damage: 9 }),
+      },
+      { type: 'kill', unitId: 'er', cell: 3, faction: 1 },
+    ];
+    const script = build(units, events);
+    const fl = script.frames[1]!.floaters[0]!;
+    expect(fl.text).toBe('−9');
+    expect(fl.category).toBe('kill');
+  });
+
+  it('a counter floater is category "counter" (the attack half stays "taken")', () => {
+    const units = [makeUnit('pi', 0, 2), makeUnit('re', 1, 3, 'ranger')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pi',
+        defenderId: 're',
+        attackerCell: 2,
+        defenderCell: 3,
+        damage: 5,
+        bonusB: 0,
+        defenderCountAfter: 6, // survives → the counter answers
+        counterFired: true,
+        breakdown: bd(),
+      },
+      {
+        type: 'counter',
+        attackerId: 're',
+        defenderId: 'pi',
+        attackerCell: 3,
+        defenderCell: 2,
+        damage: 4,
+        defenderCountAfter: 7,
+        breakdown: bd({ damage: 4 }),
+      },
+    ];
+    const script = build(units, events);
+    const byText = new Map(script.frames[1]!.floaters.map((f) => [f.text, f.category]));
+    expect(byText.get('−5')).toBe('taken'); // the opening attack
+    expect(byText.get('−4')).toBe('counter'); // the answering counter
+  });
+
+  it('a counter that KILLS is category "kill" (kill precedence over counter)', () => {
+    const units = [makeUnit('pi', 0, 2), makeUnit('re', 1, 3, 'ranger')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'pi',
+        defenderId: 're',
+        attackerCell: 2,
+        defenderCell: 3,
+        damage: 5,
+        bonusB: 0,
+        defenderCountAfter: 6,
+        counterFired: true,
+        breakdown: bd(),
+      },
+      {
+        type: 'counter',
+        attackerId: 're',
+        defenderId: 'pi',
+        attackerCell: 3,
+        defenderCell: 2,
+        damage: 10,
+        defenderCountAfter: 0, // the counter is lethal
+        breakdown: bd({ damage: 10 }),
+      },
+      { type: 'kill', unitId: 'pi', cell: 2, faction: 0 },
+    ];
+    const script = build(units, events);
+    const byText = new Map(script.frames[1]!.floaters.map((f) => [f.text, f.category]));
+    expect(byText.get('−10')).toBe('kill');
+  });
+
+  it('brawl floaters: a brawl-return is "counter"; a lethal brawl half is "kill"', () => {
+    const units = [makeUnit('pt', 0, 2, 'tank'), makeUnit('ei', 1, 2, 'infantry')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'brawl-exchange',
+        cell: 2,
+        higherInitId: 'ei', // strikes first (brawl)
+        lowerInitId: 'pt', // strikes back (brawl-return)
+        higherInitDamageDealt: 9,
+        lowerInitDamageDealt: 5,
+        higherInitCountAfter: 5, // ei (lower-init's target) survives
+        lowerInitCountAfter: 0, // pt (the lower-init) dies → its target ei dealt lethal
+        higherInitBreakdown: bd({ damage: 9 }),
+        lowerInitBreakdown: bd(),
+      },
+      { type: 'kill', unitId: 'pt', cell: 2, faction: 0 },
+    ];
+    const script = build(units, events);
+    const cats = script.frames[1]!.floaters.map((f) => f.category).sort();
+    // The higher-init brawl half killed pt (lowerInitCountAfter 0) → 'kill';
+    // the lower-init's answering strike (brawl-return) → 'counter'.
+    expect(cats).toEqual(['counter', 'kill']);
+  });
+
+  it('a mist (fire-from-the-mist) damage floater keeps mist=true AND carries a category', () => {
+    // Player infantry at 0 (vision 2). Enemy artillery at 6 (fogged) fires at 0.
+    const units = [makeUnit('pi', 0, 0), makeUnit('aa', 1, 6, 'artillery')];
+    const events: ResolutionEvent[] = [
+      {
+        type: 'attack',
+        attackerId: 'aa',
+        defenderId: 'pi',
+        attackerCell: 6,
+        defenderCell: 0,
+        damage: 3,
+        bonusB: 0,
+        defenderCountAfter: 7, // survives
+        counterFired: false,
+        breakdown: bd({ damage: 3 }),
+      },
+    ];
+    const script = build(units, events);
+    const fl = script.frames[1]!.floaters[0]!;
+    expect(fl.mist).toBe(true);
+    expect(fl.category).toBe('taken'); // category derived honestly; the renderer keeps mist-grey
   });
 });
 
@@ -559,6 +732,85 @@ describe('replay builder — promotion events (v0.8 veterancy)', () => {
     const script = build([makeUnit('pi', 0, 2)], []);
     for (const f of script.frames) {
       expect(Array.isArray(f.promotions)).toBe(true);
+    }
+  });
+});
+
+// --- Forced-crossing combat: the "path interrupted!" sign (addendum §5) --------
+
+describe('replay builder — path-interrupted callout (forced crossing, §5; Feature A)', () => {
+  it('a crossing on a VISIBLE cell yields a crossing-callout frame + a log line', () => {
+    // Player infantry (vision 2) at cell 2 sees cells 0..4. Two enemy movers
+    // (one own, one AI) crossed and were halted on cell 3 — inside vision.
+    const units = [
+      makeUnit('pi', 0, 2),
+      makeUnit('pc', 0, 0, 'ranger'), // own crosser
+      makeUnit('ec', 1, 4, 'ranger'), // enemy crosser
+    ];
+    const events: ResolutionEvent[] = [
+      { type: 'path-interrupted', unitId: 'pc', crossedWithId: 'ec', cell: 3 },
+      { type: 'path-interrupted', unitId: 'ec', crossedWithId: 'pc', cell: 3 },
+    ];
+    const script = build(units, events);
+    // One interrupt slot for the crossing beat (deduped to ONE per cell).
+    expect(script.slots.filter((s) => s.kind === 'interrupt').length).toBe(1);
+    // Feature A: the CrossSign migrated into a CALLOUT (the callout is the sign).
+    const coFrame = script.frames.find((f) => (f.callouts?.length ?? 0) > 0)!;
+    expect(coFrame).toBeDefined();
+    expect(coFrame.callouts!.length).toBe(1);
+    expect(coFrame.callouts![0]!.cell).toBe(3);
+    expect(coFrame.callouts![0]!.kind).toBe('crossing');
+    // No legacy literal sign text survives.
+    expect((coFrame.signs ?? []).map((s) => s.text)).not.toContain('path interrupted!');
+    // The callout frames the crossing cell.
+    expect(coFrame.focus).toEqual([3]);
+    // A skirmish-log line announces the interruption.
+    const line = script.log.find((e) =>
+      e.segs.some((s) => s.t.includes('path interrupted!')),
+    );
+    expect(line).toBeDefined();
+  });
+
+  it('two crossers on the SAME cell collapse to a single callout (no double label)', () => {
+    const units = [
+      makeUnit('pi', 0, 2),
+      makeUnit('pc', 0, 0, 'ranger'),
+      makeUnit('ec', 1, 4, 'ranger'),
+    ];
+    const events: ResolutionEvent[] = [
+      { type: 'path-interrupted', unitId: 'pc', crossedWithId: 'ec', cell: 3 },
+      { type: 'path-interrupted', unitId: 'ec', crossedWithId: 'pc', cell: 3 },
+    ];
+    const script = build(units, events);
+    const coFrame = script.frames.find((f) => (f.callouts?.length ?? 0) > 0)!;
+    expect(coFrame.callouts!.length).toBe(1); // one cell → one callout
+  });
+
+  it('a crossing on a NON-visible cell yields NO callout (fog secrecy)', () => {
+    // Player infantry (vision 2) at cell 2 sees cells 0..4 only. Two ENEMY
+    // movers cross at cell 8 — dark to the player. The crossing stays secret:
+    // no callout, no interrupt slot, no log line — like an enemy brawl in the dark.
+    const units = [
+      makeUnit('pi', 0, 2),
+      makeUnit('e1', 1, 7, 'ranger'),
+      makeUnit('e2', 1, 9, 'ranger'),
+    ];
+    const events: ResolutionEvent[] = [
+      { type: 'path-interrupted', unitId: 'e1', crossedWithId: 'e2', cell: 8 },
+      { type: 'path-interrupted', unitId: 'e2', crossedWithId: 'e1', cell: 8 },
+    ];
+    const script = build(units, events, 12);
+    expect(script.frames.length).toBe(1); // establishing only — nothing witnessed
+    expect(script.slots.length).toBe(0);
+    expect(script.frames.every((f) => (f.callouts?.length ?? 0) === 0)).toBe(true);
+    expect(script.log.length).toBe(0);
+  });
+
+  it('every frame carries an empty callouts array by default (emptyFx contract)', () => {
+    const script = build([makeUnit('pi', 0, 2)], []);
+    for (const f of script.frames) {
+      expect(Array.isArray(f.callouts)).toBe(true);
+      expect(f.callouts).toEqual([]);
     }
   });
 });

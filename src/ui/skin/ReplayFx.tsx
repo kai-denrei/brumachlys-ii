@@ -26,10 +26,16 @@
 // arrives with `mist: true`, impacts arrive with attackerCell null, and there
 // is simply no arc (or recoil) to draw.
 
+import { useEffect, useRef } from 'react';
 import type { Board, CellId } from '../../board/types';
 import type { FactionId, UnitInstance } from '../../core/types';
-import { darken, factionColor } from './palette';
+import type { Beat, Projectile } from '../../state/replay-timing';
+import type { FloaterCategory } from '../../state/replay';
+import type { Callout, CalloutKind } from '../../state/callouts';
+import type { UnitRenderMode } from '../../state/store';
+import { darken, desaturate, factionColor } from './palette';
 import { UnitRenderer } from './UnitRenderer';
+import { UnitGlyph } from './icons';
 import { roundedPolygonPath, type Pt } from './rounded';
 
 /** v0.6 Ask 7 — one shown strike whose defender SURVIVES the frame (deaths
@@ -40,10 +46,28 @@ export type ImpactMark = {
   attackerCell: CellId | null;
   defenderId: string;
   defenderCell: CellId;
+  /** Damage this strike dealt the (surviving) defender — drives the HP flip-down
+   *  on the defender's count pip (combat readability §2). 0 for a no-damage hit. */
+  damage: number;
 };
 
 export type ReplayFxData = {
   arcs: { from: CellId; to: CellId; faction: FactionId }[];
+  /** R4 (PROJECTILE + ATTACK MOTION): the attack-motion primitives for this
+   *  frame's shown, source-revealed strikes — crawling tracers / arcing shells
+   *  (WAVE_A) and melee stabs (WAVE_B). When present and non-empty these REPLACE
+   *  the instant `arcs` flash (each projectile is a 1:1 upgrade of one arc); the
+   *  builder withholds a mist strike's projectile, so the source never leaks.
+   *  Optional: absent ⇒ the legacy instant FlashArc renders for `arcs`. */
+  projectiles?: Projectile[];
+  /** Sequencing pass (§3 / B): the frame's SEQUENCED beats. When present, the
+   *  projectiles are played PER BEAT — each beat's projectiles launch at the
+   *  beat's `start` and animate within its `dur` window, so exchanges play one
+   *  at a time (not the simultaneous burst). `frame.projectiles` stays the flat
+   *  union for any non-sequencing reader; `beats` is the finer source of truth
+   *  when set. Absent (movement / legacy / synthetic) → the flat `projectiles`
+   *  path with its CSS fixed-duration envelope. */
+  beats?: Beat[];
   /** `linger`: a "last volley" pill carried into later frames (P9) — still a
    *  breakdown tap target, but rendered settled (no pop animation, no
    *  re-expanding mist impact rings). */
@@ -52,11 +76,25 @@ export type ReplayFxData = {
     cell: CellId;
     text: string;
     mist: boolean;
+    /** R5: damage-number category — taken = INK, counter = GREY, kill = GOLD.
+     *  Optional so older/synthetic callers default to 'taken' (ink). A mist
+     *  floater keeps its fog-grey treatment regardless (fog honesty). */
+    category?: FloaterCategory;
     slot: number;
     linger?: boolean;
   }[];
   bursts: CellId[];
+  /** R6: units DISSOLVING this frame (the deferred fall). The builder now only
+   *  fills this on the SETTLE beat — every wave casualty falls together there. */
   kills: UnitInstance[];
+  /** R6 (DEFERRED DISSOLVE): units in the DOOMED hold this frame — killed during
+   *  the combat waves but not yet dissolved. Each renders as a greyed token with
+   *  a small smoke wisp / flicker / hairline-crack and a DEATH GLYPH replacing
+   *  the count badge (never a "0"). This is the deferred visual FALL only —
+   *  posthumous is OFF, a doomed unit never acts. The dissolve plays later, in
+   *  SETTLE (`kills`). Optional: most frames send none; reduced-motion in CSS
+   *  drops the flicker, leaving a static grey token + glyph. */
+  doomed?: UnitInstance[];
   /** E3 conquest: units materializing this frame (Phase E spawns) — token
    *  fades/scales in (.fx-spawn-pop). Optional: skirmish never sends any. */
   spawns?: UnitInstance[];
@@ -70,6 +108,20 @@ export type ReplayFxData = {
   /** v0.8 veterancy: units that ranked up this frame — upward-chevron burst
    *  at each cell in the faction colour (~450 ms, celebratory, not dominant). */
   promotions?: Array<{ cell: CellId; faction: FactionId; rank: number }>;
+  /** Forced-crossing combat (addendum 2026-06-21 §5): "path interrupted!"
+   *  signs at crossing cells — a short transient label announcing that two
+   *  enemy movers' paths crossed and were halted here (the brawl that follows
+   *  uses the existing brawl FX). Fog-gated upstream (state/replay.ts) — this
+   *  draws exactly what it is given. Optional: most frames send none.
+   *  Feature A SUPERSEDES this for crossings (now a `callout`); kept for
+   *  backward compatibility / any non-callout sign caller. */
+  signs?: Array<{ cell: CellId; text: string }>;
+  /** Feature A (callouts §2): transient board-anchored combat callouts — a
+   *  military-font pop-up at the event's cell (crossing / no-target / capture /
+   *  kill), floating up + fading. The flavor term + fog gating are resolved
+   *  upstream (state/replay.ts); this draws exactly what it is given. Multiple
+   *  callouts on the same cell are staggered so they stay legible. Optional. */
+  callouts?: Callout[];
 };
 
 export type ReplayFxProps = {
@@ -80,8 +132,25 @@ export type ReplayFxProps = {
   /** The viewing faction — "celebrate" pops use this color and fire only for
    *  the OTHER side's deaths. */
   player?: FactionId;
+  /** The active unit-render skin (gear menu). Threaded into the FX tokens
+   *  (consumed-capture, death, spawn) so a unit that was a watercolor / sprite
+   *  on the board DISSOLVES IN THE SAME SKIN — without it those tokens fell back
+   *  to the flat icon glyph for the duration of the FX, which read as a stale /
+   *  "wrong" image flashing over the watercolor capture. Defaults to 'icon'. */
+  renderMode?: UnitRenderMode;
   /** Tap a floating damage number → breakdown modal for its slot (§9.4). */
   onFloaterTap?: (slot: number) => void;
+  /** §6C: id of a board-frame clipPath (defined in Board's <defs>). When set the
+   *  whole FX layer is clipped to the board bounds so no projectile / guide can
+   *  extend off-screen (the aligned-long-shot laser fix). Optional — synthetic
+   *  callers omit it and render unclipped. */
+  clipId?: string;
+  /** §7: the board frame bounds (screen-space bbox, the same space the FX live
+   *  in inside the view transform). When set, a capture callout's box is CLAMPED
+   *  to stay inside these bounds and its font/width capped so the longest term
+   *  ("All your Bases Are Belong To Us!") is fully legible on-screen — even for
+   *  an edge/infantry capture. Optional — synthetic callers omit it. */
+  frameBounds?: { x: number; y: number; width: number; height: number };
 };
 
 const center = (board: Board, id: CellId, toScreen: ReplayFxProps['toScreen']): Pt | null => {
@@ -196,6 +265,341 @@ function FlashArc({
   );
 }
 
+// --- R4 (PROJECTILE + ATTACK MOTION primitives) ------------------------------
+// Crawling ranged TRACERS, arcing artillery SHELLS, and melee STABS. Each is a
+// CSS-animated upgrade of the instant FlashArc, parameterised by progress over
+// the frame window (the impact fractions — 0.80 tracer / 0.88 shell / 0.5 stab —
+// are baked into the styles.css keyframe percentages, matching the spec config).
+// All WAVE_A projectiles of a beat animate on the SAME envelope (the dilation
+// clock), never sequenced per-unit. A WAVE_B counter rides `--proj-delay`
+// (≈75 ms) so an exchange reads as a crossfire of two motions. Reduced-motion
+// degrades each to a simple instant mark (the line + the impact, no crawl/arc) —
+// handled in CSS so the markup is identical (honesty: outcomes never change).
+
+/** R4: a ranged tracer — a faint full-line guide + a crawling round with a
+ *  gradient speed-streak tail; a brief charge glint near the start, then crawl
+ *  to a sharp impact spark at ~0.80 of the frame window. */
+function Tracer({
+  a,
+  b,
+  tokenSize,
+  faction,
+  delay,
+  dur,
+}: {
+  a: Pt;
+  b: Pt;
+  tokenSize: number;
+  faction: FactionId;
+  delay: number;
+  /** Beat-scaled animation window (ms). When set the CSS reads `--proj-dur` so
+   *  the crawl/spark land at their fraction WITHIN this beat (sequencing §3.2);
+   *  absent → the CSS fixed-duration fallback (flat / legacy callers). */
+  dur?: number;
+}) {
+  const color = factionColor(faction);
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy) || 1;
+  // unit vector for the streak tail (a short segment trailing the round)
+  const ux = dx / len;
+  const uy = dy / len;
+  const tail = Math.min(len * 0.4, tokenSize * 0.9);
+  const style = {
+    '--proj-delay': `${delay}ms`,
+    ...(dur ? { '--proj-dur': `${dur}ms` } : {}),
+  } as React.CSSProperties;
+  return (
+    <g className="fx-tracer" pointerEvents="none" style={style}>
+      {/* faint DOTTED guide along the whole shot, terminating AT the target —
+          §6: an aligned/long shot must read as a contained dotted line, not a
+          laser to the frame edge (it runs a→b only; the FX layer is also clipped
+          to the board frame so nothing can extend off-screen). */}
+      <line
+        className="fx-tracer-guide"
+        x1={a[0]}
+        y1={a[1]}
+        x2={b[0]}
+        y2={b[1]}
+        stroke={color}
+        strokeWidth={tokenSize * 0.045}
+        strokeLinecap="round"
+        strokeDasharray={`${tokenSize * 0.05} ${tokenSize * 0.12}`}
+      />
+      {/* charge glint near the start */}
+      <circle className="fx-tracer-charge" cx={a[0]} cy={a[1]} r={tokenSize * 0.16} fill="#fff" />
+      {/* the crawling round + its speed-streak tail (translated start→impact) */}
+      <g className="fx-tracer-round" style={{ '--tx': `${dx}px`, '--ty': `${dy}px` } as React.CSSProperties}>
+        <line
+          className="fx-tracer-streak"
+          x1={a[0] - ux * tail}
+          y1={a[1] - uy * tail}
+          x2={a[0]}
+          y2={a[1]}
+          stroke={color}
+          strokeWidth={tokenSize * 0.1}
+          strokeLinecap="round"
+        />
+        <circle cx={a[0]} cy={a[1]} r={tokenSize * 0.11} fill="#fff" stroke={color} strokeWidth={tokenSize * 0.04} />
+      </g>
+      {/* sharp impact spark at the destination, fired at ~0.80 */}
+      <ImpactSpark at={b} tokenSize={tokenSize} className="fx-tracer-spark" />
+    </g>
+  );
+}
+
+/** R4: an artillery shell — a high parabolic ballistic arc (quadratic, control
+ *  point lobbed above the midpoint) with a DASHED trail; launches near the start
+ *  and LANDS LATE (~0.88). On impact: dust + an expanding ring burst. */
+function Shell({
+  a,
+  b,
+  tokenSize,
+  faction,
+  delay,
+  dur,
+}: {
+  a: Pt;
+  b: Pt;
+  tokenSize: number;
+  faction: FactionId;
+  delay: number;
+  /** Beat-scaled flight window (ms). Drives BOTH the SMIL animateMotion dur and
+   *  the CSS opacity track so the lob fills its (deeper) artillery beat and
+   *  lands ~0.88 of it (§8). Absent → the fixed-duration fallback. */
+  dur?: number;
+}) {
+  const color = factionColor(faction);
+  const mx = (a[0] + b[0]) / 2;
+  const my = (a[1] + b[1]) / 2;
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy) || 1;
+  // High lob (§8): control point well ABOVE the midpoint (perpendicular, biased
+  // up). Raised vs the prior pass so the shell reads as a lobbed shell, not a
+  // blink — a taller, more natural parabola. The hang-time fills the (now
+  // beat-scaled, deeper) artillery dilation; landing late (~0.88) below.
+  const lob = Math.min(len * 0.7, tokenSize * 3.4) + tokenSize * 2.2;
+  const cx = mx - (dy / len) * lob * 0.25;
+  const cy = my - lob; // straight up in screen space (y-down) → smaller y
+  const d = `M${a[0]} ${a[1]} Q${cx} ${cy} ${b[0]} ${b[1]}`;
+  // Flight time: the beat window when sequenced, else the legacy 2.2 s. Longer
+  // flight = a proper lobbed shell (§8). The motion holds at launch until ~6%
+  // then lands at 88% (keyTimes), matching the opacity track's ~0.88 impact.
+  const flightMs = dur && dur > 0 ? dur : 2800;
+  const style = {
+    '--proj-delay': `${delay}ms`,
+    ...(dur ? { '--proj-dur': `${dur}ms` } : {}),
+  } as React.CSSProperties;
+  // SMIL <animateMotion begin="..ms"> is DOCUMENT-time relative, not mount-time:
+  // because Board remounts this FX group every frame, on a 2nd+ combat frame the
+  // begin time is already in the past and fill="freeze" snaps the round straight
+  // to the landing point — the shell never flew (the dashed CSS trail, which is
+  // mount-relative, animated fine, so it read as "arc shown, no shell"). Fix:
+  // begin="indefinite" and START it on mount via beginElement(), after the same
+  // `delay` the CSS tracks use — so the flight is mount-relative like everything
+  // else and re-arms cleanly each frame. Timer-scheduled (wall-clock from mount),
+  // exactly like every other FX here (the CSS `--proj-delay` tracks, recoil, the
+  // dashed trail): replay-pause never freezes in-frame FX in this codebase, so
+  // this stays consistent. Pre-begin the round sits at the group origin but the
+  // CSS opacity track (`.fx-shell-round`, animation-delay=`delay`) holds it at 0
+  // through the same `delay`, so it is never painted before it launches.
+  const motionRef = useRef<SVGAnimateMotionElement>(null);
+  useEffect(() => {
+    const t = setTimeout(() => motionRef.current?.beginElement?.(), Math.max(0, delay));
+    return () => clearTimeout(t);
+  }, [delay, d, flightMs]);
+  return (
+    <g className="fx-shell" pointerEvents="none" style={style}>
+      {/* dashed ballistic trail — drawn-on then faded */}
+      <path
+        className="fx-shell-trail"
+        d={d}
+        fill="none"
+        stroke={color}
+        strokeWidth={tokenSize * 0.07}
+        strokeLinecap="round"
+        strokeDasharray={`${tokenSize * 0.16} ${tokenSize * 0.22}`}
+      />
+      {/* the shell itself: rides the SAME parabola, landing LATE (~0.88). It
+          travels via SVG SMIL <animateMotion> along the trail's exact path —
+          NOT a CSS `offset-path`. offset-path on an SVG <g> inside the board's
+          (translate+scale) view group does NOT translate the element along the
+          path's absolute user-space coords: the round stayed pinned at the FX
+          layer origin and rendered as a STRAY COLOURED DOT off toward the board
+          edge, disconnected from the real attacker→target vector (live-captured:
+          trail a→b ~178 px, but the round ~470 px away near a corner). This is
+          the same family as the impact-spark clobber (bb971d4): a CSS transform
+          mechanism not surviving the SVG/transform context. animateMotion is
+          SVG-native and composes with the parent view transform; keyPoints/
+          keyTimes hold launch until ~6% then land at 88% (matching the old
+          envelope), and fill="freeze" pins it at the target like CSS `forwards`.
+          Opacity (fade-in / vanish on impact) stays in CSS (fx-shell-fly, now a
+          pure opacity track — no offset-distance). The path is the trail's d. */}
+      <g className="fx-shell-round" pointerEvents="none">
+        <circle r={tokenSize * 0.13} fill={darken(color, 0.15)} stroke="#fff" strokeWidth={tokenSize * 0.035}>
+          <animateMotion
+            ref={motionRef}
+            dur={`${flightMs}ms`}
+            begin="indefinite"
+            fill="freeze"
+            rotate="auto"
+            path={d}
+            keyPoints="0;0;1;1"
+            keyTimes="0;0.06;0.88;1"
+            calcMode="linear"
+          />
+        </circle>
+      </g>
+      {/* dust + expanding ring burst at the landing */}
+      <g className="fx-shell-impact" transform={`translate(${b[0]} ${b[1]})`}>
+        <circle className="fx-shell-ring" r={tokenSize * 0.6} fill="none" stroke="#fff" strokeWidth={tokenSize * 0.09} />
+        <circle className="fx-shell-ring fx-shell-ring-2" r={tokenSize * 0.6} fill="none" stroke={color} strokeWidth={tokenSize * 0.05} />
+        {[0, 1, 2, 3, 4].map((k) => {
+          const t = (k / 5) * Math.PI * 2 + Math.PI / 5;
+          return (
+            <circle
+              key={k}
+              className="fx-shell-dust"
+              cx={Math.cos(t) * tokenSize * 0.42}
+              cy={Math.sin(t) * tokenSize * 0.42}
+              r={tokenSize * 0.16}
+              fill="#8d8675"
+              style={{ animationDelay: `calc(var(--proj-delay) + ${0.02 * k}s)` } as React.CSSProperties}
+            />
+          );
+        })}
+      </g>
+    </g>
+  );
+}
+
+/** R4: a melee stab — a short dash from the attacker toward the target (~0.5
+ *  reach) + a flash; fast and punchy. Used for adjacent strikes AND brawls
+ *  (same-cell: the dash nudges toward the shared tile). */
+function Stab({
+  a,
+  b,
+  tokenSize,
+  faction,
+  delay,
+  dur,
+}: {
+  a: Pt;
+  b: Pt;
+  tokenSize: number;
+  faction: FactionId;
+  delay: number;
+  /** Beat-scaled window (ms) for sequenced melee; absent → the CSS fixed dur. */
+  dur?: number;
+}) {
+  const color = factionColor(faction);
+  let dx = b[0] - a[0];
+  let dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-3) {
+    // brawl (same cell): nudge a fixed direction so both halves still read.
+    dx = tokenSize;
+    dy = 0;
+  }
+  const reach = 0.5; // ~half the distance toward the target
+  const style = {
+    '--proj-delay': `${delay}ms`,
+    ...(dur ? { '--proj-dur': `${dur}ms` } : {}),
+    '--tx': `${dx * reach}px`,
+    '--ty': `${dy * reach}px`,
+  } as React.CSSProperties;
+  return (
+    <g className="fx-stab" pointerEvents="none" style={style}>
+      <g className="fx-stab-dash">
+        <line
+          x1={a[0]}
+          y1={a[1]}
+          x2={a[0] + (dx / (len || 1)) * tokenSize * 0.42}
+          y2={a[1] + (dy / (len || 1)) * tokenSize * 0.42}
+          stroke={color}
+          strokeWidth={tokenSize * 0.14}
+          strokeLinecap="round"
+        />
+      </g>
+      <ImpactSpark at={b} tokenSize={tokenSize} className="fx-stab-flash" />
+    </g>
+  );
+}
+
+/** R4: a sharp, brief impact spark (4 radial spokes + a core) — the punctuation
+ *  on a tracer / stab landing. The animation timing lives in CSS.
+ *
+ *  P9 transform rule (see NOTE above ProjectileFx): the CSS keyframes animate
+ *  `transform: scale(...)`, and a CSS transform animation REPLACES an element's
+ *  SVG `transform` presentation attribute. So the positioning translate to the
+ *  IMPACT point MUST live on an OUTER group, with the animated class on an INNER
+ *  one — otherwise the scale clobbers the translate and the spark renders at the
+ *  layer origin (the bug: a stray mark far from the actual landing cell). */
+function ImpactSpark({ at, tokenSize, className }: { at: Pt; tokenSize: number; className: string }) {
+  const r0 = tokenSize * 0.18;
+  const r1 = tokenSize * 0.5;
+  return (
+    <g transform={`translate(${at[0]} ${at[1]})`}>
+      <g className={className}>
+        {[0, 1, 2, 3].map((k) => {
+          const t = (k / 4) * Math.PI * 2 + Math.PI / 4;
+          return (
+            <line
+              key={k}
+              x1={Math.cos(t) * r0}
+              y1={Math.sin(t) * r0}
+              x2={Math.cos(t) * r1}
+              y2={Math.sin(t) * r1}
+              stroke="#fff"
+              strokeWidth={tokenSize * 0.07}
+              strokeLinecap="round"
+            />
+          );
+        })}
+        <circle r={r0 * 0.8} fill="#fff" />
+      </g>
+    </g>
+  );
+}
+
+/** R4: render a single projectile primitive by kind. Cells resolved upstream. */
+function ProjectileFx({
+  board,
+  toScreen,
+  tokenSize,
+  proj,
+  delayOffset = 0,
+  dur,
+}: {
+  board: Board;
+  toScreen: ReplayFxProps['toScreen'];
+  tokenSize: number;
+  proj: Projectile;
+  /** Sequencing (§3.2 / B): the owning beat's `start` (ms) — added to the
+   *  projectile's own crossfire delay so beat K's motion launches at beat K's
+   *  window, playing one exchange at a time. 0 for the flat / legacy path. */
+  delayOffset?: number;
+  /** The owning beat's window (ms) — the animation duration so the impact
+   *  fraction lands within the beat. Absent → the CSS fixed-duration fallback. */
+  dur?: number;
+}) {
+  const a = center(board, proj.from, toScreen);
+  const b = center(board, proj.to, toScreen);
+  if (!a || !b) return null;
+  const common = {
+    a,
+    b,
+    tokenSize,
+    faction: proj.faction,
+    delay: proj.delay + delayOffset,
+    dur,
+  };
+  if (proj.kind === 'shell') return <Shell {...common} />;
+  if (proj.kind === 'stab') return <Stab {...common} />;
+  return <Tracer {...common} />;
+}
+
 // NOTE (P9 fix): a CSS `transform` animation REPLACES an element's SVG
 // `transform` presentation attribute (the attribute is just a low-priority
 // presentational hint) — so animated transforms must live on an INNER group,
@@ -242,6 +646,103 @@ function MistImpact({ at, tokenSize }: { at: Pt; tokenSize: number }) {
   );
 }
 
+// --- R6 (DEFERRED DISSOLVE): the DOOMED hold ---------------------------------
+// A unit killed during the combat waves does NOT dissolve at its kill frame: it
+// holds here, greyed toward grey with a small smoke wisp + a hairline-crack /
+// flicker, and a DEATH GLYPH (✕) REPLACING the count badge — never a "0", which
+// is the exact thing that reads as "a corpse still standing at 0 HP." The token
+// stays in place through the remaining wave frames; the actual dissolve (DeathFx)
+// plays once, later, on the SETTLE beat. Posthumous is OFF in this model — this
+// is purely the deferred visual FALL, not a deferred action.
+//
+// The glyph + crack geometry is deterministic (fixed coordinates, no randomness).
+// prefers-reduced-motion (CSS) drops the flicker/wisp drift, leaving a static
+// grey token + glyph — the read survives, outcomes never change.
+
+const DOOMED_DESATURATION = 0.85; // toward grey, but a faint tint remains
+
+function DoomedFx({
+  unit,
+  at,
+  tokenSize,
+}: {
+  unit: UnitInstance;
+  at: Pt;
+  tokenSize: number;
+}) {
+  const grey = desaturate(factionColor(unit.faction), DOOMED_DESATURATION);
+  const h = tokenSize / 2;
+  const rx = tokenSize * 0.3;
+  const strokeW = tokenSize * 0.06;
+  return (
+    <g
+      className="fx-doomed"
+      transform={`translate(${at[0]} ${at[1]})`}
+      pointerEvents="none"
+      data-doomed-id={unit.id}
+    >
+      {/* the held token, desaturated toward grey. Minimal + glyph-only: NO count
+          pip (a "0" must never show); the death glyph below replaces it. */}
+      <g className="fx-doomed-token">
+        <rect
+          className="unit-body unit-token"
+          x={-h}
+          y={-h}
+          width={tokenSize}
+          height={tokenSize}
+          rx={rx}
+          fill={grey}
+          stroke="#fff"
+          strokeWidth={strokeW}
+          opacity={0.7}
+        />
+        <g transform={`translate(${-h} ${-h}) scale(${tokenSize / 100})`}>
+          <UnitGlyph type={unit.type} />
+        </g>
+      </g>
+      {/* hairline-crack across the token face — a deterministic fracture line. */}
+      <polyline
+        className="fx-doomed-crack"
+        points={`${-h * 0.5},${-h * 0.55} ${-h * 0.05},${-h * 0.05} ${h * 0.3},${h * 0.15} ${h * 0.55},${h * 0.6}`}
+        fill="none"
+        stroke="#2a2620"
+        strokeWidth={tokenSize * 0.05}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={0.6}
+      />
+      {/* a small smoke wisp rising off the doomed token. */}
+      <g className="fx-doomed-wisp">
+        {[0, 1, 2].map((k) => (
+          <circle
+            key={k}
+            cx={(k - 1) * tokenSize * 0.16}
+            cy={-h * 0.4 - k * tokenSize * 0.12}
+            r={tokenSize * (0.12 - k * 0.018)}
+            fill="#8d8675"
+            opacity={0.5 - k * 0.12}
+          />
+        ))}
+      </g>
+      {/* DEATH GLYPH replacing the count badge (✕), in the count-pip corner. */}
+      <g className="fx-doomed-badge" transform={`translate(${h * 0.78} ${h * 0.78})`}>
+        <circle r={tokenSize * 0.21} fill="#fff" stroke={darken(grey, 0.18)} strokeWidth={tokenSize * 0.03} />
+        <text
+          className="fx-doomed-glyph"
+          y={tokenSize * 0.012}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={tokenSize * 0.3}
+          fontWeight={700}
+          fill="#9c2f1d"
+        >
+          ✕
+        </text>
+      </g>
+    </g>
+  );
+}
+
 // --- v0.6 Ask 7: the destruction verb ---------------------------------------
 // hit-spark → brief freeze/wobble → break into vector fragments + smoke puff,
 // ~400 ms total. Enemy deaths end on a tiny radial celebration burst in the
@@ -255,12 +756,14 @@ function DeathFx({
   tokenSize,
   own,
   cheerColor,
+  renderMode,
 }: {
   unit: UnitInstance;
   at: Pt;
   tokenSize: number;
   own: boolean;
   cheerColor: string;
+  renderMode: UnitRenderMode;
 }) {
   const color = factionColor(unit.faction);
   const h = tokenSize / 2;
@@ -313,9 +816,11 @@ function DeathFx({
           );
         })}
       </g>
-      {/* the token itself: freeze/wobble, then it is gone (frags take over) */}
+      {/* the token itself: freeze/wobble, then it is gone (frags take over).
+          Renders in the active skin so a watercolor/sprite unit dies as itself,
+          not as a flat icon flashing in. */}
       <g className="fx-death-token">
-        <UnitRenderer unit={unit} x={0} y={0} size={tokenSize} />
+        <UnitRenderer unit={unit} x={0} y={0} size={tokenSize} renderMode={renderMode} />
       </g>
       {own && (
         <rect
@@ -397,6 +902,7 @@ function CaptureFx({
   cell,
   to,
   consumed,
+  renderMode,
 }: {
   board: Board;
   toScreen: ReplayFxProps['toScreen'];
@@ -404,6 +910,7 @@ function CaptureFx({
   cell: CellId;
   to: FactionId;
   consumed?: UnitInstance;
+  renderMode: UnitRenderMode;
 }) {
   const cellObj = board.cells.get(cell);
   if (!cellObj) return null;
@@ -439,7 +946,9 @@ function CaptureFx({
         {consumed && (
           <>
             <g className="fx-capture-consume">
-              <UnitRenderer unit={consumed} x={0} y={0} size={ts} />
+              {/* Same SKIN as on the board: a watercolor/sprite unit dissolves
+                  as its painting/sprite, not a flat icon (the capture flicker). */}
+              <UnitRenderer unit={consumed} x={0} y={0} size={ts} renderMode={renderMode} />
             </g>
             {sparks.map(({ sx, sy }, k) => (
               <circle
@@ -529,22 +1038,231 @@ function PromotionFx({ at, tokenSize, color }: { at: Pt; tokenSize: number; colo
   );
 }
 
-export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloaterTap }: ReplayFxProps) {
+// --- Feature A: combat CALLOUTS (board-anchored military-font pop-ups) --------
+// A transient banner floating up above the event cell, announcing a combat beat
+// in a stencil military display font (Black Ops One, vendored OFL under
+// ui/fonts/) — system/log text stays JetBrains Mono. It GENERALIZES the old
+// "path interrupted!" sign (the callout IS the sign now) and covers crossings,
+// no-target fizzles, base captures, and unit kills. The flavor word + fog gating
+// are resolved upstream (state/replay.ts); this draws what it is given.
+//
+// STACKING: multiple callouts on the SAME cell (e.g. several kills in one wave)
+// are staggered upward by `stackIndex` so they never overlap illegibly, and the
+// concurrent set per cell is CAPPED so a wipe doesn't spam the board.
+//
+// The colour is keyed by kind (loss reads heavier/muted; enemy kills + captures
+// read as a win in the player's gold; crossings/fizzles are neutral steel). The
+// rise+fade motion reuses the shared .fx-callout-rise; reduced-motion (CSS)
+// drops it to a static fade.
+
+/** Cap concurrent callouts on one cell so a multi-kill wave stays legible. */
+const CALLOUT_STACK_CAP = 3;
+
+/** Per-kind callout colours: { fill, text, stroke }. Own-loss is a muted ink
+ *  (a casualty notice, not a celebration); enemy kill + capture ride the gold
+ *  win colour; crossing + no-target are a neutral steel announcement. */
+function calloutColors(kind: CalloutKind): { fill: string; text: string; stroke: string } {
+  switch (kind) {
+    case 'kill-enemy':
+    case 'captured':
+      // GOLD — a win beat (kill confirmed / base taken).
+      return { fill: 'var(--gold)', text: '#2a2620', stroke: 'rgba(42,38,32,0.5)' };
+    case 'kill-own':
+      // Muted danger red — a loss notice (own unit down).
+      return { fill: '#9c2f1d', text: '#fdeee6', stroke: 'rgba(255,255,255,0.5)' };
+    case 'no-target':
+      // Steel grey — a fizzle (held fire, no target).
+      return { fill: '#5d5648', text: '#f2eee3', stroke: 'rgba(255,255,255,0.4)' };
+    case 'crossing':
+    default:
+      // Ink steel — contact / meeting-engagement announce.
+      return { fill: '#3a4250', text: '#eef2f7', stroke: 'rgba(255,255,255,0.5)' };
+  }
+}
+
+function CalloutMark({
+  at,
+  tokenSize,
+  callout,
+  stackIndex,
+  frameBounds,
+}: {
+  at: Pt;
+  tokenSize: number;
+  callout: Callout;
+  /** Position in this cell's concurrent stack (0 = first); offsets the anchor up
+   *  so simultaneous callouts on one cell don't overlap. */
+  stackIndex: number;
+  /** §7: board frame bounds (screen-space) — when set, the callout box is fit +
+   *  clamped to stay fully on-screen (the long capture term overflowed). */
+  frameBounds?: { x: number; y: number; width: number; height: number };
+}) {
+  const { text, kind } = callout;
+  let fs = tokenSize * 0.3;
+  const charW = (f: number) => Math.max(text.length, 3) * f * 0.62 + f * 1.6;
+  let w = charW(fs);
+  let h = fs * 1.8;
+  // §7: the longest term ("All your Bases Are Belong To Us!") overflowed the
+  // frame — shrink the font so the box fits the frame width (with margin), then
+  // clamp the box center so it never spills off any edge. A bounded shrink keeps
+  // even an edge/infantry capture fully legible on-screen.
+  if (frameBounds) {
+    const maxW = frameBounds.width - tokenSize * 0.5; // small margin
+    if (w > maxW && w > 0) {
+      fs = fs * (maxW / w);
+      w = charW(fs);
+      h = fs * 1.8;
+    }
+  }
+  // Base anchor sits above the token; each further callout on the cell climbs.
+  let cx = at[0];
+  let y = at[1] - tokenSize * 1.05 - stackIndex * h * 1.25;
+  if (frameBounds) {
+    const minX = frameBounds.x + w / 2;
+    const maxX = frameBounds.x + frameBounds.width - w / 2;
+    cx = maxX >= minX ? Math.max(minX, Math.min(maxX, cx)) : (frameBounds.x + frameBounds.width / 2);
+    const minY = frameBounds.y + h / 2;
+    const maxY = frameBounds.y + frameBounds.height - h / 2;
+    y = maxY >= minY ? Math.max(minY, Math.min(maxY, y)) : (frameBounds.y + frameBounds.height / 2);
+  }
+  const { fill, text: textColor, stroke } = calloutColors(kind);
+  return (
+    <g
+      className="fx-callout"
+      data-callout-kind={kind}
+      transform={`translate(${cx} ${y})`}
+      pointerEvents="none"
+    >
+      {/* the rise+fade animation lives on this INNER group — see the transform NOTE */}
+      <g className="fx-callout-rise">
+        <rect
+          x={-w / 2}
+          y={-h / 2}
+          width={w}
+          height={h}
+          rx={h * 0.28}
+          fill={fill}
+          stroke={stroke}
+          strokeWidth={tokenSize * 0.04}
+        />
+        <text
+          className="fx-callout-text"
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={fs * 0.82}
+          fontFamily="'Black Ops One', 'Impact', 'Arial Narrow Bold', sans-serif"
+          fill={textColor}
+        >
+          {text}
+        </text>
+      </g>
+    </g>
+  );
+}
+
+// --- R5: category-coloured DAMAGE NUMBERS ------------------------------------
+// A damage floater is coloured by its CATEGORY (derived purely upstream in
+// state/replay.ts) and SIZED by the hit's magnitude:
+//   • taken   = INK   (#4a443a) pill, light text  — normal damage taken
+//   • counter = GREY  (#8d8675) pill, light text  — an answering counter blow
+//   • kill    = GOLD  (var(--gold)) pill, dark text — the lethal blow
+// PRECEDENCE (documented): FOG honesty is absolute — a mist (fire-from-the-mist)
+// floater keeps its existing fog-grey treatment REGARDLESS of category, so a
+// hidden attacker's lethal hit never gains a tell that a normal mist hit lacks.
+// For source-revealed floaters the order is kill > counter > taken (a counter
+// that kills reads as a kill — set upstream). The motion (arc-rise + fade) is
+// unchanged: the same .fx-floater-rise the pills already used.
+
+/** R5 (pure): pill fill + text colour for a damage floater. Mist wins (fog
+ *  honesty); otherwise colour by category. */
+function floaterColors(
+  mist: boolean,
+  category: FloaterCategory,
+): { fill: string; text: string; stroke: string } {
+  if (mist) {
+    // fog-grey, unchanged — the hidden attacker never leaks through a category.
+    return { fill: '#5d5648', text: '#f2eee3', stroke: 'rgba(255,255,255,0.55)' };
+  }
+  switch (category) {
+    case 'kill':
+      // GOLD pill, dark ink text — the lethal blow reads loudest.
+      return { fill: 'var(--gold)', text: '#4a443a', stroke: 'rgba(74,68,58,0.45)' };
+    case 'counter':
+      // GREY pill, light text — the answering blow.
+      return { fill: '#8d8675', text: '#f2eee3', stroke: 'rgba(74,68,58,0.35)' };
+    default:
+      // INK pill, light text — normal damage taken.
+      return { fill: '#4a443a', text: '#f2eee3', stroke: 'rgba(74,68,58,0.35)' };
+  }
+}
+
+/** R5 (pure): the font-size multiplier for a damage floater, scaling with the
+ *  hit magnitude (the number parsed from the pill text) and BOUNDED. A non-
+ *  numeric label ("no target", "build failed") stays at the base size. The ramp
+ *  is gentle (≈√magnitude) so a 1-damage tick and a 99-damage haymaker differ
+ *  clearly but the big number never overruns its pill / neighbours.
+ *    1 → 1.00×   ·   12 → ~1.30×   ·   99+ → 1.40× (the clamp ceiling). */
+export function floaterSizeScale(text: string): number {
+  const mag = Math.abs(parseInt(text.replace(/[^0-9-]/g, ''), 10));
+  if (!Number.isFinite(mag) || mag <= 1) return 1;
+  // √-ramp from 1×, +~0.115 per √step, clamped to 1.4× so it stays bounded.
+  return Math.min(1.4, 1 + (Math.sqrt(mag) - 1) * 0.115);
+}
+
+export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, renderMode = 'icon', onFloaterTap, clipId, frameBounds }: ReplayFxProps) {
   // Stack same-cell floaters (brawl halves) side by side.
   const seenCells = new Map<CellId, number>();
+  // R4: when the frame carries attack-motion primitives, render them (crawling
+  // tracers / arcing shells / melee stabs) INSTEAD of the instant FlashArc — each
+  // projectile is a 1:1 upgrade of one arc. A mist strike has neither an arc nor
+  // a projectile (the source is withheld), so the impact alone shows either way.
+  // Frames without projectiles (or older callers) keep the legacy FlashArc.
+  const projectiles = fx.projectiles ?? [];
+  // Sequencing (§3 / B): when the frame carries laid-out beats, play each beat's
+  // projectiles in ITS window — beat K's motions launch at beat K's `start` and
+  // animate over its `dur`, so the exchanges sequence (one at a time) instead of
+  // the old simultaneous burst. The flat `fx.projectiles` (the beats' union)
+  // stays the fallback for legacy / synthetic callers with no beats.
+  const beats = fx.beats ?? [];
+  const useBeats = beats.some((b) => b.projectiles.length > 0);
+  const useProjectiles = !useBeats && projectiles.length > 0;
   return (
-    <g className="board-replay-fx">
-      {fx.arcs.map((arc, k) => (
-        <FlashArc
-          key={`a${k}`}
-          board={board}
-          toScreen={toScreen}
-          tokenSize={tokenSize}
-          from={arc.from}
-          to={arc.to}
-          faction={arc.faction}
-        />
-      ))}
+    <g className="board-replay-fx" clipPath={clipId ? `url(#${clipId})` : undefined}>
+      {useBeats
+        ? beats.flatMap((beat, bi) =>
+            beat.projectiles.map((proj, k) => (
+              <ProjectileFx
+                key={`bp${bi}-${k}`}
+                board={board}
+                toScreen={toScreen}
+                tokenSize={tokenSize}
+                proj={proj}
+                delayOffset={beat.start}
+                dur={beat.dur}
+              />
+            )),
+          )
+        : useProjectiles
+          ? projectiles.map((proj, k) => (
+              <ProjectileFx
+                key={`pj${k}`}
+                board={board}
+                toScreen={toScreen}
+                tokenSize={tokenSize}
+                proj={proj}
+              />
+            ))
+          : fx.arcs.map((arc, k) => (
+              <FlashArc
+                key={`a${k}`}
+                board={board}
+                toScreen={toScreen}
+                tokenSize={tokenSize}
+                from={arc.from}
+                to={arc.to}
+                faction={arc.faction}
+              />
+            ))}
       {fx.bursts.map((cell, k) => {
         const at = center(board, cell, toScreen);
         return at ? <ClashBurst key={`b${k}`} at={at} tokenSize={tokenSize} /> : null;
@@ -554,12 +1272,16 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
         if (!at) return null;
         const stack = seenCells.get(fl.cell) ?? 0;
         seenCells.set(fl.cell, stack + 1);
-        const w = Math.max(fl.text.length, 2) * tokenSize * 0.26 + tokenSize * 0.3;
-        const h = tokenSize * 0.52;
+        // R5: bigger hits get a bigger pill (bounded) so the number's weight
+        // tracks the damage. The pill geometry scales with the same factor so
+        // the larger glyph stays contained.
+        const scale = floaterSizeScale(fl.text);
+        const w = (Math.max(fl.text.length, 2) * tokenSize * 0.26 + tokenSize * 0.3) * scale;
+        const h = tokenSize * 0.52 * scale;
         const x = at[0] + (stack === 0 ? 0 : (stack % 2 === 1 ? 1 : -1) * w * 0.7);
         const y = at[1] - tokenSize * 0.95 - stack * h * 0.25;
-        const fill = fl.mist ? '#5d5648' : '#fff';
-        const text = fl.mist ? '#f2eee3' : '#9c2f1d';
+        const category: FloaterCategory = fl.category ?? 'taken';
+        const { fill, text, stroke } = floaterColors(fl.mist, category);
         return (
           <g
             key={fl.id}
@@ -592,7 +1314,7 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
                   height={h}
                   rx={h / 2}
                   fill={fill}
-                  stroke={fl.mist ? 'rgba(255,255,255,0.55)' : 'rgba(74,68,58,0.35)'}
+                  stroke={stroke}
                   strokeWidth={tokenSize * 0.03}
                 />
                 <text
@@ -636,6 +1358,14 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
           </g>
         );
       })}
+      {/* R6 (DEFERRED DISSOLVE): units in the DOOMED hold — greyed token + death
+          glyph (never a "0"), no dissolve. They persist through the wave frames
+          and fall later, in the SETTLE beat (fx.kills). */}
+      {(fx.doomed ?? []).map((unit) => {
+        const at = center(board, unit.cell, toScreen);
+        if (!at) return null;
+        return <DoomedFx key={`d${unit.id}`} unit={unit} at={at} tokenSize={tokenSize} />;
+      })}
       {fx.kills.map((unit) => {
         const at = center(board, unit.cell, toScreen);
         if (!at) return null;
@@ -647,6 +1377,7 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
             tokenSize={tokenSize}
             own={unit.faction === player}
             cheerColor={factionColor(player)}
+            renderMode={renderMode}
           />
         );
       })}
@@ -663,7 +1394,7 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
             pointerEvents="none"
           >
             <g className="fx-spawn-pop">
-              <UnitRenderer unit={unit} x={0} y={0} size={tokenSize} />
+              <UnitRenderer unit={unit} x={0} y={0} size={tokenSize} renderMode={renderMode} />
             </g>
             <circle
               className="fx-spawn-ring"
@@ -684,6 +1415,7 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
           cell={cell}
           to={to}
           consumed={consumed}
+          renderMode={renderMode}
         />
       ))}
       {(fx.promotions ?? []).map(({ cell, faction }, k) => {
@@ -697,6 +1429,28 @@ export function ReplayFx({ board, toScreen, tokenSize, fx, player = 0, onFloater
           />
         ) : null;
       })}
+      {/* Feature A: combat callouts — staggered per cell (cap CALLOUT_STACK_CAP)
+          so a multi-kill wave stays legible. Built fog-gated upstream. */}
+      {(() => {
+        const stackOnCell = new Map<CellId, number>();
+        return (fx.callouts ?? []).map((callout, k) => {
+          const at = center(board, callout.cell, toScreen);
+          if (!at) return null;
+          const stack = stackOnCell.get(callout.cell) ?? 0;
+          stackOnCell.set(callout.cell, stack + 1);
+          if (stack >= CALLOUT_STACK_CAP) return null; // cap concurrent spam
+          return (
+            <CalloutMark
+              key={`co${k}`}
+              at={at}
+              tokenSize={tokenSize}
+              callout={callout}
+              stackIndex={stack}
+              frameBounds={frameBounds}
+            />
+          );
+        });
+      })()}
     </g>
   );
 }

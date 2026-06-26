@@ -5,6 +5,9 @@
 // dissolving into it). Markup-level: timing/easing live in CSS, but the
 // structure each verb needs must exist and stay fog-honest.
 
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { Board as BoardGraph, Cell, CellId, Vec2 } from '../../src/board/types';
@@ -47,7 +50,11 @@ const emptyFx = (): ReplayFxData => ({
   kills: [],
 });
 
-function renderFx(fx: Partial<ReplayFxData>, board = rowBoard(6)) {
+function renderFx(
+  fx: Partial<ReplayFxData>,
+  board = rowBoard(6),
+  renderMode: 'icon' | 'anim' | 'watercolor' = 'icon',
+) {
   return render(
     <svg>
       <ReplayFx
@@ -56,6 +63,7 @@ function renderFx(fx: Partial<ReplayFxData>, board = rowBoard(6)) {
         tokenSize={40}
         fx={{ ...emptyFx(), ...fx }}
         player={0}
+        renderMode={renderMode}
       />
     </svg>,
   );
@@ -64,7 +72,7 @@ function renderFx(fx: Partial<ReplayFxData>, board = rowBoard(6)) {
 describe('impact verb (flash + recoil)', () => {
   it('a surviving-defender strike renders a hit flash at the defender cell', () => {
     const { container } = renderFx({
-      impacts: [{ attackerId: 'a', attackerCell: 0, defenderId: 'e', defenderCell: 2 }],
+      impacts: [{ attackerId: 'a', attackerCell: 0, defenderId: 'e', defenderCell: 2, damage: 2 }],
     });
     const flash = container.querySelector('.fx-hit-flash')!;
     expect(flash).not.toBeNull();
@@ -106,7 +114,7 @@ describe('impact verb (flash + recoil)', () => {
           fx: {
             ...emptyFx(),
             impacts: [
-              { attackerId: null, attackerCell: null, defenderId: 'own', defenderCell: 1 },
+              { attackerId: null, attackerCell: null, defenderId: 'own', defenderCell: 1, damage: 2 },
             ],
           },
         }}
@@ -156,6 +164,173 @@ describe('destruction verb (crumble / shrink / smoke-puff)', () => {
   });
 });
 
+describe('damage-number categories (R5: colour by category, size ∝ magnitude)', () => {
+  // R5: a damage floater is coloured by its category — taken = INK, counter =
+  // GREY, kill = GOLD (var(--gold)) — and its number scales with the hit
+  // magnitude (bounded). A mist (fire-from-the-mist) floater keeps its fog-grey
+  // treatment regardless of category (fog honesty: the attacker never leaks).
+  const INK = '#4a443a';
+  const GREY = '#8d8675';
+  const GOLD = 'var(--gold)';
+  const MIST_FILL = '#5d5648';
+
+  const fl = (over: Partial<ReplayFxData['floaters'][number]> = {}) => ({
+    id: 'f0',
+    cell: 2,
+    text: '−5',
+    mist: false,
+    slot: 0,
+    category: 'taken' as const,
+    ...over,
+  });
+  const pillFill = (c: HTMLElement) =>
+    c.querySelector('.fx-floater-pill rect[rx]')!.getAttribute('fill');
+  const fontSize = (c: HTMLElement) =>
+    Number(c.querySelector('.fx-floater-pill text')!.getAttribute('font-size'));
+
+  it('a damage-taken floater is INK', () => {
+    const { container } = renderFx({ floaters: [fl({ category: 'taken' })] });
+    expect(pillFill(container)).toBe(INK);
+  });
+
+  it('a counter floater is GREY', () => {
+    const { container } = renderFx({ floaters: [fl({ category: 'counter' })] });
+    expect(pillFill(container)).toBe(GREY);
+  });
+
+  it('a kill floater is GOLD (var(--gold))', () => {
+    const { container } = renderFx({ floaters: [fl({ category: 'kill' })] });
+    expect(pillFill(container)).toBe(GOLD);
+  });
+
+  it('size scales with magnitude — a bigger hit gets a bigger number, bounded', () => {
+    const small = renderFx({ floaters: [fl({ text: '−1' })] });
+    const big = renderFx({ floaters: [fl({ text: '−12' })] });
+    const huge = renderFx({ floaters: [fl({ text: '−99' })] });
+    const sSmall = fontSize(small.container);
+    const sBig = fontSize(big.container);
+    const sHuge = fontSize(huge.container);
+    expect(sBig).toBeGreaterThan(sSmall); // magnitude drives size
+    // bounded: a huge hit never blows past a sane ceiling (≤ ~1.4× the base)
+    expect(sHuge).toBeLessThanOrEqual(sSmall * 1.6);
+    expect(sHuge).toBeGreaterThanOrEqual(sBig); // monotonic, then clamps
+  });
+
+  it('a category floater still rides the arc-rise + fade motion', () => {
+    const { container } = renderFx({ floaters: [fl({ category: 'kill' })] });
+    expect(container.querySelector('.fx-floater-rise')).not.toBeNull();
+  });
+
+  it('a MIST kill floater keeps fog-grey (fog honesty wins over kill-gold)', () => {
+    const { container } = renderFx({
+      floaters: [fl({ mist: true, category: 'kill' })],
+    });
+    // fog secrecy: the mist treatment is preserved — NOT gold.
+    expect(pillFill(container)).toBe(MIST_FILL);
+    expect(pillFill(container)).not.toBe(GOLD);
+    // and the impact ring (mist marker) is present, no source arc
+    expect(container.querySelector('.fx-impact')).not.toBeNull();
+  });
+});
+
+describe('combat callouts (Feature A — board-anchored military-font pop-ups)', () => {
+  it('renders a transient callout label at the event cell', () => {
+    const { container } = renderFx({
+      callouts: [{ cell: 2, text: 'CONTACT!', kind: 'crossing' }],
+    });
+    const co = container.querySelector('.fx-callout')!;
+    expect(co).not.toBeNull();
+    // The cell-2 center on this board projects to x=250 (toScreen scales ×100).
+    expect(co.getAttribute('transform')).toContain('250');
+    const text = [...co.querySelectorAll('text')].map((t) => t.textContent).join(' ');
+    expect(text).toContain('CONTACT!');
+  });
+
+  it('renders one callout per event', () => {
+    const { container } = renderFx({
+      callouts: [
+        { cell: 1, text: 'Tango Down!', kind: 'kill-enemy' },
+        { cell: 3, text: 'CAPT!', kind: 'captured' },
+      ],
+    });
+    expect(container.querySelectorAll('.fx-callout').length).toBe(2);
+  });
+
+  it('tags the callout kind as a data attribute / class for styling', () => {
+    const { container } = renderFx({
+      callouts: [{ cell: 2, text: 'KIA!', kind: 'kill-own' }],
+    });
+    const co = container.querySelector('.fx-callout')!;
+    expect(co.getAttribute('data-callout-kind')).toBe('kill-own');
+  });
+
+  it('staggers multiple callouts on the SAME cell so they do not overlap illegibly', () => {
+    const { container } = renderFx({
+      callouts: [
+        { cell: 2, text: 'Hit!', kind: 'kill-enemy' },
+        { cell: 2, text: 'Neutralized!', kind: 'kill-enemy' },
+        { cell: 2, text: 'Destroyed!', kind: 'kill-enemy' },
+      ],
+    });
+    const ys = [...container.querySelectorAll('.fx-callout')].map((el) => {
+      const m = /translate\(\s*[\d.-]+[ ,]+([\d.-]+)/.exec(el.getAttribute('transform') ?? '');
+      return m ? parseFloat(m[1]!) : NaN;
+    });
+    // Three callouts, three distinct vertical anchors (a stagger offset each).
+    expect(new Set(ys).size).toBe(3);
+  });
+
+  it('uses the military display font (Black Ops One) on the callout text', () => {
+    const { container } = renderFx({
+      callouts: [{ cell: 2, text: 'CONTACT!', kind: 'crossing' }],
+    });
+    const txt = container.querySelector('.fx-callout-text')!;
+    expect(txt).not.toBeNull();
+    // The class drives the @font-face family; the inline/attr font-family names it.
+    const family = (txt.getAttribute('font-family') ?? '') +
+      ((txt as HTMLElement).style?.fontFamily ?? '');
+    expect(family).toContain('Black Ops One');
+  });
+
+  it('no callouts → nothing rendered (fog secrecy passes through)', () => {
+    const { container } = renderFx({});
+    expect(container.querySelector('.fx-callout')).toBeNull();
+  });
+
+  it('caps concurrent callouts on one cell (a multi-kill wave never spams)', () => {
+    const { container } = renderFx({
+      callouts: Array.from({ length: 7 }, (_, i) => ({
+        cell: 2,
+        text: `Down ${i}!`,
+        kind: 'kill-enemy' as const,
+      })),
+    });
+    // CALLOUT_STACK_CAP = 3 — at most 3 rendered per cell.
+    expect(container.querySelectorAll('.fx-callout').length).toBe(3);
+  });
+});
+
+describe('combat callouts — CSS contract (font + reduced-motion static)', () => {
+  // Timing/easing/font wiring live in styles.css; assert the load-bearing rules
+  // exist (the markup tests above confirm the structure they hook onto).
+  const css = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), '../../src/ui/styles.css'),
+    'utf8',
+  );
+
+  it('vendors the Black Ops One @font-face pointing at the woff2', () => {
+    expect(css).toMatch(/@font-face[\s\S]*?Black Ops One/);
+    expect(css).toContain('black-ops-one-latin.woff2');
+  });
+
+  it('reduced-motion degrades the callout to a STATIC end-state (no rise)', () => {
+    const rm = css.slice(css.indexOf('prefers-reduced-motion'));
+    expect(rm).toContain('.fx-callout-rise');
+    // the rule sets a static, non-animated end state
+    expect(rm).toMatch(/\.fx-callout-rise\s*\{[\s\S]*?(opacity:\s*1|transform:\s*none)/);
+  });
+});
+
 describe('claim verb (capture: pulse → paint-fill → flag; consumed dissolve)', () => {
   it('capture renders the tile pulse, the clipped fill sweep, flag + shimmer', () => {
     const { container } = renderFx({ captures: [{ cell: 2, to: 0 }] });
@@ -177,5 +352,34 @@ describe('claim verb (capture: pulse → paint-fill → flag; consumed dissolve)
     const consume = container.querySelector('.fx-capture-consume')!;
     expect(consume).not.toBeNull();
     expect(consume.querySelector('[data-unit-id="pr"]')).not.toBeNull();
+  });
+
+  // FLICKER FIX: the consumed token must dissolve IN THE ACTIVE SKIN. Before the
+  // fix, CaptureFx rendered <UnitRenderer> with no renderMode, so a watercolor
+  // unit became the flat ICON glyph for the capture frame — a "wrong image"
+  // flashing over the watercolor capture. With renderMode threaded through, the
+  // consumed token is the SAME watercolor <image> it was on the board.
+  it('consumed token dissolves in the WATERCOLOR skin (no icon-glyph flash)', () => {
+    const inf = unit('pr', 0, 2, 'infantry'); // f0 → coral painting
+    const { container } = renderFx(
+      { captures: [{ cell: 2, to: 0, consumed: inf }] },
+      rowBoard(6),
+      'watercolor',
+    );
+    const consume = container.querySelector('.fx-capture-consume')!;
+    const img = consume.querySelector('.unit-watercolor image');
+    expect(img).not.toBeNull(); // a watercolor painting, not the flat icon
+    expect(img!.getAttribute('href') ?? '').toMatch(/f0-infantry/);
+    // the flat squircle body must NOT appear in the consume group
+    expect(consume.querySelector('.unit-body')).toBeNull();
+  });
+
+  it('a death token dissolves in the WATERCOLOR skin too (kills carry the skin)', () => {
+    const inf = unit('e1', 1, 2, 'tank'); // f1 → blue painting
+    const { container } = renderFx({ kills: [inf] }, rowBoard(6), 'watercolor');
+    const death = container.querySelector('.fx-death-token')!;
+    const img = death.querySelector('.unit-watercolor image');
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('href') ?? '').toMatch(/f1-tank/);
   });
 });

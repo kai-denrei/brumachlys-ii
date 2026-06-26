@@ -11,10 +11,16 @@
 
 import { memo } from 'react';
 import type { UnitInstance } from '../../core/types';
+import type { UnitRenderMode } from '../../state/store';
 import { UnitGlyph } from './icons';
 import { UnitSprite } from './UnitSprite';
+import { UnitWatercolor } from './UnitWatercolor';
+import { watercolorUrl } from './watercolors/watercolor-data';
 import type { Motion } from './sprites/sprite-data';
-import { darken, factionColor } from './palette';
+import { darken, desaturate, factionColor } from './palette';
+import { SPOTLIGHT_DESATURATION, SPOTLIGHT_DIM_OPACITY } from './CellRenderer';
+import { CountFlap } from './CountFlap';
+import type { HpFlip } from '../../state/replay-timing';
 
 export type UnitRendererProps = {
   unit: UnitInstance;
@@ -53,6 +59,13 @@ export type UnitRendererProps = {
    * consecutive volleys restart it. ~220 ms: 120 ms back + 100 ms settle. */
   recoil?: { dx: number; dy: number } | null;
   recoilKey?: number;
+  /** Combat-readability HP flip (§2): when this unit is HIT this replay frame,
+   * its count pip HOLDS `fromCount`, then folds DOWN through the intermediate
+   * values to `toCount` at `flipAtMs` (frame-relative ms — the witnessed impact),
+   * so the loss READS after the spark. Absent ⇒ the static numeral. Remounts on
+   * `flipKey` (= replayFx.key) so each frame re-arms it, mirroring recoil. */
+  flip?: HpFlip | null;
+  flipKey?: number;
   /** v0.8 veterancy: the unit type's credit cost — used to compute XP sliver
    * progress toward the next rank. Absent → sliver is not drawn. */
   unitTypeCost?: number;
@@ -62,12 +75,26 @@ export type UnitRendererProps = {
   onRadar?: () => void;
   /** v0.9 radar: when true the radar pip renders as ACTIVE (inverted fill). */
   radarActive?: boolean;
-  /** PoC: render infantry as an animated sprite (the "anim" toggle, board only).
-   *  Off ⇒ the flat glyph. Default off so non-board sites stay glyphs. */
-  sprite?: boolean;
+  /** Unit-render skin (gear menu): 'icon' the flat glyph (default — non-board
+   *  sites stay glyphs), 'anim' animated infantry sprite (infantry-only, board),
+   *  'watercolor' static faction art for ALL 8 types (board). Minimal contexts
+   *  always render the glyph regardless of the mode. */
+  renderMode?: UnitRenderMode;
   /** PoC: what the unit is doing right now — drives the sprite clip family
-   *  (idle ambient / moving / firing). Ignored unless `sprite` is on. */
+   *  (idle ambient / moving / firing). Ignored unless renderMode === 'anim'. */
   motion?: Motion;
+  /** PoC: which way the sprite faces — 1 = native right, -1 = mirrored to face
+   *  left (toward the enemy). Ignored unless renderMode === 'anim'. */
+  facing?: 1 | -1;
+  /** R2 (SPOTLIGHT): combat-spotlight treatment during replay.
+   *   • 'dim' — an idle (non-combatant) unit: desaturate its faction colour
+   *     toward grey (reusing the memory-tier desaturation) and drop to ~0.32
+   *     alpha, so it recedes behind the lit combat.
+   *   • 'lit' — a combatant unit: full colour + a soft highlight ring.
+   *   null/absent — no spotlight (planning, post-SETTLE, non-combat rounds).
+   *  The radar badges are untouched by this treatment (a demoted/minimal token
+   *  carries no radar; full tokens keep their pips at full strength). */
+  spotlight?: 'dim' | 'lit' | null;
 };
 
 export const UnitRenderer = memo(function UnitRenderer({
@@ -83,14 +110,25 @@ export const UnitRenderer = memo(function UnitRenderer({
   pulse = false,
   recoil = null,
   recoilKey = 0,
+  flip = null,
+  flipKey = 0,
   unitTypeCost,
   onTap,
   onRadar,
   radarActive = false,
-  sprite = false,
+  renderMode = 'icon',
   motion = 'idle',
+  facing = 1,
+  spotlight = null,
 }: UnitRendererProps) {
-  const color = factionColor(unit.faction);
+  // R2 (SPOTLIGHT): an idle unit desaturates its faction colour toward grey
+  // (reusing the memory-tier `desaturate` mechanism — no new colour pipeline)
+  // and the whole token recedes to ~0.32 alpha (group opacity below). A
+  // combatant unit ('lit') keeps full colour and gains a highlight ring.
+  const color =
+    spotlight === 'dim'
+      ? desaturate(factionColor(unit.faction), SPOTLIGHT_DESATURATION)
+      : factionColor(unit.faction);
   const h = size / 2;
   const rx = size * 0.3; // squircle corner
   const strokeW = size * 0.06;
@@ -102,11 +140,16 @@ export const UnitRenderer = memo(function UnitRenderer({
 
   const pipR = size * 0.21;
 
-  // PoC ("anim" toggle): infantry renders as an animated sprite instead of the
-  // flat squircle + glyph. Off by default (non-board sites stay glyphs; the
-  // board passes the store flag). Minimal contexts (timeline chips, demoted
-  // corner tokens) keep the cheap glyph — a per-frame sprite there is wasteful.
-  const useSprite = sprite && unit.type === 'infantry' && !minimal;
+  // Render skin (gear menu). Minimal contexts (timeline chips, demoted corner
+  // tokens, hover cards) ALWAYS keep the cheap glyph — a per-frame sprite or a
+  // full painting there is wasteful and illegible at tiny sizes.
+  //  • 'anim'       → animated sprite, INFANTRY ONLY (the other types have no
+  //    sprite strips); every other type stays a glyph.
+  //  • 'watercolor' → static faction art for ALL 8 types and BOTH factions; a
+  //    type with no shipped painting falls back to the glyph.
+  const useSprite = renderMode === 'anim' && unit.type === 'infantry' && !minimal;
+  const useWatercolor =
+    renderMode === 'watercolor' && !minimal && watercolorUrl(unit.faction, unit.type) !== null;
 
   const body = (
     <>
@@ -144,8 +187,25 @@ export const UnitRenderer = memo(function UnitRenderer({
           />
         </g>
       )}
+      {/* R2 (SPOTLIGHT): a combatant unit gains a soft white highlight ring so
+          the eye reads it as the focus of the round's combat. Behind the token
+          body, never taps. Static (CSS reduced-motion safe). */}
+      {spotlight === 'lit' && (
+        <g className="unit-spotlight" pointerEvents="none" aria-hidden="true">
+          <circle
+            className="unit-spotlight-ring"
+            r={size * 0.78}
+            fill="none"
+            stroke="#fff"
+            strokeWidth={size * 0.08}
+            opacity={0.78}
+          />
+        </g>
+      )}
       {useSprite ? (
-        <UnitSprite unitId={unit.id} faction={unit.faction} size={size} motion={motion} />
+        <UnitSprite unitId={unit.id} faction={unit.faction} size={size} motion={motion} facing={facing} />
+      ) : useWatercolor ? (
+        <UnitWatercolor faction={unit.faction} type={unit.type} size={size} />
       ) : (
         <>
           <rect
@@ -181,18 +241,30 @@ export const UnitRenderer = memo(function UnitRenderer({
       {!minimal && (
         <g className="unit-count" transform={`translate(${h * 0.78} ${h * 0.78})`} pointerEvents="none">
           <circle r={pipR} fill="#fff" stroke={darken(color, 0.18)} strokeWidth={pipR * 0.14} />
-          <text
-            y={pipR * 0.06}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontSize={pipR * 1.35}
-            fontWeight={700}
-            // v0.9: count doubles as a health readout — high black, mid amber,
-            // low red (8–10 black · 5–7 orange · 1–4 red).
-            fill={unit.count >= 8 ? '#1a1a1a' : unit.count >= 5 ? '#d97706' : '#dc2626'}
-          >
-            {unit.count}
-          </text>
+          {flip ? (
+            // Hit this frame: HOLD the old count, then fold DOWN to the new one
+            // on the witnessed impact. Keyed by flipKey so each frame re-arms it.
+            <CountFlap
+              key={`flip${flipKey}`}
+              fromCount={flip.fromCount}
+              toCount={flip.toCount}
+              flipAtMs={flip.flipAtMs}
+              pipR={pipR}
+            />
+          ) : (
+            <text
+              y={pipR * 0.06}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={pipR * 1.35}
+              fontWeight={700}
+              // v0.9: count doubles as a health readout — high black, mid amber,
+              // low red (8–10 black · 5–7 orange · 1–4 red).
+              fill={unit.count >= 8 ? '#1a1a1a' : unit.count >= 5 ? '#d97706' : '#dc2626'}
+            >
+              {unit.count}
+            </text>
+          )}
         </g>
       )}
       {/* v0.9 radar: bottom-left pip — mirrors the count pip (bottom-right).
@@ -342,10 +414,15 @@ export const UnitRenderer = memo(function UnitRenderer({
 
   return (
     <g
-      className={`unit-token unit-faction-${unit.faction}${selected ? ' unit-selected' : ''}`}
+      className={`unit-token unit-faction-${unit.faction}${selected ? ' unit-selected' : ''}${spotlight === 'dim' ? ' unit-spotlight-dim' : ''}${spotlight === 'lit' ? ' unit-spotlight-lit' : ''}`}
       data-unit-id={unit.id}
       data-unit-type={unit.type}
+      data-spotlight={spotlight ?? undefined}
       transform={`translate(${x} ${y})${scale !== 1 ? ` scale(${scale})` : ''}${selected ? ` translate(0 ${-size * 0.14})` : ''}`}
+      // R2 (SPOTLIGHT): an idle unit recedes to ~0.32 alpha while the spotlight
+      // is engaged. The class drives the CSS transition / reduced-motion static
+      // dim; the faction colour is already desaturated above.
+      opacity={spotlight === 'dim' ? SPOTLIGHT_DIM_OPACITY : undefined}
       onClick={onTap ? () => onTap(unit.id) : undefined}
     >
       {recoil ? (

@@ -1,11 +1,26 @@
 /* Brumachlys II — mobile-first. Townscaper pastel base palette (spec §10.1). */
 
+/* Feature A (callouts §2): a vendored FREE OFL stencil display font for combat
+   CALLOUTS ONLY (system/log text stays JetBrains Mono / system mono). The woff2
+   + the OFL license live under ui/fonts/. font-display: swap so a missed load
+   falls back to the system condensed/Impact stack named on .fx-callout-text. */
+@font-face {
+  font-family: 'Black Ops One';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/black-ops-one-latin.woff2') format('woff2');
+}
+
 :root {
   --paper: #f2eee3;
   --ink: #4a443a;
   --faction-a: #e8806b;
   --faction-b: #7b8bd9;
   --bar-bg: rgba(242, 238, 227, 0.92);
+  /* R3 (DILATION): the analog clock's single accent hand. A warm brass gold,
+     legible on the dark clock face; the WAVE A bullet-time accent. */
+  --gold: #d7a93a;
 }
 
 * {
@@ -70,23 +85,124 @@ body {
   gap: 0.35rem;
 }
 
-/* PoC "anim" sprite toggle — a minimalist tag; filled coral when ON. */
-.top-bar-anim {
-  font: 700 0.62rem/1 ui-monospace, 'SF Mono', Menlo, monospace;
-  letter-spacing: 0.1em;
-  text-transform: lowercase;
-  color: #8c8676;
-  background: transparent;
+/* Gear (⚙) unit-appearance skin picker — a slim button opening a small popover
+   menu of the three skins (Icons / Animated / Watercolor). Replaces the old
+   binary "anim" toggle. */
+.top-bar-gear-root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.top-bar-gear {
   border: 1px solid rgba(74, 68, 58, 0.28);
+  background: transparent;
   border-radius: 0.4rem;
-  padding: 0.16rem 0.42rem;
+  width: 1.7rem;
+  height: 1.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgba(74, 68, 58, 0.7);
+  -webkit-tap-highlight-color: transparent;
+}
+.top-bar-gear-open {
+  color: #fff;
+  background: #e8806b; /* factionA coral — reads as "active" while open */
+  border-color: transparent;
+}
+.top-bar-gear-glyph {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+/* The popover: anchored under the gear, right-aligned so it stays on-screen. */
+.top-bar-gear-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 8.5rem;
+  padding: 0.25rem;
+  border-radius: 0.5rem;
+  background: var(--paper, #f7f3ea);
+  border: 1px solid rgba(74, 68, 58, 0.18);
+  box-shadow: 0 6px 22px rgba(40, 36, 30, 0.22);
+}
+
+.top-bar-gear-item {
+  font: 600 0.74rem/1 inherit;
+  text-align: left;
+  color: var(--ink, #4a443a);
+  background: transparent;
+  border: none;
+  border-radius: 0.35rem;
+  padding: 0.46rem 0.6rem;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.top-bar-anim-on {
+.top-bar-gear-item:hover {
+  background: rgba(74, 68, 58, 0.08);
+}
+.top-bar-gear-item-active {
   color: #fff;
-  background: #e8806b; /* factionA coral — reads as "live" */
-  border-color: transparent;
+  background: #e8806b; /* factionA coral — the live skin */
+  font-weight: 700;
+}
+.top-bar-gear-item-active:hover {
+  background: #e8806b;
+}
+
+/* Section label inside the settings menu (APPEARANCE / DEBUG-TEST). A quiet,
+   uppercase eyebrow — not interactive, not a menuitem. */
+.top-bar-gear-section-label {
+  font: 700 0.58rem/1 inherit;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(74, 68, 58, 0.5);
+  padding: 0.35rem 0.6rem 0.25rem;
+  user-select: none;
+}
+
+/* Visual divider between the APPEARANCE and DEBUG sections. */
+.top-bar-gear-separator {
+  height: 1px;
+  margin: 0.3rem 0.4rem;
+  background: rgba(74, 68, 58, 0.16);
+}
+
+/* The Full Auto checkbox item: a leading box glyph + label. Inherits the base
+   .top-bar-gear-item layout; the active (checked) state reuses the coral fill. */
+.top-bar-gear-item-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.top-bar-gear-check {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+/* P1-bot archetype picker (FULL AUTO). A quieter sub-eyebrow under Full Auto,
+   then a compact radio row. Items reuse the base item / active-coral styles. */
+.top-bar-gear-subsection-label {
+  font: 700 0.52rem/1 inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(74, 68, 58, 0.42);
+  padding: 0.35rem 0.6rem 0.2rem;
+  user-select: none;
+}
+.top-bar-gear-radiogroup {
+  display: flex;
+  flex-direction: column;
+}
+.top-bar-gear-item-radio {
+  font-size: 0.7rem;
+  padding: 0.34rem 0.6rem;
 }
 
 .top-bar-round {
@@ -253,6 +369,100 @@ body {
 
 .cell {
   cursor: pointer;
+  /* R2 (SPOTLIGHT): the desaturate/dim engages and releases by transitioning
+     this group opacity — the planning→replay dim glides in, the SETTLE
+     resaturation glides back out. ~0.35 s matches the SPOTLIGHT phase feel. */
+  transition: opacity 0.35s ease;
+}
+
+/* R2 (SPOTLIGHT): a combatant tile's soft highlight ring — drawn over the
+   dimmed field so the eye lands on the combat. Static; the colour/desaturation
+   is handled by the renderer (reusing the memory-tier desaturate). */
+.cell-spotlight-ring {
+  transition: opacity 0.35s ease;
+}
+
+/* R2 (SPOTLIGHT): combatant unit highlight ring (static, reduced-motion safe). */
+.unit-spotlight-ring {
+  transition: opacity 0.35s ease;
+}
+
+/* R2 (SPOTLIGHT): reduced motion — keep the dim as a STATIC end-state (no
+   harsh transition flash). The dim itself (non-combatants recede, combatants
+   ringed) is fine to show; only the animated glide is suppressed. */
+@media (prefers-reduced-motion: reduce) {
+  .cell,
+  .unit-token,
+  .cell-spotlight-ring,
+  .unit-spotlight-ring {
+    transition: none;
+  }
+}
+
+/* R3 (DILATION): WAVE A "bullet-time" cue. The board cools (a ~22% global
+   desaturation, source-spec DILATION_DESAT) and a subtle vignette closes —
+   layered OVER the board and on top of the R2 spotlight (it does not replace
+   it). Full-bleed, fixed, never intercepts input. Engages on WAVE A, releases
+   (unmounts) over the INTERLUDE back toward normal. The desaturation rides a
+   backdrop-filter so the actual board tints cool; the radial gradient is the
+   vignette closing in. */
+.dilation-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  /* cool desaturation of everything behind the layer */
+  backdrop-filter: saturate(0.78) brightness(0.97);
+  -webkit-backdrop-filter: saturate(0.78) brightness(0.97);
+  /* subtle vignette: clear center, cool-dark closing at the edges */
+  background: radial-gradient(
+    ellipse 90% 90% at 50% 46%,
+    rgba(40, 46, 64, 0) 52%,
+    rgba(28, 34, 52, 0.16) 82%,
+    rgba(20, 26, 44, 0.34) 100%
+  );
+  animation: dilation-cool-in 0.25s ease both;
+}
+
+@keyframes dilation-cool-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Phase 2 (BULLET-TIME DILATION CLOCK): the Swiss-railway clock — a fixed
+   TOP-RIGHT canvas overlay where the SkirmishLog sits, present through the WHOLE
+   replay. It GLIDES during movement, then GROWS/BRIGHTENS IN PLACE at the
+   move→combat handover (the canvas box is sized for the grown state, so the
+   swell never shifts the anchor) and ticks through WAVE_A, then recedes. Layered
+   ABOVE the log (z 26 > the log's z 25) for the slow-mo beat; HUD chrome, never
+   intercepts input, never on a unit token / radar geometry. The actual
+   glide/shift/dilation/release motion is on the canvas (replay-time driven). */
+.dilation-clock {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 0.4rem);
+  right: 0.4rem;
+  z-index: 26;
+  pointer-events: none;
+  /* the canvas centers the clock inside its (grown-sized) box */
+  display: block;
+}
+
+.dilation-clock-canvas {
+  display: block;
+  filter: drop-shadow(0 2px 6px rgba(20, 24, 36, 0.4));
+}
+
+/* Reduced motion: a static cool end-state — no cool-in fade-up. The clock's
+   component already skips the rAF/bloom under prefers-reduced-motion (it paints
+   one static frame); this just stills the vignette transition. */
+@media (prefers-reduced-motion: reduce) {
+  .dilation-vignette {
+    animation: none;
+  }
 }
 
 /* E1 discovery fog: dark → live soft ignite (~0.4 s). The cover path is
@@ -272,8 +482,9 @@ body {
 
 .unit-token {
   cursor: pointer;
-  /* P8 replay hook: resolved moves animate by transitioning this transform. */
-  transition: transform 0.25s ease;
+  /* P8 replay hook: resolved moves animate by transitioning this transform.
+     R2 (SPOTLIGHT): the dim/resaturate also glides this group's opacity. */
+  transition: transform 0.25s ease, opacity 0.35s ease;
 }
 
 .unit-count text {
@@ -1037,6 +1248,203 @@ body {
   }
 }
 
+/* --- R4 (PROJECTILE + ATTACK MOTION primitives) -----------------------------
+   Crawling tracers / arcing shells (WAVE_A, the dilated window) and melee stabs
+   (WAVE_B). Each is parameterised by progress over the frame window; the impact
+   fractions (0.80 tracer / 0.88 shell / 0.50 stab) are baked into the keyframe
+   percentages, matching the spec config (WAVE_A_TRACER_IMPACT etc). All WAVE_A
+   projectiles animate on the SAME envelope (no per-unit sequencing); a WAVE_B
+   counter carries --proj-delay (≈75 ms) so an exchange reads as a crossfire.
+   The fx group remounts per frame (Board keys it by frame index) so every
+   animation restarts cleanly. The WAVE_A window is long (the dilation), so the
+   crawl/arc durations are generous; melee is quick + punchy. */
+
+/* shared transform-box for fill-box rotations/translations */
+.fx-tracer,
+.fx-shell,
+.fx-stab {
+  transform-box: fill-box;
+}
+
+/* RANGED TRACER ------------------------------------------------------------- */
+/* faint full-line guide: fades in immediately, holds dim */
+.fx-tracer-guide {
+  opacity: 0;
+  animation: fx-tracer-guide var(--proj-dur, 1.8s) ease-out var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-tracer-guide {
+  0% { opacity: 0; }
+  6% { opacity: 0.28; }
+  100% { opacity: 0.16; }
+}
+
+/* charge glint near the start (~0.10) then gone */
+.fx-tracer-charge {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-tracer-charge var(--proj-dur, 1.8s) ease-out var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-tracer-charge {
+  0% { opacity: 0; transform: scale(0.4); }
+  6% { opacity: 1; transform: scale(1.1); }
+  14% { opacity: 0; transform: scale(0.7); }
+  100% { opacity: 0; }
+}
+
+/* the crawling round + speed-streak tail: translate start→impact, reaching the
+   target at ~0.80 of the window, then vanish into the spark */
+.fx-tracer-round {
+  animation: fx-tracer-crawl var(--proj-dur, 1.8s) linear var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-tracer-crawl {
+  0% { transform: translate(0, 0); opacity: 0; }
+  8% { opacity: 1; }
+  80% { transform: translate(var(--tx), var(--ty)); opacity: 1; }
+  84% { transform: translate(var(--tx), var(--ty)); opacity: 0; }
+  100% { transform: translate(var(--tx), var(--ty)); opacity: 0; }
+}
+.fx-tracer-streak {
+  opacity: 0.85;
+}
+
+/* sharp impact spark fires at ~0.80 */
+.fx-tracer-spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-proj-spark var(--proj-dur, 1.8s) ease-out var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-proj-spark {
+  0%, 79% { opacity: 0; transform: scale(0.3); }
+  82% { opacity: 1; transform: scale(1.05); }
+  94% { opacity: 0.4; transform: scale(1.25); }
+  100% { opacity: 0; transform: scale(1.4); }
+}
+
+/* ARTILLERY SHELL ----------------------------------------------------------- */
+/* dashed ballistic trail: draws on as the shell climbs, lands ~0.88, fades */
+.fx-shell-trail {
+  stroke-dasharray: 6 8;
+  opacity: 0;
+  animation: fx-shell-trail var(--proj-dur, 2.8s) ease-in var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-shell-trail {
+  0% { opacity: 0; }
+  10% { opacity: 0.5; }
+  88% { opacity: 0.5; }
+  100% { opacity: 0; }
+}
+
+/* the shell rides the parabola via SVG SMIL <animateMotion> (see ReplayFx
+   Shell) — NOT a CSS offset-path, which does not translate an SVG <g> along
+   absolute path coords inside the board's transform group (it pinned the round
+   at the layer origin → a stray dot off toward the board edge). Here CSS owns
+   ONLY the opacity track (fade-in, then vanish on impact ~0.88); the TRAVEL is
+   the animateMotion. */
+.fx-shell-round {
+  opacity: 0;
+  animation: fx-shell-fly var(--proj-dur, 2.8s) linear var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-shell-fly {
+  0% { opacity: 0; }
+  6% { opacity: 1; }
+  88% { opacity: 1; }
+  90% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+/* dust + expanding ring burst at the landing (~0.88) */
+.fx-shell-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-shell-ring var(--proj-dur, 2.8s) ease-out var(--proj-delay, 0ms) forwards;
+}
+.fx-shell-ring-2 {
+  animation-delay: calc(var(--proj-delay, 0ms) + 0.04s);
+}
+@keyframes fx-shell-ring {
+  0%, 87% { opacity: 0; transform: scale(0.2); }
+  90% { opacity: 1; transform: scale(0.7); }
+  100% { opacity: 0; transform: scale(2); }
+}
+.fx-shell-dust {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-shell-dust var(--proj-dur, 2.8s) ease-out forwards; /* per-circle delay inline */
+}
+@keyframes fx-shell-dust {
+  0%, 87% { opacity: 0; transform: scale(0.3) translate(0, 0); }
+  91% { opacity: 0.8; transform: scale(1) translate(0, 0); }
+  100% { opacity: 0; transform: scale(1.4) translate(0, -6px); }
+}
+
+/* MELEE STAB ---------------------------------------------------------------- */
+/* short dash toward the target (~0.5 reach) — fast + punchy, lands ~0.50 */
+.fx-stab-dash {
+  animation: fx-stab-dash var(--proj-dur, 0.42s) cubic-bezier(0.3, 0, 0.2, 1) var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-stab-dash {
+  0% { transform: translate(0, 0); opacity: 0; }
+  20% { opacity: 1; }
+  50% { transform: translate(var(--tx), var(--ty)); opacity: 1; }
+  70% { transform: translate(var(--tx), var(--ty)); opacity: 0.5; }
+  100% { transform: translate(0, 0); opacity: 0; }
+}
+.fx-stab-flash {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-stab-flash var(--proj-dur, 0.42s) ease-out var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-stab-flash {
+  0%, 45% { opacity: 0; transform: scale(0.3); }
+  55% { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 0; transform: scale(1.3); }
+}
+
+/* faster wave-2x playback: shrink the projectile durations to match */
+.board-replay-2x .fx-tracer-guide,
+.board-replay-2x .fx-tracer-charge,
+.board-replay-2x .fx-tracer-round,
+.board-replay-2x .fx-tracer-spark { animation-duration: 0.9s; }
+.board-replay-2x .fx-shell-trail,
+.board-replay-2x .fx-shell-round,
+.board-replay-2x .fx-shell-ring,
+.board-replay-2x .fx-shell-dust { animation-duration: 1.1s; }
+.board-replay-2x .fx-stab-dash,
+.board-replay-2x .fx-stab-flash { animation-duration: 0.21s; }
+
+/* reduced motion: degrade every projectile to a SIMPLE INSTANT MARK — no crawl
+   or arc animation, but the line guide + the impact spark still land (so the
+   player still sees WHAT hit WHOM; outcomes are unchanged either way). */
+@media (prefers-reduced-motion: reduce) {
+  .fx-tracer-charge,
+  .fx-tracer-round,
+  .fx-shell-trail,
+  .fx-shell-round,
+  .fx-shell-dust,
+  .fx-stab-dash {
+    animation: none;
+    opacity: 0;
+  }
+  /* keep a static faint guide line so the shot direction reads */
+  .fx-tracer-guide {
+    animation: none;
+    opacity: 0.18;
+  }
+  /* the impact spark / ring snaps to a brief static end-mark (no travel) */
+  .fx-tracer-spark,
+  .fx-stab-flash,
+  .fx-shell-ring {
+    animation: none;
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+
 /* floating damage number: rises and holds (stays tappable for breakdown).
    P9: the animation targets an INNER group — a CSS transform animation
    replaces the SVG transform ATTRIBUTE on the same element, which silently
@@ -1069,6 +1477,45 @@ body {
 
 .fx-floater-linger .fx-floater-rise {
   animation: none;
+}
+
+/* Feature A: combat CALLOUT — a transient military-font banner above the event
+   cell (crossing / no-target / capture / kill). Generalizes the old "path
+   interrupted!" sign. The inner group rises up + fades out over ~1s (vs the
+   floater's hold), then drops with the per-frame-remounted fx group. */
+.fx-callout {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.fx-callout-rise {
+  animation: fx-callout-rise 1.05s ease-out forwards;
+}
+.fx-callout-text {
+  /* the @font-face family; the SVG font-family attr names the fallback stack. */
+  font-family: 'Black Ops One', 'Impact', 'Arial Narrow Bold', sans-serif;
+  letter-spacing: 0.02em;
+}
+
+@keyframes fx-callout-rise {
+  0% {
+    opacity: 0;
+    transform: translate(0, 16px) scale(0.82);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(0, 4px) scale(1.04);
+  }
+  32% {
+    transform: translate(0, 0) scale(1);
+  }
+  72% {
+    opacity: 1;
+    transform: translate(0, -8px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(0, -26px) scale(0.98);
+  }
 }
 
 /* fire-from-the-mist impact: expanding rings, no source shown (§7) */
@@ -1131,9 +1578,11 @@ body {
 /* --- P8: replay dock — initiative timeline strip (§9.4) -------------------- */
 
 .replay-dock {
+  /* R7: a column — the scrubber spans the full width on top, the strip + speed
+     controls form the row below it. */
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.35rem;
   /* Same reserved height as .bottom-dock so swapping the two docks never
      resizes .board-area (and never recenters the SVG board). See the note by
      .bottom-dock. */
@@ -1146,6 +1595,67 @@ body {
      itself resize the board — and with the reserved height the swap is a pure
      content change inside a fixed box. */
   animation: dock-slide-up 0.22s ease-out; /* slides over the dock (§9.4) */
+}
+
+/* R7: the strip + speed-controls row that sits under the scrubber. */
+.replay-dock-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* R7 (SCRUBBER): the full-width seek slider. Paper/ink palette to match the
+   existing dock chrome; the thumb is a faction-A pip. */
+.replay-scrub {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.replay-scrub:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.replay-scrub::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(74, 68, 58, 0.22);
+}
+.replay-scrub::-moz-range-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(74, 68, 58, 0.22);
+}
+.replay-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--faction-a);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-scrub::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--faction-a);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-scrub:focus-visible {
+  outline: none;
+}
+.replay-scrub:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 128, 107, 0.4);
+}
+.replay-scrub:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 128, 107, 0.4);
 }
 
 @keyframes dock-slide-up {
@@ -1232,6 +1742,143 @@ body {
   display: flex;
   gap: 0.3rem;
   flex: none;
+  align-items: center;
+}
+
+/* RESOLUTION SLOW-DOWN SLIDER: the fine speed control beside the presets. A
+   compact range + a "0.5×" readout, paper/ink palette to match the dock chrome.
+   Mobile-first: the track stays narrow so the dock fits a 390px viewport. */
+.replay-speed {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+}
+.replay-speed-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 72px;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.replay-speed-slider:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.replay-speed-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(74, 68, 58, 0.22);
+}
+.replay-speed-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(74, 68, 58, 0.22);
+}
+.replay-speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--faction-a);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-speed-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--faction-a);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-speed-slider:focus-visible {
+  outline: none;
+}
+.replay-speed-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 128, 107, 0.4);
+}
+.replay-speed-slider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 128, 107, 0.4);
+}
+.replay-speed-readout {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--ink);
+  opacity: 0.75;
+  min-width: 2.1em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* SECOND SLIDER (sequencing §5): combat dilation depth — mirrors the resolution
+   speed slider but with a combat-red thumb so the two knobs read distinctly
+   (speed = whole-replay wall-clock; dilation = combat-only depth). */
+.replay-dilation {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+}
+.replay-dilation-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 72px;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.replay-dilation-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(74, 68, 58, 0.22);
+}
+.replay-dilation-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(74, 68, 58, 0.22);
+}
+.replay-dilation-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: #e8362a;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-dilation-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e8362a;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-dilation-slider:focus-visible {
+  outline: none;
+}
+.replay-dilation-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 54, 42, 0.4);
+}
+.replay-dilation-slider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 54, 42, 0.4);
+}
+.replay-dilation-readout {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: #c22;
+  opacity: 0.8;
+  min-width: 4.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .replay-button {
@@ -1256,6 +1903,13 @@ body {
 .replay-button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* R8 (AUDIO): the synth-cue toggle — a music note (♪) glyph; OFF shows the
+   crossed note (♪̸). Reuses .replay-button + .replay-button-active for layout
+   and the ON tint, so it matches the speed controls. */
+.replay-audio {
+  font-size: 0.85rem;
 }
 
 /* P9: recenter — appears only while a manual pan suspended auto-follow */
@@ -1548,6 +2202,108 @@ body {
 
 .recap-cell .summary-label {
   font-size: 0.56rem;
+}
+
+/* --- v1.5: VICTORY DASHBOARD (game-over data visualizations) ----------------
+   Four compact sparkline/histogram sections appended below the recap grid.
+   Scrollable on mobile so the banner never overflows the viewport; the charts
+   reuse the paper/pastel cards + faction colors + the mono numeric face. */
+
+.victory-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  /* Mobile-first: cap the dashboard's own height and scroll inside it so the
+     banner's title/seed/actions always stay reachable on a small screen. */
+  max-height: 42vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 0.1rem;
+}
+
+.dash-section {
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.4rem 0.55rem 0.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.dash-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.dash-section-title {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.dash-legend {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dash-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  font-size: 0.56rem;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+}
+
+.dash-legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* sparklines stretch to the card width; the viewBox keeps the aspect. */
+.spark {
+  width: 100%;
+  height: 34px;
+  display: block;
+}
+
+.dash-economy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+}
+
+.dash-spark-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.dash-spark-label {
+  font-size: 0.54rem;
+  letter-spacing: 0.04em;
+  opacity: 0.55;
+  text-align: center;
+}
+
+/* histogram — bars sized by the viewBox; count labels in the mono face. */
+.hist {
+  width: 100%;
+  height: 76px;
+  display: block;
+}
+
+.hist-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- v1.2: rules modal (full-screen sheet behind the TopBar "i") ----------- */
@@ -2174,6 +2930,90 @@ body {
    pass through the gap between the two children. Children restore their own
    pointer-events. ---------------------------------------------------------------- */
 
+/* --- Phase 7: persistent Map / Economy mode toggle ------------------------- */
+/* Fixed, thumb-reachable bottom-center, and layered ABOVE the dashboard scrim
+   (z 20) so the player can flip between the board and the build dashboard from
+   either state with one tap. */
+.mode-toggle {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 0.6rem);
+  transform: translateX(-50%);
+  z-index: 30; /* above the .sheet-scrim (z 20) so it persists over the dashboard */
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(251, 249, 242, 0.96);
+  border: 1.5px solid rgba(74, 68, 58, 0.18);
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(74, 68, 58, 0.24);
+}
+
+.mode-toggle-seg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(74, 68, 58, 0.55);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mode-toggle-seg:hover {
+  color: rgba(74, 68, 58, 0.85);
+}
+
+.mode-toggle-seg-active {
+  background: var(--faction-a, #e8806b);
+  color: #fff;
+}
+
+.mode-toggle-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.mode-toggle-glyph {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+/* In the top action cluster (beside Commit) the Map/Economy toggle lays out
+   INLINE — overriding the fixed bottom-center default — and is more compact so
+   it balances the Commit pill. It keeps z-auto here because the parent .top-cta
+   already sits at z 26, above the dashboard scrim (z 20). */
+.top-cta .mode-toggle {
+  position: static;
+  transform: none;
+  left: auto;
+  bottom: auto;
+  z-index: auto;
+  align-self: center;
+  padding: 2px;
+  box-shadow: 0 2px 8px rgba(74, 68, 58, 0.16);
+}
+
+.top-cta .mode-toggle-seg {
+  width: 36px;
+  height: 32px;
+}
+
+.top-cta .mode-toggle-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.top-cta .mode-toggle-glyph {
+  font-size: 1.05rem;
+}
+
 .hud-column {
   position: fixed;
   top: calc(env(safe-area-inset-top) + 3.2rem); /* clear the top bar */
@@ -2182,9 +3022,16 @@ body {
   max-width: 48vw;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  /* stretch (not flex-start): children fill the column width, which is set by
+     the widest INTRINSICALLY-sized child — the HudCluster. The casualty panel
+     opts out of that intrinsic-width vote (width:0 + min-width:100% below) so a
+     long game's icon list can't widen the column toward 48vw and spill over the
+     board; it wraps DOWN within the cluster's width instead. */
+  align-items: stretch;
   gap: 0.4rem;
   pointer-events: none; /* gap between children passes through to the board */
+  /* size to content (the cluster) up to the 48vw cap, not the 48vw box itself */
+  width: max-content;
 }
 
 /* --- v0.9: Round + Credits HUD cluster (prominently BIGGER) ----------------- */
@@ -2261,7 +3108,16 @@ body {
   /* position/top/left/z-index come from .hud-column — this element is in-flow
      inside that flex column and simply stacks below .hud-cluster. */
   pointer-events: auto;  /* restore: the parent column is pointer-events:none */
-  max-width: 100%;       /* respects parent's max-width: 48vw */
+  /* WIDTH CONTRACT (bugfix): the panel's width must TRACK the HudCluster and
+     never widen the column toward 48vw. width:0 zeroes its intrinsic-width
+     contribution so the column's max-content is set by the cluster alone; then
+     min-width:100% + max-width:100% snap it to whatever width the cluster gave
+     the column. The icon rows therefore wrap DOWNWARD inside the cluster width
+     instead of spilling rightward over the board. */
+  width: 0;
+  min-width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -2288,7 +3144,9 @@ body {
 
 .casualty-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: wrap;       /* icons overflow onto NEW ROWS, not rightward */
+  min-width: 0;          /* don't let icon content force the row wider */
+  max-width: 100%;       /* never exceed the (cluster-sized) panel width */
   gap: 1px;
 }
 
@@ -2431,6 +3289,22 @@ body {
   letter-spacing: 0.01em;
   color: #4f8b54;
   white-space: nowrap;
+}
+
+/* v0.9 upkeep (addendum §5): net/turn (income − upkeep) headline + a faint
+   (+income −upkeep) breakdown. The credits row becomes a button once a tap
+   opens the build dashboard (wired Phase 5). */
+.credits-hud[role='button'] {
+  cursor: pointer;
+}
+
+.credits-net {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.credits-net-detail {
+  opacity: 0.7;
 }
 
 .baseless-warning {
@@ -2759,6 +3633,249 @@ body {
   justify-content: flex-end;
 }
 
+/* --- Phase 4: BUILD economy dashboard modal (upkeep addendum §11) -----------
+   Full-screen scrollable sheet — same shell family as .rules-modal, the body
+   scrolls while the header pins. Mobile-first. */
+.build-dashboard {
+  background: #fbf9f2;
+  border-radius: 18px 18px 0 0;
+  margin-top: calc(env(safe-area-inset-top) + 0.6rem);
+  padding: 0.4rem 1rem calc(env(safe-area-inset-bottom) + 1rem);
+  box-shadow: 0 -6px 24px rgba(74, 68, 58, 0.2);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: sheet-up 0.18s ease-out;
+}
+
+.build-dash-credits {
+  font-weight: 700;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  margin-right: 0.6rem;
+}
+
+.build-dash-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding-bottom: 1rem;
+}
+
+/* A · economy summary — a compact tabular grid of the planning numbers. */
+.build-dash-econ {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.econ-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  background: rgba(74, 68, 58, 0.05);
+  border-radius: 10px;
+  padding: 0.4rem 0.5rem;
+}
+
+.econ-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.econ-value {
+  font-size: 0.84rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.econ-cell-net {
+  background: rgba(74, 68, 58, 0.09);
+}
+
+.econ-net-up {
+  color: #2d7a44;
+}
+
+.econ-net-down {
+  color: #b8472d;
+}
+
+/* B · mini-map — a small board overview, bases tinted by ownership. */
+.build-minimap-wrap {
+  margin-bottom: 1rem;
+}
+
+.build-minimap {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  background: #f6f3ea;
+  border-radius: 12px;
+  border: 1px solid rgba(74, 68, 58, 0.12);
+}
+
+.build-minimap-base polygon {
+  transition: filter 0.15s ease;
+}
+
+/* C · per-base production list — one section per owned base. */
+.build-base-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.build-dash-row {
+  background: #fff;
+  border: 1.5px solid rgba(74, 68, 58, 0.1);
+  border-radius: 12px;
+  padding: 0.55rem 0.6rem 0.6rem;
+}
+
+.build-dash-row-focused {
+  border-color: var(--faction-a);
+  box-shadow: 0 0 0 2px rgba(232, 128, 107, 0.25);
+}
+
+.build-dash-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.build-dash-row-label {
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+.build-dash-occ {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.build-dash-occ-icon {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.build-dash-occ-vacant {
+  opacity: 0.55;
+}
+
+.build-dash-occ-warn {
+  color: #b8472d;
+}
+
+.build-dash-queued {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(74, 68, 58, 0.05);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.build-dash-queued-name {
+  font-weight: 700;
+  font-size: 0.74rem;
+}
+
+.build-dash-queued-cost {
+  font-weight: 700;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  margin-right: auto;
+}
+
+/* D · army roster — counts + per-type upkeep, with a total footer. */
+.build-roster {
+  background: rgba(74, 68, 58, 0.04);
+  border-radius: 12px;
+  padding: 0.55rem 0.65rem 0.6rem;
+}
+
+.build-roster-h {
+  margin: 0 0 0.4rem;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.build-roster-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+
+.build-roster-icon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.build-roster-name {
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.build-roster-count {
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+.build-roster-upkeep {
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  min-width: 2.4rem;
+  text-align: right;
+}
+
+.build-roster-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 0.45rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(74, 68, 58, 0.12);
+}
+
+.build-roster-total-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.build-roster-total-value {
+  font-size: 0.82rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
 /* v0.7 Item 1: owned-base build pip (Board overlay, above units). */
 .build-pip {
   cursor: pointer;
@@ -2914,6 +4031,32 @@ body {
   }
   100% {
     transform: translate(0, 0);
+  }
+}
+
+/* Combat-readability §2: the count pip's split-flap "card". Each value that
+   FLIPS IN (as HP ticks down 8→7→6→5) unfolds from the top with a small
+   mechanical overshoot — the held value (the pre-hit count) carries no class
+   and so does not animate. transform-box keeps the fold pivoting on the
+   numeral's own box; the stepping cadence is driven in CountFlap (JS timers). */
+.count-flap-card {
+  transform-box: fill-box;
+  transform-origin: center top;
+  animation: count-flap-card 0.13s ease-out;
+}
+
+@keyframes count-flap-card {
+  0% {
+    transform: scaleY(0);
+    opacity: 0.25;
+  }
+  70% {
+    transform: scaleY(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
   }
 }
 
@@ -3074,6 +4217,83 @@ body {
   100% {
     opacity: 0;
     transform: scale(1.06);
+  }
+}
+
+/* R6 (DEFERRED DISSOLVE): the DOOMED hold — a unit killed during the combat
+   waves does NOT dissolve at its kill frame. It holds greyed in place with a
+   faint flicker + a drifting smoke wisp, a hairline crack across the face, and
+   a ✕ death glyph where the count badge was (never a "0"). The dissolve plays
+   later, on the SETTLE beat (.fx-death). prefers-reduced-motion drops the
+   flicker/drift below → a static grey token + glyph (the read survives). */
+.fx-doomed-token,
+.fx-doomed-crack,
+.fx-doomed-wisp,
+.fx-doomed-badge {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* a slow, low-amplitude flicker on the doomed token — "destroyed, holding" */
+.fx-doomed-token {
+  animation: fx-doomed-flicker 1.1s ease-in-out infinite;
+}
+
+@keyframes fx-doomed-flicker {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 0.92;
+  }
+}
+
+/* the hairline crack draws on, then holds */
+.fx-doomed-crack {
+  animation: fx-doomed-crack 0.34s ease-out both;
+}
+
+@keyframes fx-doomed-crack {
+  0% {
+    opacity: 0;
+    stroke-dashoffset: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+
+/* the smoke wisp drifts up and breathes */
+.fx-doomed-wisp {
+  animation: fx-doomed-wisp 1.6s ease-in-out infinite;
+}
+
+@keyframes fx-doomed-wisp {
+  0% {
+    opacity: 0.7;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0.35;
+    transform: translateY(-12%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* reduced-motion: doomed = static grey + glyph (no flicker / no drift). */
+  .fx-doomed-token,
+  .fx-doomed-crack,
+  .fx-doomed-wisp {
+    animation: none;
+  }
+
+  .fx-doomed-token {
+    opacity: 0.78;
+  }
+
+  .fx-doomed-crack {
+    opacity: 0.6;
   }
 }
 
@@ -3320,6 +4540,7 @@ body {
 
   .fx-hit-flash,
   .fx-recoil,
+  .count-flap-card,
   .fx-death-spark,
   .fx-death-token,
   .fx-death-frag,
@@ -3334,10 +4555,18 @@ body {
   .fx-capture-consume,
   .fx-capture-spark,
   .fx-promote,
+  .fx-callout-rise,
   .banner-scrim-win::before,
   .banner-scrim-win::after,
   .banner-scrim-loss {
     animation: none;
+  }
+
+  /* Feature A: reduced-motion → the callout shows STATIC (no rise/scale), held
+     legible at full opacity in place (a static fade, not a moving banner). */
+  .fx-callout-rise {
+    opacity: 1;
+    transform: none;
   }
 
   /* transient verbs end invisible */

@@ -61,10 +61,12 @@ export function CasualtyRow({
 
 // --- v0.9: CasualtyModal — expanded detail view --------------------------------
 
-type CasualtyGroup = { type: string; faction: FactionId; count: number; totalCost: number };
+export type CasualtyGroup = { type: string; faction: FactionId; count: number; totalCost: number };
 
-/** Group casualties by type, count duplicates, compute total cost value. */
-function groupCasualties(
+/** Group casualties by type, count duplicates, compute total cost value.
+ * Exported (v1.5): the victory dashboard's casualties-by-type histogram reuses
+ * this exact grouping so the icon rows and the histogram agree. */
+export function groupCasualties(
   row: readonly Casualty[],
   unitTypes: Readonly<Record<string, UnitType>>,
 ): CasualtyGroup[] {

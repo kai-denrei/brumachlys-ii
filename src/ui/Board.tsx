@@ -41,6 +41,7 @@ import type { Board as BoardGraph, CellId, Vec2 } from '../board/types';
 import { orderedUnitIds } from '../core/orders';
 import type { FactionId, Stance, UnitInstance, UnitType } from '../core/types';
 import { PLAYER_FACTION, useAppStore } from '../state/store';
+import { buildHpFlips, type HpFlip } from '../state/replay-timing';
 import {
   BuildPips,
   BuyGhosts,
@@ -129,12 +130,13 @@ export type BoardProps = {
   bases?: Readonly<Record<CellId, FactionId | null>>;
   /** E3 conquest: queued-buy ghosts (token + "arrives at round end" pill). */
   buyGhosts?: readonly BuyGhostMark[];
-  /** Tap a buy ghost → reopen that base's build sheet. */
+  /** Tap a buy ghost → reopen the build dashboard, focused on that base. */
   onBuyGhostTap?: (baseCell: CellId) => void;
   /** v0.7 Item 1: owned-base build pips — an always-reachable production
    * affordance rendered ABOVE units, so an occupant never swallows the tap. */
   buildPips?: readonly BuildPipMark[];
-  /** Tap a build pip → open that base's build sheet (regardless of occupancy). */
+  /** Tap a build pip → open the build dashboard, focused on that base
+   *  (regardless of occupancy). */
   onBuildTap?: (baseCell: CellId) => void;
   highlights?: BoardHighlights;
   selectedUnitId?: string | null;
@@ -152,6 +154,16 @@ export type BoardProps = {
   /** v1.3 Tweak B: movement origin trails — persistent layer (fades via CSS,
    * so NOT part of the per-frame-remounted replayFx group). */
   trails?: readonly TrailMark[];
+  /** R2 (SPOTLIGHT): the combat spotlight for THIS replay frame. When `active`,
+   * non-combatant tiles + idle units desaturate/dim and combatant tiles/units
+   * get a highlight ring. `combatants` is the round's witnessed set (computed
+   * ONCE per turn, not per wave). Null/absent or `active: false` = no dim
+   * (planning, post-SETTLE resaturation, non-combat rounds). The radar badges
+   * on tokens are untouched. */
+  spotlight?: {
+    active: boolean;
+    combatants: { cells: ReadonlySet<CellId>; units: ReadonlySet<string> };
+  } | null;
   /** Tap a floating damage number → breakdown modal for its slot (§9.4). */
   onFloaterTap?: (slot: number) => void;
   /** Pan so this cell is centered whenever `token` changes. */
@@ -429,6 +441,7 @@ export function Board({
   onProposalConfirm,
   replayFx = null,
   trails,
+  spotlight = null,
   focus = null,
   follow = null,
   onUserPan,
@@ -834,6 +847,16 @@ export function Board({
     return out;
   }, [replayFx, board, toScreen, tokenSize]);
 
+  // --- Combat readability §2 (HP flip): per HIT defender, hold the pre-hit count
+  // then fold DOWN to the post-combat count on the witnessed impact. buildHpFlips
+  // is PURE/tested (replay-timing): it sums damage per defender, arms ONLY where a
+  // witnessed projectile lands (fog honesty), and times the fold to the spark.
+  const flipByUnit = useMemo(() => {
+    const impacts = replayFx?.fx.impacts;
+    if (!impacts) return new Map<string, HpFlip>();
+    return buildHpFlips(impacts, replayFx?.fx.beats ?? [], (id) => unitById.get(id)?.count);
+  }, [replayFx, unitById]);
+
   // --- v1.4: idle "awaiting orders" pulse --------------------------------------
   // Own units with NO queued order get a slow breathing halo during the
   // planning phase — an on-board echo of the hollow dock chips. The Board
@@ -848,8 +871,8 @@ export function Board({
   const planningOrders = useAppStore((s) =>
     s.screen === 'battle' && s.uiPhase === 'planning' ? s.orders : null,
   );
-  // PoC "anim" toggle: ON ⇒ infantry render as animated sprites on the board.
-  const spritesOn = useAppStore((s) => s.spritesOn);
+  // Gear menu: the unit-render skin (icon / anim / watercolor) for board tokens.
+  const unitRenderMode = useAppStore((s) => s.unitRenderMode);
   const pulseEligible =
     interactive && !silhouette && replayFx === null && planningOrders !== null;
   const orderedIds = useMemo(
@@ -898,31 +921,78 @@ export function Board({
     return out;
   }, [pulseEligible, planningOrders, unitById, board, toScreen, tokenSize]);
 
-  // PoC sprites: per-unit MOTION for the animated infantry. 'fire' while the
-  // unit is a visible attacker this replay frame (its cell is an arc source, or
-  // it is a named impact attacker); 'move' while its cell changes between
-  // frames; else idle. Empty during planning (every unit idles).
+  // PoC sprites: per-(infantry-)unit MOTION + FACING.
+  //  motion: 'fire' while a visible attacker this frame (cell is an arc source /
+  //  a named impact attacker), 'move' while its cell changes between frames,
+  //  else idle (planning idles).
+  //  facing: which way the soldier points — toward its fire TARGET, its MOVE
+  //  direction, or (at rest) the nearest visible ENEMY, falling back to the
+  //  enemy's home anchor. 1 = the sprite's native right, -1 = mirrored to face
+  //  left. Screen-x only (toScreen flips y, not x), so this tracks the board.
   const prevCellsRef = useRef<Map<string, CellId>>(new Map());
-  const motionByUnit = useMemo(() => {
-    const m = new Map<string, Motion>();
+  const spriteByUnit = useMemo(() => {
+    const out = new Map<string, { motion: Motion; facing: 1 | -1 }>();
     const fx = replayFx?.fx;
+    const fireTarget = new Map<string, CellId>(); // attacker id → the cell it shoots
     if (fx) {
       const cellUnit = new Map<CellId, string>();
       for (const u of unitById.values()) cellUnit.set(u.cell, u.id);
       for (const a of fx.arcs) {
         const id = cellUnit.get(a.from);
-        if (id) m.set(id, 'fire');
+        if (id && !fireTarget.has(id)) fireTarget.set(id, a.to);
       }
-      for (const im of fx.impacts ?? []) if (im.attackerId) m.set(im.attackerId, 'fire');
-      const prev = prevCellsRef.current;
-      for (const u of unitById.values()) {
-        if (m.get(u.id) === 'fire') continue;
-        const pc = prev.get(u.id);
-        if (pc !== undefined && pc !== u.cell) m.set(u.id, 'move');
+      for (const im of fx.impacts ?? []) {
+        if (im.attackerId && !fireTarget.has(im.attackerId)) fireTarget.set(im.attackerId, im.defenderCell);
       }
     }
-    return m;
-  }, [replayFx, unitById]);
+    const prev = prevCellsRef.current;
+    const enemyAnchorX = (f: FactionId): number | null => {
+      const a = board.placementAnchors;
+      if (!a) return null;
+      const c = board.cells.get(a[f === 0 ? 1 : 0]);
+      return c ? toScreen(c.center)[0] : null;
+    };
+    for (const u of unitById.values()) {
+      if (u.type !== 'infantry') continue; // only the sprite consumes this
+      const ucell = board.cells.get(u.cell);
+      if (!ucell) continue;
+      const [ux, uy] = toScreen(ucell.center);
+      let motion: Motion = 'idle';
+      let dir = 0; // screen-x toward whatever the soldier should face
+      const tgt = fireTarget.get(u.id);
+      if (tgt !== undefined) {
+        motion = 'fire';
+        const tc = board.cells.get(tgt);
+        if (tc) dir = toScreen(tc.center)[0] - ux;
+      } else if (fx) {
+        const pc = prev.get(u.id);
+        if (pc !== undefined && pc !== u.cell) {
+          motion = 'move';
+          const pcc = board.cells.get(pc);
+          if (pcc) dir = ux - toScreen(pcc.center)[0];
+        }
+      }
+      if (dir === 0) {
+        // at rest / directionless: face the nearest visible enemy, else home
+        let best = Infinity;
+        let bx: number | null = null;
+        for (const e of unitById.values()) {
+          if (e.faction === u.faction) continue;
+          const ec = board.cells.get(e.cell);
+          if (!ec) continue;
+          const [ex, ey] = toScreen(ec.center);
+          const d = (ex - ux) ** 2 + (ey - uy) ** 2;
+          if (d < best) {
+            best = d;
+            bx = ex;
+          }
+        }
+        dir = (bx ?? enemyAnchorX(u.faction) ?? ux + 1) - ux;
+      }
+      out.set(u.id, { motion, facing: dir < 0 ? -1 : 1 });
+    }
+    return out;
+  }, [replayFx, unitById, board, toScreen]);
 
   // Remember this frame's cells so the NEXT frame can detect movement by diff.
   useEffect(() => {
@@ -941,6 +1011,24 @@ export function Board({
       return f === undefined ? null : 0.22 + 0.3 * Math.min(1, Math.max(0, f));
     }
     return (reachable as ReadonlySet<CellId>).has(id) ? 0.32 : null;
+  };
+
+  // R2 (SPOTLIGHT): per-cell / per-unit treatment for the active spotlight.
+  // `lit` = a combatant (full colour + ring); `dim` = a non-combatant (recede);
+  // null = no spotlight engaged this frame (planning / post-SETTLE / no combat),
+  // so nothing is touched. Pure reads of the frame's spotlight payload.
+  const spotlightActive = spotlight?.active === true;
+  const cellSpotlight = (id: CellId): 'dim' | 'lit' | null => {
+    if (!spotlightActive) return null;
+    return spotlight!.combatants.cells.has(id) ? 'lit' : 'dim';
+  };
+  const unitSpotlight = (u: UnitInstance): 'dim' | 'lit' | null => {
+    if (!spotlightActive) return null;
+    // A combatant unit OR a unit standing on a combatant cell stays lit (an
+    // attacker token on its firing tile, a defender on the struck tile).
+    return spotlight!.combatants.units.has(u.id) || spotlight!.combatants.cells.has(u.cell)
+      ? 'lit'
+      : 'dim';
   };
 
   const selectedUnit = selectedUnitId !== null ? unitById.get(selectedUnitId) : undefined;
@@ -971,6 +1059,13 @@ export function Board({
       <defs>
         <GrainFilterDef />
         <SpriteRedFilter />
+        {/* §6C: clip ALL replay FX to the board frame so no shot lasers off
+            screen (the aligned/same-level long shot was a beam to the edge). The
+            rect is in board screen-space — the same space the FX group lives in
+            INSIDE the view transform — so it tracks pan/zoom for free. */}
+        <clipPath id="board-fx-clip">
+          <rect x={bbox.x} y={bbox.y} width={bbox.width} height={bbox.height} />
+        </clipPath>
       </defs>
       <g transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}>
         <g className="board-cells">
@@ -1001,6 +1096,7 @@ export function Board({
                   cell.terrain === 'base' &&
                   (bases[cell.id] ?? null) === null
                 }
+                spotlight={cellSpotlight(cell.id)}
                 onTap={tapGuard(onCellTap)}
               />
             );
@@ -1186,12 +1282,16 @@ export function Board({
                 pulse={idlePulse(unit)}
                 recoil={recoilByUnit.get(unit.id) ?? null}
                 recoilKey={replayFx?.key ?? 0}
+                flip={flipByUnit.get(unit.id) ?? null}
+                flipKey={replayFx?.key ?? 0}
                 unitTypeCost={unitTypes ? unitTypes[unit.type]?.cost : undefined}
                 onTap={tapGuard(onUnitTap)}
                 onRadar={showRadar ? () => onUnitRadarTap(unit.id) : undefined}
                 radarActive={rangeOverlay?.unitId === unit.id}
-                sprite={spritesOn}
-                motion={motionByUnit.get(unit.id) ?? 'idle'}
+                renderMode={unitRenderMode}
+                motion={spriteByUnit.get(unit.id)?.motion ?? 'idle'}
+                facing={spriteByUnit.get(unit.id)?.facing ?? 1}
+                spotlight={unitSpotlight(unit)}
               />
             );
           })}
@@ -1285,7 +1385,10 @@ export function Board({
             tokenSize={tokenSize}
             fx={replayFx.fx}
             player={PLAYER_FACTION}
+            renderMode={unitRenderMode}
             onFloaterTap={tapGuard(onFloaterTap)}
+            clipId="board-fx-clip"
+            frameBounds={bbox}
           />
         )}
         {stancePopover && selectedUnit && selectedCell && (

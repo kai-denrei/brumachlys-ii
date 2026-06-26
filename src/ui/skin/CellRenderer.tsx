@@ -44,6 +44,13 @@ export type CellRendererProps = {
   tier?: FogTier;
   /** Dark → live transition this replay frame: fade the cover out (~0.4 s). */
   igniting?: boolean;
+  /** R2 (SPOTLIGHT): combat-spotlight treatment during replay.
+   *   • 'dim' — a non-combatant tile while the spotlight is engaged: desaturate
+   *     toward grey (REUSING the memory-tier desaturation) and drop to ~0.32
+   *     group alpha, so it recedes behind the lit combat.
+   *   • 'lit' — a combatant tile: full colour plus a soft highlight ring.
+   *   null/absent — no spotlight (planning, post-SETTLE, non-combat rounds). */
+  spotlight?: 'dim' | 'lit' | null;
   /** Paper-tone silhouette (start previews): mesh only, no terrain colors. */
   silhouette?: boolean;
   /** Base cells tint toward their owning faction (§10.1). */
@@ -63,6 +70,15 @@ export const CELL_STROKE_WIDTH = 1.6;
 /** v0.6 Ask 3: camp fill desaturation (applied AFTER the memory wash desat,
  * same ordering rule as the ownership tint — pinned by tests). */
 export const CAMP_DESATURATION = 0.35;
+
+/** R2 (SPOTLIGHT): a dimmed non-combatant tile drops to this group alpha
+ * (source spec §5: "~0.32 alpha"). */
+export const SPOTLIGHT_DIM_OPACITY = 0.32;
+/** R2 (SPOTLIGHT): a dimmed non-combatant tile desaturates toward grey by this
+ * much. Reuses the memory-tier desaturation mechanism (same `desaturate` math)
+ * rather than a new colour pipeline — the spotlight is the memory wash's louder
+ * sibling. */
+export const SPOTLIGHT_DESATURATION = MEMORY_DESATURATION;
 
 function woodsDots(rng: () => number, c: Pt, r: number): JSX.Element[] {
   // 2–3 clusters of 3 dots each (§10.1), jittered inside the cell.
@@ -293,6 +309,7 @@ export const CellRenderer = memo(function CellRenderer({
   silhouette = false,
   baseTintFaction = null,
   camp = false,
+  spotlight = null,
   onTap,
 }: CellRendererProps) {
   const pts = cell.polygon.map(toScreen);
@@ -355,6 +372,11 @@ export const CellRenderer = memo(function CellRenderer({
   // v0.6 Ask 3: camps desaturate slightly (after the memory desat, same
   // ordering rule as the tint) — unowned ground reads quieter than owned.
   if (isCamp) fill = desaturate(fill, CAMP_DESATURATION);
+  // R2 (SPOTLIGHT): a dimmed non-combatant tile desaturates toward grey
+  // (reusing the memory-tier mechanism) — applied LAST so it bleeds the colour
+  // out of whatever the tile would otherwise show. The ~0.32 alpha is carried
+  // by group opacity below, not baked into the fill.
+  if (spotlight === 'dim') fill = desaturate(fill, SPOTLIGHT_DESATURATION);
   const stroke = darken(fill, 0.12);
   // E3: keep/flag pip so base cells are findable among cells (live + memory;
   // the dark branch above already hides bases entirely). Neutral = sand ink.
@@ -369,11 +391,31 @@ export const CellRenderer = memo(function CellRenderer({
 
   return (
     <g
-      className={`cell cell-${cell.terrain}${memory ? ' cell-memory' : ''}${isCamp ? ' cell-camp' : ''}`}
+      className={`cell cell-${cell.terrain}${memory ? ' cell-memory' : ''}${isCamp ? ' cell-camp' : ''}${spotlight === 'dim' ? ' cell-spotlight-dim' : ''}${spotlight === 'lit' ? ' cell-spotlight-lit' : ''}`}
       data-cell-id={cell.id}
+      data-spotlight={spotlight ?? undefined}
+      // R2 (SPOTLIGHT): a dimmed non-combatant tile recedes to ~0.32 alpha. The
+      // class also drives the CSS transition (and the reduced-motion static
+      // dim). The fill itself is already desaturated above.
+      opacity={spotlight === 'dim' ? SPOTLIGHT_DIM_OPACITY : undefined}
       onClick={onTap ? () => onTap(cell.id) : undefined}
     >
       <path d={d} fill={fill} stroke={stroke} strokeWidth={CELL_STROKE_WIDTH} strokeLinejoin="round" />
+      {/* R2 (SPOTLIGHT): a combatant tile keeps full colour and gains a soft
+          faction-neutral highlight ring so the eye lands on the combat. Behind
+          the texture/base motif so it frames, never obscures. */}
+      {spotlight === 'lit' && (
+        <path
+          className="cell-spotlight-ring"
+          d={d}
+          fill="none"
+          stroke="#fff"
+          strokeWidth={CELL_STROKE_WIDTH * 2.2}
+          strokeLinejoin="round"
+          opacity={0.7}
+          pointerEvents="none"
+        />
+      )}
       {texture !== null && (
         <g className="cell-texture" opacity={memory ? 0.45 : 1} pointerEvents="none">
           {texture}

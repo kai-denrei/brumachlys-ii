@@ -9,13 +9,25 @@
 // actorType null (rendered as a "?" chip) and its strikes carry null attacker
 // fields; nothing here can resurrect a hidden position.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { FactionId, GameOutcome, UnitInstance, UnitType } from '../core/types';
 import { loadUnits } from '../io/data-loader';
 import type { RoundSummary, Strike, TimelineSlot } from '../state/replay';
-import { PLAYER_FACTION, useAppStore, type ReplaySpeed } from '../state/store';
-import { CasualtyRow } from './CasualtyPanel';
-import { UnitRenderer, factionColor } from './skin';
+import {
+  DILATION_DEPTH_DEFAULT,
+  DILATION_DEPTH_MAX,
+  DILATION_DEPTH_MIN,
+  DILATION_DEPTH_STEP,
+  PLAYER_FACTION,
+  REPLAY_SPEED_DEFAULT,
+  REPLAY_SPEED_MAX,
+  REPLAY_SPEED_MIN,
+  REPLAY_SPEED_STEP,
+  useAppStore,
+  type ReplaySpeed,
+} from '../state/store';
+import { CasualtyRow, groupCasualties } from './CasualtyPanel';
+import { BarHistogram, Sparkline, UnitRenderer, factionColor, type HistBar, type SparkSeries } from './skin';
 
 // --- timeline strip + speed control (§9.4) -------------------------------------
 
@@ -27,7 +39,29 @@ const SLOT_KIND_BADGE: Record<TimelineSlot['kind'], string> = {
   capture: '⚑',
   spawn: '✚',
   promotion: '★',
+  interrupt: '✕',
 };
+
+/** Format a speed multiplier for the slider's aria-valuetext / preset labels —
+ *  e.g. 0.5 → "0.5×", 1 → "1×", 2 → "2×". Trims a trailing ".0". */
+function fmtSpeed(v: number): string {
+  const s = Number.isInteger(v) ? String(v) : String(Number(v.toFixed(1)));
+  return `${s}×`;
+}
+
+/** The slider's numeric position for a given speed. 'skip' is a transient action,
+ *  not a slider position — fall back to the default so the thumb never goes NaN. */
+function sliderValue(speed: ReplaySpeed): number {
+  return typeof speed === 'number' ? speed : REPLAY_SPEED_DEFAULT;
+}
+
+/** Sequencing §5: format the combat-dilation depth for the second slider's
+ *  aria-valuetext / readout — e.g. 1.6 → "1.6× deep", 2 → "2.0× deep". The
+ *  ".0" is KEPT (always one decimal) so the depth reads as a continuous knob
+ *  distinct from the integer-ish speed multiplier. */
+function fmtDepth(v: number): string {
+  return `${v.toFixed(1)}× deep`;
+}
 
 function chipUnit(slot: TimelineSlot): UnitInstance | null {
   if (!slot.actorType || slot.actorFaction === null) return null;
@@ -45,28 +79,94 @@ function chipUnit(slot: TimelineSlot): UnitInstance | null {
 export function ReplayDock({
   slots,
   activeSlot,
+  frameIdx,
+  frameCount,
+  elapsedMs,
+  totalMs,
   speed,
   paused,
   done,
   onSpeed,
+  dilationDepth = DILATION_DEPTH_DEFAULT,
+  onDilationDepth = () => {},
   onTogglePause,
   onSlotTap,
+  onSeekFrame,
+  onSeekTime,
+  onScrubStart,
   onRecenter,
+  audioOn,
+  onToggleAudio,
 }: {
   slots: readonly TimelineSlot[];
   activeSlot: number;
+  /** R7 (SEEK / SCRUB): the playback cursor (current frame index). */
+  frameIdx: number;
+  /** R7: total frames in the script — the scrubber's frame upper bound. */
+  frameCount: number;
+  /** R7: elapsed time (ms at 1×) at the current frame's start — the scrubber
+   *  thumb position when seeking by time. */
+  elapsedMs: number;
+  /** R7: the round's total run length (ms at 1×) — the scrubber's time bound. */
+  totalMs: number;
   speed: ReplaySpeed;
   paused: boolean;
   /** Playback finished — the strip stays browsable under the summary. */
   done: boolean;
   onSpeed: (s: ReplaySpeed) => void;
+  /** Sequencing §5: the COMBAT DILATION DEPTH (second knob) — scales combat beat
+   *  durations only ([1.0, 4.0], deeper = slower combat). Independent of speed;
+   *  the two compose. Takes effect on the NEXT resolved round (the laid-out
+   *  beats bake it in at build time), so the slider tunes how deep the next
+   *  combat dilates. */
+  dilationDepth?: number;
+  /** Sequencing §5: set the combat dilation depth (clamped + persisted by the
+   *  store). The slider's onChange. */
+  onDilationDepth?: (depth: number) => void;
   onTogglePause: () => void;
   onSlotTap: (slot: number) => void;
+  /** R7 (SEEK): step the cursor to a specific FRAME (keyboard arrow keys — one
+   *  frame per arrow). Pure cursor move: no resolver re-run, no state mutation. */
+  onSeekFrame?: (idx: number) => void;
+  /** R7 (SEEK): map an elapsed TIME (ms) to a frame and move the cursor there —
+   *  the scrubber's drag path (continuous time → frame via cumulative durations).
+   *  Pure cursor move; agrees with the slot strip (the resolved frame's slot
+   *  becomes active). */
+  onSeekTime?: (ms: number) => void;
+  /** R7 (SCRUB): the user grabbed the scrubber — pauses playback so the dragged
+   *  frame holds (releasing leaves it paused; the play control resumes). */
+  onScrubStart?: () => void;
   /** Non-null while auto-follow is suspended by a manual pan (P9) — shows the
    *  recenter button that hands the camera back to the replay. */
   onRecenter?: (() => void) | null;
+  /** R8 (AUDIO): current state of the synth-cue toggle (OFF by default). */
+  audioOn?: boolean;
+  /** R8 (AUDIO): flip the synth-cue toggle. Runs inside the click gesture so
+   *  turning ON unlocks the AudioContext (browser autoplay policy). Absent ⇒ the
+   *  control is not rendered. */
+  onToggleAudio?: () => void;
 }) {
   const stripRef = useRef<HTMLDivElement>(null);
+  const lastFrame = Math.max(0, frameCount - 1);
+  const scrubEnabled = !!onSeekTime && frameCount > 1 && totalMs > 0;
+
+  // R7: arrow keys step EXACTLY one frame (the natural granularity that aligns
+  // with the slot strip), overriding the slider's native time-step. Left/Down =
+  // previous frame, Right/Up = next. Home/End jump to the ends. Other keys fall
+  // through to the slider's default behavior.
+  function onScrubKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    onScrubStart?.();
+    const key = e.key;
+    let next: number | null = null;
+    if (key === 'ArrowLeft' || key === 'ArrowDown') next = frameIdx - 1;
+    else if (key === 'ArrowRight' || key === 'ArrowUp') next = frameIdx + 1;
+    else if (key === 'Home') next = 0;
+    else if (key === 'End') next = lastFrame;
+    if (next !== null) {
+      e.preventDefault();
+      onSeekFrame?.(next);
+    }
+  }
 
   // Keep the active slot in view as playback advances.
   useEffect(() => {
@@ -78,6 +178,33 @@ export function ReplayDock({
 
   return (
     <footer className="replay-dock" data-testid="replay-dock">
+      {/* R7 (SCRUBBER): a draggable timeline slider spanning the whole replay.
+          The thumb tracks elapsed TIME (ms at 1×); dragging maps that time to a
+          frame via the cumulative frame durations (onSeekTime), so the seek is a
+          pure cursor move — no resolver re-run, no state mutation — and the
+          resolved frame's slot becomes the active slot (scrubber + strip agree).
+          Grabbing it PAUSES playback so the dragged frame holds; the play control
+          resumes (releasing leaves it paused — the cleaner UX). Arrow keys step
+          EXACTLY one frame (onScrubKeyDown); an aria-label + aria-valuetext make
+          it screen-reader operable. */}
+      <input
+        type="range"
+        className="replay-scrub"
+        data-testid="replay-scrub"
+        min={0}
+        max={Math.max(1, Math.round(totalMs))}
+        step={1}
+        value={Math.min(Math.round(elapsedMs), Math.max(1, Math.round(totalMs)))}
+        disabled={!scrubEnabled}
+        aria-label="replay scrubber — seek through the round"
+        aria-valuetext={`frame ${Math.min(frameIdx, lastFrame) + 1} of ${frameCount}`}
+        // Pause the moment the user grabs the slider (mouse/touch), so the
+        // scrubbed frame holds rather than fighting the advance loop.
+        onPointerDown={onScrubStart}
+        onKeyDown={onScrubKeyDown}
+        onChange={(e) => onSeekTime?.(Number(e.target.value))}
+      />
+      <div className="replay-dock-row">
       <div className="timeline-strip" ref={stripRef}>
         {slots.length === 0 && <span className="timeline-empty">nothing stirred in the mist</span>}
         {slots.map((slot, k) => {
@@ -107,6 +234,20 @@ export function ReplayDock({
         })}
       </div>
       <div className="replay-controls">
+        {/* R8 (AUDIO): the synth-cue toggle — OFF by default. Pressed reads
+            on/off via aria-pressed; turning ON unlocks the AudioContext inside
+            this click (autoplay policy). */}
+        {onToggleAudio && (
+          <button
+            className={`replay-button replay-audio${audioOn ? ' replay-button-active' : ''}`}
+            data-testid="replay-audio-toggle"
+            onClick={onToggleAudio}
+            aria-label={audioOn ? 'mute combat audio' : 'enable combat audio'}
+            aria-pressed={!!audioOn}
+          >
+            {audioOn ? '♪' : '♪̸'}
+          </button>
+        )}
         {onRecenter && (
           <button
             className="replay-button replay-recenter"
@@ -124,16 +265,70 @@ export function ReplayDock({
         >
           {paused ? '▶' : '❚❚'}
         </button>
+        {/* RESOLUTION SLOW-DOWN SLIDER: the FINE control (operator feedback —
+            the replay is still too fast). Emphasises SLOWER (0.1× bullet-time →
+            1× → 2×); a LOWER value stretches the whole resolution (the App
+            divides each frame duration by it, and the same value drives the
+            dilation clock + audio). Keyboard-operable — an aria-label +
+            aria-valuetext ("0.5×") name the multiplier. The 1×/2× buttons are
+            PRESETS that snap it to discrete values; skip stays special. */}
+        <div className="replay-speed">
+          <input
+            type="range"
+            className="replay-speed-slider"
+            data-testid="replay-speed-slider"
+            min={REPLAY_SPEED_MIN}
+            max={REPLAY_SPEED_MAX}
+            step={REPLAY_SPEED_STEP}
+            value={sliderValue(speed)}
+            disabled={done}
+            aria-label="resolution speed — slow the replay down"
+            aria-valuetext={fmtSpeed(sliderValue(speed))}
+            onChange={(e) => onSpeed(Number(e.target.value))}
+          />
+          <span className="replay-speed-readout" aria-hidden="true">
+            {fmtSpeed(sliderValue(speed))}
+          </span>
+        </div>
+        {/* SECOND SLIDER (sequencing §5): COMBAT DILATION DEPTH — a knob SEPARATE
+            from the resolution-speed slider above. It deepens COMBAT ONLY (the
+            laid-out beat windows scale by it; movement frames stay brisk — the
+            fast→slow contrast). Range 1.0× (shallow) → 4.0× (deep); the two knobs
+            compose (effective per-beat wall time = beatDur(depth)/speed). It feeds
+            buildReplay, so a change takes effect on the next resolved round.
+            Keyboard-operable — aria-label + aria-valuetext ("2.0× deep") name the
+            depth. NOT disabled when playback is done (it tunes the NEXT round). */}
+        <div className="replay-dilation">
+          <input
+            type="range"
+            className="replay-dilation-slider"
+            data-testid="replay-dilation-slider"
+            min={DILATION_DEPTH_MIN}
+            max={DILATION_DEPTH_MAX}
+            step={DILATION_DEPTH_STEP}
+            value={dilationDepth}
+            aria-label="combat dilation — deepen combat slow-motion (shallow → deep)"
+            aria-valuetext={fmtDepth(dilationDepth)}
+            onChange={(e) => onDilationDepth(Number(e.target.value))}
+          />
+          <span className="replay-dilation-readout" aria-hidden="true">
+            {fmtDepth(dilationDepth)}
+          </span>
+        </div>
+        {/* 1×/2× presets (snap the slider) + skip (jump to end). A preset reads
+            "active" when the slider sits exactly on its value. */}
         {([1, 2, 'skip'] as const).map((s) => (
           <button
             key={String(s)}
             className={`replay-button${speed === s ? ' replay-button-active' : ''}`}
             onClick={() => onSpeed(s)}
             disabled={done}
+            aria-label={s === 'skip' ? 'skip to end' : `set speed ${s}×`}
           >
             {s === 'skip' ? '≫' : `${s}×`}
           </button>
         ))}
+      </div>
       </div>
     </footer>
   );
@@ -351,6 +546,151 @@ export function SummarySheet({
 
 // --- game-over banner + New Battle (§2.8, §9.6, §4.3) ------------------------------
 
+// --- v1.5 VICTORY DASHBOARD (data visualizations) --------------------------------
+// Four compact, scrollable sections appended to the banner recap, all from the
+// store's fog-filtered accumulators (roundHistory + casualties). Each section
+// hides gracefully when its data is empty (a 1-round game has no multi-round
+// arc; an empty casualty list hides the histogram). The economy section appears
+// in CONQUEST only. FOG HONESTY rides the data layer (see RoundRecord) — these
+// are pure reads/plots of already-filtered numbers.
+
+/** One labelled sparkline block in the dashboard. */
+function DashSpark({
+  label,
+  series,
+  ariaLabel,
+}: {
+  label: string;
+  series: SparkSeries[];
+  ariaLabel: string;
+}) {
+  return (
+    <div className="dash-spark-block">
+      <span className="dash-spark-label">{label}</span>
+      <Sparkline series={series} ariaLabel={ariaLabel} />
+    </div>
+  );
+}
+
+/** Legend swatch (a colored dot + text) for the dual damage arc. */
+function DashLegend({ color, text }: { color: string; text: string }) {
+  return (
+    <span className="dash-legend-item">
+      <span className="dash-legend-dot" style={{ background: color }} aria-hidden="true" />
+      {text}
+    </span>
+  );
+}
+
+/** The four data-viz sections. Reads roundHistory + casualties from the store.
+ * Mobile-first + scrollable (the .victory-dashboard scroll container). */
+function VictoryDashboard({ conquest }: { conquest?: ConquestOutcome | null }) {
+  const roundHistory = useAppStore((s) => s.roundHistory);
+  const casualties = useAppStore((s) => s.casualties);
+  const types = useMemo(() => loadUnits(), []);
+  const colorA = factionColor(PLAYER_FACTION);
+  const colorB = factionColor(1);
+
+  // Damage arc: a section needs ≥1 round AND some damage to be worth plotting.
+  const dealt = roundHistory.map((r) => r.damageDealt[0]);
+  const taken = roundHistory.map((r) => r.damageDealt[1]);
+  const kills = roundHistory.map((r) => r.kills);
+  const anyDamage = dealt.some((v) => v > 0) || taken.some((v) => v > 0);
+  const anyKills = kills.some((v) => v > 0);
+
+  // Economy (conquest only): present when the records carry the fields.
+  const econ = !!conquest && roundHistory.some((r) => r.credits !== undefined);
+  const credits = roundHistory.map((r) => r.credits ?? 0);
+  const bases = roundHistory.map((r) => r.basesHeld ?? 0);
+  const army = roundHistory.map((r) => r.unitsAlive ?? 0);
+
+  // Casualties by type+faction → histogram bars (reuse groupCasualties, the same
+  // grouping the icon rows / CasualtyModal use, so they agree). Player groups
+  // first (red), then enemy (blue); each ordered by descending count.
+  const bars: HistBar[] = useMemo(() => {
+    const fallen = casualties.filter((c) => c.faction === PLAYER_FACTION);
+    const destroyed = casualties.filter((c) => c.faction !== PLAYER_FACTION);
+    const toBars = (groups: ReturnType<typeof groupCasualties>, color: string): HistBar[] =>
+      [...groups]
+        .sort((a, b) => b.count - a.count)
+        .map((g) => ({
+          type: g.type,
+          faction: g.faction,
+          count: g.count,
+          color,
+          label: types[g.type]?.name ?? g.type,
+        }));
+    return [
+      ...toBars(groupCasualties(fallen, types), colorA),
+      ...toBars(groupCasualties(destroyed, types), colorB),
+    ];
+  }, [casualties, types, colorA, colorB]);
+
+  // Nothing to show at all → render nothing (keeps a 0-round banner clean).
+  if (!anyDamage && !anyKills && !econ && bars.length === 0) return null;
+
+  return (
+    <div className="victory-dashboard" data-testid="victory-dashboard">
+      {anyDamage && (
+        <section className="dash-section" data-testid="dash-damage-arc">
+          <div className="dash-section-head">
+            <span className="dash-section-title">damage arc</span>
+            <span className="dash-legend">
+              <DashLegend color={colorA} text="dealt" />
+              <DashLegend color={colorB} text="taken" />
+            </span>
+          </div>
+          <Sparkline
+            series={[
+              { points: dealt, color: colorA },
+              { points: taken, color: colorB },
+            ]}
+            ariaLabel={`damage per round — dealt vs taken over ${roundHistory.length} rounds`}
+          />
+        </section>
+      )}
+
+      {anyKills && (
+        <section className="dash-section" data-testid="dash-kills">
+          <div className="dash-section-head">
+            <span className="dash-section-title">kills per round</span>
+          </div>
+          <Sparkline
+            series={[{ points: kills, color: '#8d8675' }]}
+            ariaLabel={`units destroyed each round over ${roundHistory.length} rounds`}
+          />
+        </section>
+      )}
+
+      {econ && (
+        <section className="dash-section dash-economy" data-testid="dash-economy">
+          <div className="dash-section-head">
+            <span className="dash-section-title">economy</span>
+          </div>
+          <div className="dash-economy-grid">
+            <DashSpark label="credits" series={[{ points: credits, color: '#C8A45B' }]} ariaLabel="player credits per round" />
+            <DashSpark label="bases" series={[{ points: bases, color: colorA }]} ariaLabel="player bases held per round" />
+            <DashSpark label="army" series={[{ points: army, color: colorA }]} ariaLabel="player army size per round" />
+          </div>
+        </section>
+      )}
+
+      {bars.length > 0 && (
+        <section className="dash-section" data-testid="dash-casualties">
+          <div className="dash-section-head">
+            <span className="dash-section-title">casualties by type</span>
+            <span className="dash-legend">
+              <DashLegend color={colorA} text="yours" />
+              <DashLegend color={colorB} text="enemy" />
+            </span>
+          </div>
+          <BarHistogram bars={bars} ariaLabel="units lost by type — yours vs enemy" />
+        </section>
+      )}
+    </div>
+  );
+}
+
 /** v1.4 battle recap dashboard inside the banner: rounds fought, the two
  * chess-style icon rows (CasualtyPanel's exact vocabulary — fallen vs enemy
  * destroyed), and the fog-honest battle totals. Data comes straight from the
@@ -358,7 +698,9 @@ export function SummarySheet({
  * and `recap` (accumulated per round from the fog-filtered replay summaries;
  * see BattleRecap in state/store.ts for the field-by-field honesty argument).
  * Card style matches the round-summary sheet (.summary-cell), compacted so
- * the banner stays inside a 390×844 viewport without scrolling. */
+ * the banner stays inside a 390×844 viewport without scrolling.
+ * v1.5: the VICTORY DASHBOARD's data-viz sections (damage arc / kills /
+ * economy / casualties-by-type) are appended below the stat grid. */
 function BannerRecap({ conquest }: { conquest?: ConquestOutcome | null }) {
   const recap = useAppStore((s) => s.recap);
   const casualties = useAppStore((s) => s.casualties);
@@ -420,6 +762,7 @@ function BannerRecap({ conquest }: { conquest?: ConquestOutcome | null }) {
           </div>
         ))}
       </div>
+      <VictoryDashboard conquest={conquest} />
     </div>
   );
 }

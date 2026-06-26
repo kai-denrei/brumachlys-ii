@@ -41,8 +41,10 @@ export type Board = {
    * boards and boards generated before E2. */
   bases?: BaseSite[];
   /** E2 (addendum §B.3): donor economy values; fallback 100/100 applied at
-   * generation when the donor XML omits them (≤ 0 treated as absent). */
-  economy?: { initialCredits: number; perBaseCredits: number };
+   * generation when the donor XML omits them (≤ 0 treated as absent).
+   * `upkeepRate` (upkeep addendum §1): per-turn maintenance, fraction of unit
+   * cost per count-point. Absent ⇒ DEFAULT_UPKEEP_RATE (0.01); 0 disables. */
+  economy?: { initialCredits: number; perBaseCredits: number; upkeepRate?: number };
   /** E2 (addendum §B.6): donor start-unit type keys per faction (UNIT_MAP-
    * mapped entries only, document order). Empty ⇒ the default conquest force. */
   startUnitTypes?: [string[], string[]];

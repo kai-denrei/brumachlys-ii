@@ -307,7 +307,12 @@ describe('income (Phase E)', () => {
       { type: 'income', faction: 0, bases: 2, amount: 150, creditsAfter: 160 },
       { type: 'income', faction: 1, bases: 1, amount: 75, creditsAfter: 95 },
     ]);
-    expect(s.credits).toEqual({ 0: 160, 1: 95 });
+    // Upkeep follows income: each faction's single full infantry draws 8.
+    expect(ofType(events, 'upkeep')).toEqual([
+      { type: 'upkeep', faction: 0, units: 1, amount: 8, creditsAfter: 152 },
+      { type: 'upkeep', faction: 1, units: 1, amount: 8, creditsAfter: 87 },
+    ]);
+    expect(s.credits).toEqual({ 0: 152, 1: 87 }); // 160 − 8, 95 − 8
   });
 
   test('a base captured THIS round earns income for the new owner', () => {
@@ -330,7 +335,8 @@ describe('income (Phase E)', () => {
       [makeUnit('a', 0, 1, 'infantry'), makeUnit('b', 1, 3, 'infantry')],
       { bases: { 0: 0 }, credits: { 0: 0, 1: 0 } },
     );
-    expect(resolve(board, state).state.credits![0]).toBe(100);
+    // Income 100 − upkeep 8 (one full infantry) = 92.
+    expect(resolve(board, state).state.credits![0]).toBe(92);
   });
 });
 
@@ -357,9 +363,9 @@ describe('production (Phase E)', () => {
       stance: 'aggressive',
       attackedFrom: [],
     });
-    expect(s.credits![0]).toBe(300); // 500 − 200, perBase income 0
+    expect(s.credits![0]).toBe(292); // 500 − upkeep 8 (one full infantry) − 200 sniper, perBase income 0
     expect(ofType(events, 'spawn')).toEqual([
-      { type: 'spawn', unitId: 'f0-r1-b0-sniper', typeKey: 'sniper', cell: 0, faction: 0, creditsAfter: 300 },
+      { type: 'spawn', unitId: 'f0-r1-b0-sniper', typeKey: 'sniper', cell: 0, faction: 0, creditsAfter: 292 },
     ]);
   });
 
@@ -375,7 +381,7 @@ describe('production (Phase E)', () => {
     expect(ofType(events, 'spawn-failed')).toEqual([
       { type: 'spawn-failed', cell: 0, faction: 0, unitTypeKey: 'tank', reason: 'occupied' },
     ]);
-    expect(s.credits![0]).toBe(500);
+    expect(s.credits![0]).toBe(492); // 500 − upkeep 8 (full infantry squatter); buy refunded
     expect(Object.keys(s.units)).toHaveLength(2);
   });
 
@@ -403,7 +409,8 @@ describe('production (Phase E)', () => {
     expect(ofType(events, 'spawn-failed')).toEqual([
       { type: 'spawn-failed', cell: 1, faction: 1, unitTypeKey: 'tank', reason: 'base-lost' },
     ]);
-    expect(s.credits![1]).toBe(400);
+    // f1 lost its only base at B.5 → income 0; its full infantry draws upkeep 8.
+    expect(s.credits![1]).toBe(392); // 400 − 8; buy refunded (base-lost)
   });
 
   test('insufficient credits at Phase E (defensive re-check) → no-credits', () => {
@@ -418,7 +425,7 @@ describe('production (Phase E)', () => {
     expect(ofType(events, 'spawn-failed')).toEqual([
       { type: 'spawn-failed', cell: 0, faction: 0, unitTypeKey: 'heavytank', reason: 'no-credits' },
     ]);
-    expect(s.credits![0]).toBe(50);
+    expect(s.credits![0]).toBe(42); // 50 − upkeep 8 (full infantry); buy refunded (no-credits)
   });
 
   test('spawns resolve by base cell ascending (determinism rule)', () => {

@@ -147,12 +147,18 @@ describe('conquest store (E3)', () => {
     );
     expect(spawns).toHaveLength(1);
     expect((spawns[0] as { cell: CellId }).cell).toBe(0);
-    // 200 + 100 income (1 base × fallback 100) − 75 infantry = 225
-    expect(after.game!.credits![0]).toBe(225);
+    // Phase E for faction 0: 200 savings + 100 income (1 base × fallback 100)
+    // − upkeep (drawn AFTER combat, so derive it from the event) − 75 infantry.
+    const up0 = after.game!.log.find(
+      (e) => e.type === 'upkeep' && (e as { faction: FactionId }).faction === 0,
+    ) as { amount: number } | undefined;
+    expect(up0).toBeDefined(); // upkeep is applied in conquest
+    const expectedCredits = 200 + 100 - up0!.amount - 75;
+    expect(after.game!.credits![0]).toBe(expectedCredits);
     // replay frames carry the conquest feeds
     const frames = after.replay!.script.frames;
     expect(frames[0]!.bases).toBeDefined();
-    expect(frames[frames.length - 1]!.credits).toBe(225);
+    expect(frames[frames.length - 1]!.credits).toBe(expectedCredits);
     // recap: closing the summary accumulates the spend
     s().finishReplay();
     s().closeSummary();

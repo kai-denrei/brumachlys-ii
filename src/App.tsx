@@ -22,10 +22,12 @@
 //   (settled, still tappable → breakdown) for ~2 s after their frame ends or
 //   until the next volley replaces them.
 //
-// ?autopilot=greedy (dev/demo flag, kept on purpose): faction 0 is planned by
-// the same greedy AI on commit-less rounds — auto-commits each planning phase
-// and auto-dismisses summaries, so a full game fast-forwards to the banner
-// organically. Useful for demos and for exercising long games by hand.
+// FULL AUTO (store.fullAuto, gear menu → DEBUG, seeded from ?autopilot=greedy):
+// faction 0 is planned by the same greedy AI on commit-less rounds — auto-
+// commits each planning phase and auto-dismisses summaries, so a full game
+// fast-forwards to the banner organically. The store field is read as a
+// selector below, so toggling it live drives self-play ON/OFF mid-game. Useful
+// for demos and for exercising long games by hand. The URL flag still seeds it.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -44,21 +46,27 @@ import { occupantVacates, type OrderKind } from './core/orders';
 import type { FactionId, Stance, UnitInstance } from './core/types';
 import { cellsWithin, cellsWithinD, graphDistance } from './board/geometry';
 import type { CellId } from './board/types';
+import { factionUpkeep, upkeepRateOf } from './core/economy';
 import { loadUnits } from './io/data-loader';
 import type { ReplayFrame } from './state/replay';
+import { dilationAt, spotlightAt } from './state/replay';
+import { activeCellsAt, clampFrame, frameAtTime, frameStartTime, totalDuration } from './state/replay-timing';
+import { elapsedReplayTime } from './state/dilation-clock';
 import { PLAYER_FACTION, useAppStore } from './state/store';
 import { Board, type CaptureToggleState, type StancePopoverState } from './ui/Board';
 import { BottomDock, type DockBuy } from './ui/BottomDock';
-import { BuildSheet } from './ui/BuildSheet';
+import { BuildDashboard } from './ui/BuildDashboard';
 import { CasualtyPanel } from './ui/CasualtyPanel';
 import { HudCluster } from './ui/HudCluster';
 import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/Replay';
+import { useCombatAudio } from './ui/audio/useCombatAudio';
 import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
 import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
 import { TopBar, type CreditsHud } from './ui/TopBar';
 import { TopCta } from './ui/TopCta';
 import type { BuildPipMark, BuyGhostMark, CaptureIntentMark, GhostOrder, ImpactMark, ProposalGhostMark, TrailMark } from './ui/skin';
+import { DilationClock, DilationVignette } from './ui/skin';
 import { resolvePlanDirective } from './state/store';
 
 /** v1.3 Tweak B: a finished trail lingers (fading) this long before removal —
@@ -72,15 +80,10 @@ const IGNITE_LINGER_MS = 500;
 type SheetState =
   | { kind: 'order'; unitId: string }
   | { kind: 'info'; cellId: CellId }
-  // E3 conquest: tap an owned base. v0.7 Item 3: `anchor` is the client-space
-  // point the user tapped — the compact build card pops up over it (clamped).
-  | { kind: 'build'; baseCell: CellId; anchor?: { x: number; y: number } }
+  // E3 conquest: the BUILD dashboard (full-screen economy modal). `focusBase`
+  // scrolls that base's row into view on open (null = economy overview).
+  | { kind: 'build'; focusBase: CellId | null }
   | null;
-
-function urlFlag(name: string): string | null {
-  if (typeof window === 'undefined') return null;
-  return new URLSearchParams(window.location.search).get(name);
-}
 
 function BattleScreen() {
   const board = useAppStore((s) => s.board);
@@ -88,6 +91,11 @@ function BattleScreen() {
   const uiPhase = useAppStore((s) => s.uiPhase);
   const replay = useAppStore((s) => s.replay);
   const replaySpeed = useAppStore((s) => s.replaySpeed);
+  // Sequencing §5: the SECOND knob — combat dilation depth (deepens combat
+  // beats only; movement stays brisk). Read here for the replay dock's second
+  // slider; the value flows into buildReplay via the store's commit().
+  const dilationDepth = useAppStore((s) => s.dilationDepth);
+  const setDilationDepth = useAppStore((s) => s.setDilationDepth);
   const orders = useAppStore((s) => s.orders);
   const buys = useAppStore((s) => s.buys);
   const directive = useAppStore((s) => s.directive);
@@ -119,7 +127,12 @@ function BattleScreen() {
 
   const [sheet, setSheet] = useState<SheetState>(null);
   const types = useMemo(() => loadUnits(), []);
-  const autopilot = useMemo(() => urlFlag('autopilot') === 'greedy', []);
+  // FULL AUTO: read from the store (seeded from ?autopilot=greedy at store
+  // creation, then toggled live via the ⚙ gear menu). Reading it as a store
+  // selector makes the autopilot effects below REACTIVE — flipping fullAuto ON
+  // mid-game fires commitAutopilot on the next planning phase + auto-closes
+  // summaries; flipping it OFF hands control back to the player.
+  const autopilot = useAppStore((s) => s.fullAuto);
 
   // v0.9 radar: the unit whose shooting-range distances are displayed on the
   // board. null = overlay hidden. Toggled by tapping the bottom-left radar pip
@@ -167,6 +180,13 @@ function BattleScreen() {
   const [frameIdx, setFrameIdx] = useState(0);
   const [paused, setPaused] = useState(false);
   const [breakdownSlot, setBreakdownSlot] = useState<number | null>(null);
+  // §4 FOCAL SPOTLIGHT: the active beat's cells WITHIN the current combat frame
+  // — a sub-frame read driven by activeCellsAt(frame.beats, tWithinFrame). null
+  // between beats / in a gap / on a non-combat frame ⇒ the board RESTORES (no
+  // per-beat dim). Set by the rAF beat clock below (mirrors the DilationClock's
+  // elapsed-time tracking). Determinism: a pure function of (frame, t); scrub /
+  // pause hold the cursor's beat. Reduced-motion bypasses this (static board).
+  const [focalCells, setFocalCells] = useState<readonly CellId[] | null>(null);
   // P9 auto-follow suspension: the slot during which the user grabbed the
   // camera. Following resumes when playback moves to a different slot (the
   // comparison below), or via the recenter button (clears + bumps the token).
@@ -193,6 +213,16 @@ function BattleScreen() {
   // even when faster frames advance underneath).
   const [ignites, setIgnites] = useState<ReadonlySet<CellId>>(new Set());
   const igniteTimers = useRef(new Map<CellId, ReturnType<typeof setTimeout>>());
+
+  // R4 (SCREEN-SHAKE): the board container, nudged per combat beat via the Web
+  // Animations API (a pure DOM side-effect that never disturbs the React tree /
+  // remounts the Board, so the sprite motion-diff and camera state survive).
+  const boardAreaRef = useRef<HTMLElement>(null);
+
+  // R8 (AUDIO): the synth-cue toggle + per-frame cue emission. OFF by default;
+  // while OFF no AudioContext is created and `playFrame` no-ops. A pure UI side-
+  // effect — it reads the replay frame only, never game state / the frame data.
+  const audio = useCombatAudio();
 
   function clearIgnites() {
     for (const t of igniteTimers.current.values()) clearTimeout(t);
@@ -270,6 +300,39 @@ function BattleScreen() {
     return () => clearTimeout(t);
   }, [uiPhase, script, frameIdx, paused, breakdownSlot, replaySpeed, finishReplay]);
 
+  // --- R7 (SEEK / SCRUB transport) -------------------------------------------
+  // Playback is a PURE function of (resolvedTurn, t): the board render is already
+  // a pure read of frameIdx, so seeking is JUST moving the cursor — no resolver
+  // re-run, no game-state mutation (source spec §3, §12.5). seekToFrame moves the
+  // cursor to any frame in [0, len-1]; seekToTime maps an elapsed time to a frame
+  // via cumulative frame durations (frameAtTime). Both clamp to the script bounds.
+  //
+  // The advance loop above only ever calls finishReplay when it walks PAST the
+  // last frame on its timer (or on `skip`). A seek (forward OR backward) merely
+  // sets frameIdx to a valid in-range frame, so it can never re-trigger the
+  // summary/finish — scrubbing backward leaves playback live but earlier.
+  const seekToFrame = useCallback(
+    (idx: number) => {
+      if (!script) return;
+      setFrameIdx(clampFrame(idx, script.frames.length));
+    },
+    [script],
+  );
+  const seekToTime = useCallback(
+    (ms: number) => {
+      if (!script) return;
+      setFrameIdx(frameAtTime(script.frames, ms));
+    },
+    [script],
+  );
+  // R7 (SCRUB): grabbing the scrubber pauses playback so the dragged frame holds
+  // (it never fights the advance loop, which early-returns while paused). The
+  // play control then resumes — releasing the scrubber leaves it paused, the
+  // cleaner UX. No-op once playback is done (the strip is browse-only then).
+  const onScrubStart = useCallback(() => {
+    if (uiPhase === 'replay') setPaused(true);
+  }, [uiPhase]);
+
   // P9 linger: when a frame lands floaters, hold them (settled, tappable)
   // past the frame — replaced by the next volley's, expired after 2 s. The
   // timer lives in a ref so unrelated frame advances don't clear it.
@@ -287,6 +350,23 @@ function BattleScreen() {
     },
     [],
   );
+
+  // R8 (AUDIO): emit the synth cues for the current replay frame as playback
+  // advances. Fires once per shown frame (keyed by frameIdx), reads the frame's
+  // ALREADY fog-filtered FX (projectiles/floaters/bursts/kills) via the pure
+  // cuesForFrame mapper, so a hidden event is never voiced. Respects the speed
+  // multiplier (envelopes tighten at 2×). No-op while the toggle is OFF (the hook
+  // never touches an AudioContext then). Skipped on a 'skip' jump (no per-frame
+  // playback) — only audible during live frame-by-frame playback.
+  const playFrameAudio = audio.playFrame;
+  useEffect(() => {
+    if (uiPhase !== 'replay' || !script) return;
+    if (replaySpeed === 'skip') return;
+    const fr = script.frames[Math.min(frameIdx, script.frames.length - 1)];
+    if (!fr) return;
+    const speed = typeof replaySpeed === 'number' ? replaySpeed : 1;
+    playFrameAudio(fr, speed);
+  }, [uiPhase, script, frameIdx, replaySpeed, playFrameAudio]);
 
   // v1.3 trails: sync with the current frame's active trails. A trail absent
   // from the frame (its move completed) starts fading and self-removes; one
@@ -724,14 +804,11 @@ function BattleScreen() {
       });
   }, [conquest, gameBases, buys]);
 
-  // v0.7 Item 3: the compact build card anchors to where the user tapped. We
-  // record the last pointer position over the board area (capture-phase, so it
-  // fires before the cell/pip onClick that opens the sheet) and pass it as the
-  // anchor. centerOn is dropped here — the card pops up AT the click, no pan.
-  const lastPointer = useRef<{ x: number; y: number } | null>(null);
-
-  function openBuildSheet(baseCell: CellId) {
-    setSheet({ kind: 'build', baseCell, anchor: lastPointer.current ?? undefined });
+  // Phase 5: every build entry point (B pip, buy ghost, dock chip, HUD credits
+  // row) opens the full-screen BuildDashboard. `focusBase` scrolls that base's
+  // row into view on open; null opens the economy overview.
+  function openBuildDashboard(focusBase: CellId | null = null) {
+    setSheet({ kind: 'build', focusBase });
   }
 
   // --- interactions -------------------------------------------------------------
@@ -823,10 +900,10 @@ function BattleScreen() {
   //   2. visible enemy on the cell    → attack / charge
   //   3. reachable cell               → queue move
   //   4. friendly on the cell         → switch selection to that friendly
-  //   5. owned base (conquest)        → open build sheet
+  //   5. owned base (conquest)        → info sheet (build is via the B pip / HUD)
   //   6. otherwise                    → deselect (the meaningful "tap away")
   // With nothing selected:
-  //   A. owned base (conquest)        → open build sheet
+  //   A. owned base (conquest)        → info sheet (build is via the B pip / HUD)
   //   B. otherwise                    → INFO SHEET (terrain/base stats; on a
   //      dark tile InfoSheet reads "unscouted", memory shows remembered
   //      terrain — neither leaks dark truth, the cell data IS the truth and
@@ -842,10 +919,8 @@ function BattleScreen() {
 
   function onCellTap(cellId: CellId) {
     if (!selected) {
-      if (ownedBase(cellId)) {
-        setSheet({ kind: 'build', baseCell: cellId });
-        return;
-      }
+      // Phase 5: a raw base cell tap no longer opens build — the B pip (above
+      // the unit layer) owns that gesture. A bare cell tap shows the info sheet.
       openInfo(cellId); // Item 2: empty/any tile tap → info
       return;
     }
@@ -889,11 +964,12 @@ function BattleScreen() {
       selectUnit(friend.id);
       return;
     }
+    // Phase 5: an owned-base tap with a unit selected reverts to the info sheet
+    // (the B pip owns the build gesture now). Commit any pending proposal first
+    // so an explicit tap elsewhere never silently discards a set-up move.
     if (ownedBase(cellId)) {
-      // v0.9: opening a build sheet keeps any pending proposal alive? No — an
-      // explicit tap elsewhere should not silently discard it; commit it first.
       commitPendingMove();
-      setSheet({ kind: 'build', baseCell: cellId });
+      openInfo(cellId);
       return;
     }
     // v0.9: tap on an empty/unreachable cell — COMMIT any pending proposal
@@ -1043,8 +1119,149 @@ function BattleScreen() {
         attackerCell: s.attackerCell,
         defenderId: s.defenderId,
         defenderCell: s.defenderCell,
+        damage: s.damage,
       }));
   })();
+
+  // R2 (SPOTLIGHT): a pure read of the script + cursor — engaged through the
+  // combat portion (replay start → last wave frame), released in SETTLE / at
+  // replay end. One spotlight for the whole turn (computed once per round; the
+  // `active` flag just gates whether the dim is drawn at THIS frame). Absent
+  // outside replay/summary (planning never dims).
+  const roundSpotlight =
+    replayActive && script ? spotlightAt(script, frameIdx) : null;
+  // §4 FOCAL SPOTLIGHT: the finer per-beat read driven by activeCellsAt (NOT the
+  // whole-turn combatants set). `focalCells` from the beat clock above is:
+  //   • a NON-EMPTY list → spotlight JUST this beat's exchange (dim everything
+  //     else; the beat's attacker/defender + the units on those cells stay lit);
+  //   • an EMPTY list → a between-beats gap → the board RESTORES (active:false);
+  //   • null → the clock is NOT engaged (reduced-motion / non-combat / skip) →
+  //     fall back to the static round-wide R2 spotlight (the existing degraded
+  //     path; reduced-motion keeps a static dim, no flicker).
+  // Fog honesty holds: beat.activeCells never carries a withheld mist source.
+  // Units stay lit by standing on a lit cell (Board.unitSpotlight), so an empty
+  // units set is correct here.
+  const spotlight =
+    focalCells === null
+      ? roundSpotlight
+      : focalCells.length > 0
+        ? {
+            active: true,
+            combatants: { cells: new Set(focalCells), units: new Set<string>() },
+          }
+        : { active: false, combatants: (roundSpotlight ?? { combatants: { cells: new Set<CellId>(), units: new Set<string>() } }).combatants };
+
+  // R3 (DILATION): a pure read of the script + cursor — engaged only on WAVE_A
+  // (ranged/artillery) frames, released over the INTERLUDE into WAVE_B. It cools
+  // + vignettes the board and shows the analog dilation CLOCK (a screen-anchored
+  // HUD overlay, NEVER on a unit / never radar geometry), layered ON TOP of the
+  // R2 spotlight. The clock's `fade` envelope fades it in/out at the wave edges;
+  // its single gold hand sweeps `turns` (< 1 rotation across the window). Absent
+  // outside replay (planning never dilates).
+  const dilation =
+    replayActive && script ? dilationAt(script, frameIdx) : null;
+
+  // R4 (SCREEN-SHAKE): a combat frame nudges the board container by its `shake`
+  // magnitude (px at 1×, scaled with the beat's total damage — artillery the
+  // biggest of the set). Honors the replay speed (a 2× pass shakes faster via
+  // the CSS class). Pure read of the frame; reduced-motion drops the animation
+  // in CSS. Keyed by frameIdx so the shake restarts each combat beat.
+  const boardShake = frame?.shake && frame.shake > 0 ? frame.shake : 0;
+
+  // R4: fire the shake on each combat beat (keyed by frameIdx). Web Animations
+  // API so it never remounts the Board; magnitude = the frame's `shake` px,
+  // duration scaled by the replay speed. prefers-reduced-motion users get no
+  // shake (the impact marks still land — outcomes unchanged either way).
+  useEffect(() => {
+    const el = boardAreaRef.current;
+    if (!el || boardShake <= 0) return;
+    if (typeof window !== 'undefined' && typeof el.animate !== 'function') return;
+    const reduce =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) return;
+    const m = boardShake;
+    const speed = typeof replaySpeed === 'number' ? replaySpeed : 1;
+    const dur = 360 / speed;
+    const anim = el.animate?.(
+      [
+        { transform: 'translate(0px, 0px)' },
+        { transform: `translate(${m * 0.7}px, ${-m * 0.5}px)` },
+        { transform: `translate(${-m * 0.6}px, ${m * 0.4}px)` },
+        { transform: `translate(${m * 0.4}px, ${m * 0.3}px)` },
+        { transform: `translate(${-m * 0.2}px, ${-m * 0.15}px)` },
+        { transform: 'translate(0px, 0px)' },
+      ],
+      { duration: dur, easing: 'ease-out' },
+    );
+    return () => anim?.cancel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frameIdx, boardShake, replaySpeed]);
+
+  // §4 FOCAL SPOTLIGHT beat clock: while a COMBAT frame is on screen, track the
+  // elapsed time WITHIN the frame (rAF, mirroring the DilationClock's
+  // elapsedReplayTime base + re-based enteredAt) and publish the active beat's
+  // cells via activeCellsAt(frame.beats, tWithinFrame). Between beats / in a gap
+  // / before the first / after the last beat it publishes null ⇒ the board
+  // restores. PURE read of (frame, t): scrub/pause hold the cursor's beat, so a
+  // given (turn, t) always yields the same spotlight. Skipped entirely under
+  // prefers-reduced-motion (the board stays static — no per-beat dim flicker)
+  // and on the 'skip' fast jump. The advance loop is frame-by-frame, so this is
+  // the ONLY sub-frame timing source the spotlight has.
+  const replayActiveForBeats = uiPhase !== 'planning' && script !== null;
+  useEffect(() => {
+    if (!replayActiveForBeats || !script) {
+      setFocalCells(null);
+      return;
+    }
+    const reduce =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const frame = script.frames[Math.min(frameIdx, script.frames.length - 1)];
+    const beats = frame?.beats;
+    // Non-combat frame (no beats), reduced-motion, or skip → no per-beat dim.
+    if (reduce || replaySpeed === 'skip' || !beats || beats.length === 0) {
+      setFocalCells(null);
+      return;
+    }
+    if (typeof requestAnimationFrame !== 'function') {
+      // jsdom / no rAF: settle on the first beat's cells (deterministic).
+      setFocalCells(beats[0]!.activeCells);
+      return;
+    }
+    const enteredAt = typeof performance !== 'undefined' ? performance.now() : 0;
+    const base = frameStartTime(script.frames, frameIdx);
+    let raf = 0;
+    let last: string | null = null;
+    const loop = () => {
+      const now = typeof performance !== 'undefined' ? performance.now() : 0;
+      const elapsed = elapsedReplayTime(
+        script.frames,
+        frameIdx,
+        replaySpeed,
+        paused,
+        now,
+        enteredAt,
+      );
+      const tWithinFrame = elapsed - base; // ms into THIS frame at 1× speed
+      const cells = activeCellsAt(beats, tWithinFrame);
+      // Clock ENGAGED: a non-empty list = the active beat's cells; an EMPTY list
+      // = a between-beats gap (the board RESTORES). null is reserved for "clock
+      // not engaged" (reduced-motion / non-combat) so the render can tell the two
+      // apart (an empty array ⇒ restore, null ⇒ keep the round-wide spotlight).
+      const key = cells.join(',');
+      if (key !== last) {
+        last = key;
+        setFocalCells(cells);
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replayActiveForBeats, script, frameIdx, paused, replaySpeed]);
 
   const own = units.filter((u) => u.faction === PLAYER_FACTION);
   const orderedIds = orderedUnitIds(orders);
@@ -1091,12 +1308,20 @@ function BattleScreen() {
   const perBaseCredits = board.economy?.perBaseCredits ?? 100;
   const income = conquest ? ownedBaseCount(PLAYER_FACTION) * perBaseCredits : 0;
 
+  // v0.9 upkeep (addendum §5): projected per-turn upkeep over the player's
+  // living units, and the net (income − upkeep) shown beside the odometer so a
+  // buy that bleeds is visible before commit.
+  const upkeep = conquest
+    ? factionUpkeep(Object.values(game.units), PLAYER_FACTION, types, upkeepRateOf(board))
+    : 0;
+  const net = income - upkeep;
+
   // E3 credits HUD: planning = available − committed (static) + per-turn income;
   // replay = the frame's creditsAfter feed (income/spawn events tick it live).
   const creditsHud: CreditsHud | null = conquest
     ? frame
       ? { value: frame.credits ?? game.credits?.[PLAYER_FACTION] ?? 0 }
-      : { value: game.credits?.[PLAYER_FACTION] ?? 0, committed, income }
+      : { value: game.credits?.[PLAYER_FACTION] ?? 0, committed, income, upkeep, net }
     : null;
 
   // E3 baseless grace warning (§B.5): the player's own countdown only —
@@ -1146,6 +1371,12 @@ function BattleScreen() {
           onCommit={() => commit()}
           onDirective={applyDirective}
           onClearAll={clearOrders}
+          mode={conquest ? (sheet?.kind === 'build' ? 'economy' : 'map') : undefined}
+          onModeSelect={
+            conquest
+              ? (m) => (m === 'economy' ? openBuildDashboard(null) : setSheet(null))
+              : undefined
+          }
         />
       )}
       {/* #5 "Your turn" announcement — transient, non-blocking, self-fading.
@@ -1182,12 +1413,7 @@ function BattleScreen() {
           </button>
         </div>
       )}
-      <main
-        className="board-area"
-        onPointerDownCapture={(e) => {
-          lastPointer.current = { x: e.clientX, y: e.clientY };
-        }}
-      >
+      <main className="board-area" ref={boardAreaRef}>
         {frame ? (
           <Board
             board={board}
@@ -1200,16 +1426,22 @@ function BattleScreen() {
               key: frameIdx,
               fx: {
                 arcs: frame.arcs,
+                projectiles: frame.projectiles,
+                beats: frame.beats,
                 floaters: fxFloaters,
                 bursts: frame.bursts,
                 kills: frame.kills,
+                doomed: frame.doomed,
                 spawns: frame.spawns,
                 captures: frame.captures,
                 impacts: fxImpacts,
                 promotions: frame.promotions,
+                signs: frame.signs,
+                callouts: frame.callouts,
               },
             }}
             trails={trails}
+            spotlight={spotlight}
             onFloaterTap={(slot) => {
               // E3: spawn-failed floaters point at strike-less slots — no math
               // to show, so don't open an empty breakdown modal.
@@ -1231,9 +1463,9 @@ function BattleScreen() {
             discovered={discovered}
             bases={boardBases}
             buyGhosts={buyGhosts}
-            onBuyGhostTap={openBuildSheet}
+            onBuyGhostTap={(baseCell) => openBuildDashboard(baseCell)}
             buildPips={buildPips}
-            onBuildTap={openBuildSheet}
+            onBuildTap={(baseCell) => openBuildDashboard(baseCell)}
             highlights={layer1}
             selectedUnitId={selected?.id ?? null}
             ghosts={ghosts}
@@ -1254,12 +1486,42 @@ function BattleScreen() {
           />
         )}
       </main>
+      {/* R3 (DILATION): WAVE A board cooling — the board cools + a subtle vignette
+          closes (layered OVER the board and on top of the R2 spotlight), present
+          only during WAVE A (dilation.active) and a pure read of the script +
+          cursor. The clock layers on top (Phase 2). */}
+      {dilation?.active && <DilationVignette active progress={dilation.progress} />}
+      {/* Phase 2: the Swiss-railway BULLET-TIME dilation clock — a fixed
+          top-right canvas overlay present through the WHOLE replay, driven by the
+          replay's elapsed time (frameStartTime(cursor) + (now−entered)·speed).
+          It GLIDES during the move frames, blooms + grows IN PLACE at the
+          move→combat handover (overlaying the SkirmishLog for the slow-mo beat),
+          ticks in decelerating steps through WAVE_A, then recedes. Pure
+          closed-form hand model; respects pause/speed/skip/scrub. */}
+      {replayActive && script && (
+        <DilationClock
+          frames={script.frames}
+          frameIdx={frameIdx}
+          speed={replaySpeed}
+          paused={paused}
+          audio={audio.dilation}
+          audioOn={audio.enabled}
+        />
+      )}
       {/* v0.9 HUD: top-left column — Round + Credits cluster on top, casualty
           tally stacked immediately below. Fixed over the board, below modals. */}
       <div className="hud-column">
-        <HudCluster round={topRound} credits={creditsHud} />
+        <HudCluster
+          round={topRound}
+          credits={creditsHud}
+          onOpenBuild={conquest && uiPhase === 'planning' ? () => openBuildDashboard(null) : undefined}
+        />
         <CasualtyPanel casualties={casualties} unitTypes={types} />
       </div>
+      {/* Map/Economy mode toggle now lives in the top action cluster (TopCta),
+          gathered beside Commit (was a fixed bottom-center control). It sits at
+          z 26 (above the dashboard scrim z 20), so it stays tappable on the board
+          AND while the economy dashboard is open. Conquest + planning only. */}
       <SkirmishLog
         history={battleLog}
         live={
@@ -1279,12 +1541,23 @@ function BattleScreen() {
         <ReplayDock
           slots={script.slots}
           activeSlot={frame?.slot ?? -1}
+          frameIdx={frameIdx}
+          frameCount={script.frames.length}
+          elapsedMs={frameStartTime(script.frames, frameIdx)}
+          totalMs={totalDuration(script.frames)}
           speed={replaySpeed}
           paused={paused}
           done={uiPhase !== 'replay'}
           onSpeed={setReplaySpeed}
+          dilationDepth={dilationDepth}
+          onDilationDepth={setDilationDepth}
           onTogglePause={() => setPaused((p) => !p)}
           onSlotTap={(slot) => setBreakdownSlot(slot)}
+          onSeekFrame={seekToFrame}
+          onSeekTime={seekToTime}
+          onScrubStart={onScrubStart}
+          audioOn={audio.enabled}
+          onToggleAudio={audio.toggle}
           onRecenter={
             followSuspended && uiPhase === 'replay'
               ? () => {
@@ -1308,7 +1581,7 @@ function BattleScreen() {
             selectUnit(unitId);
             centerOn(unit.cell);
           }}
-          onBuyChipTap={openBuildSheet}
+          onBuyChipTap={(baseCell) => openBuildDashboard(baseCell)}
         />
       )}
       {breakdownSlot !== null && script?.slots[breakdownSlot] && (
@@ -1347,20 +1620,18 @@ function BattleScreen() {
         />
       )}
       {sheet?.kind === 'build' && !replayActive && conquest && (
-        <BuildSheet
-          baseCell={sheet.baseCell}
-          anchor={sheet.anchor}
+        <BuildDashboard
+          board={board}
+          bases={game.bases ?? {}}
+          units={game.units}
           unitTypes={types}
           credits={game.credits?.[PLAYER_FACTION] ?? 0}
-          committedElsewhere={
-            committed - (types[buys[sheet.baseCell]?.unitTypeKey ?? '']?.cost ?? 0)
-          }
-          queued={buys[sheet.baseCell]}
-          onQueue={(unitTypeKey) => {
-            const verdict = tryQueueBuy({ kind: 'buy', baseCell: sheet.baseCell, unitTypeKey });
-            if (verdict.ok) setSheet(null); // ghost + pill confirm on the board
-          }}
-          onRemove={() => removeBuyOrder(sheet.baseCell)}
+          income={income}
+          upkeepRate={upkeepRateOf(board)}
+          buys={buys}
+          focusBase={sheet.focusBase}
+          onQueue={(baseCell, unitTypeKey) => tryQueueBuy({ kind: 'buy', baseCell, unitTypeKey })}
+          onRemove={(baseCell) => removeBuyOrder(baseCell)}
           onClose={() => setSheet(null)}
         />
       )}

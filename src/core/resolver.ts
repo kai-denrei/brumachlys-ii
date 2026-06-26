@@ -68,7 +68,7 @@
 import type { Board, CellId, TerrainKey } from '../board/types';
 import { graphDistance } from '../board/geometry';
 import { initTieKey } from './rng';
-import { IMPASSABLE, enemyFrictionAt } from './pathing';
+import { IMPASSABLE, enemyFrictionAt, firstSharedCell } from './pathing';
 import { gangUpBreakdown, makeAttackedFromEntry } from './combat/gangup';
 import type { GangUpBreakdown } from './combat/gangup';
 import type { AttackContext, Combatant, ResolutionModel } from './combat/model';
@@ -84,6 +84,7 @@ import type {
   UnitInstance,
   UnitType,
 } from './types';
+import { upkeepRateOf, factionUpkeep } from './economy';
 
 /** §2.8 — both factions alive at the end of this round number ⇒ draw.
  *  SKIRMISH ONLY: conquest uses GameState.roundLimit (null = no limit). */
@@ -187,6 +188,157 @@ export function resolveRound(
     const order = stanceOf.get(u.id)!;
     u.stance = order.stance;
     events.push({ type: 'stance', unitId: u.id, stance: order.stance });
+  }
+
+  // ── A-pre. Forced-crossing pre-pass (addendum 2026-06-21 §3, Approach A) ───
+  // BEFORE the Phase A walk: detect pairs of ENEMY movers whose intended trails
+  // share at least one cell this turn (pass-by / swap — overlap need not be at
+  // the same instant). Halt BOTH crossers on the shared INTERCEPTION cell by
+  // TRUNCATING their move orders to end there; the unchanged Phase A walk then
+  // stops them on that cell and the existing Phase A.5 same-cell brawl resolves
+  // the to-the-death fight. No new combat math.
+  //
+  // Intended trail = [origin, ...order.path], with each step re-validated for
+  // adjacency + terrain passability exactly as the walk does (optimistic on
+  // fog/budget — budget/friction truncation happens in the real walk, so a
+  // crosser that falls short simply never arrives: the documented short-fall
+  // approximation, §3). The interception cell for a pair is the FIRST shared
+  // cell in the HIGHER-INITIATIVE unit's trail order (§3.3, deterministic).
+  //
+  // FIXPOINT: truncating one path can dissolve another pair's crossing, so we
+  // re-detect and iterate to a stable set (mirrors the vacancy-settlement
+  // iterate-to-stable discipline). Bounded: every truncation strictly shortens
+  // a path. Determinism: movers processed in §2.2 order; pairs ordered by the
+  // higher-init unit (§2.2) then by interception cellId.
+  {
+    /** Build a mover's validated intended trail: [origin, ...steps] keeping
+     *  only the leading run of steps that are adjacent + on passable terrain
+     *  for this unit type (the walk's per-step gate, minus budget/friction —
+     *  detection is optimistic per §3). */
+    const trailOf = (u: UnitInstance, path: readonly CellId[]): CellId[] => {
+      const ut = unitTypes[u.type];
+      const trail: CellId[] = [u.cell];
+      if (!ut) return trail;
+      let cur = u.cell;
+      for (const step of path) {
+        const curCell = board.cells.get(cur);
+        const stepCell = board.cells.get(step);
+        if (!curCell || !stepCell || !curCell.neighbors.includes(step)) break;
+        const terrainCost = ut.terrainEffects[stepCell.terrain]?.movementCost ?? IMPASSABLE;
+        if (terrainCost >= IMPASSABLE) break;
+        trail.push(step);
+        cur = step;
+      }
+      return trail;
+    };
+
+    /** All movers in §2.2 order (live, with a non-empty move order). */
+    const crossMovers = (): UnitInstance[] =>
+      [...moveOf.keys()]
+        .map((id) => next.units[id]!)
+        .filter((u): u is UnitInstance => !!u && u.count > 0 && (moveOf.get(u.id)?.path.length ?? 0) > 0)
+        .sort(cmpUnits);
+
+    // Each truncation strictly shortens a path; the total path length bounds the
+    // number of truncations, so this many iterations is a safe ceiling.
+    let crossBudget = 0;
+    for (const m of moveOf.values()) crossBudget += m.path.length;
+
+    const interrupted = new Map<string, { crossedWithId: string; cell: CellId }>();
+
+    for (let iter = 0; iter <= crossBudget; iter++) {
+      const ms = crossMovers();
+      // Trails recomputed each iteration so truncations from the prior round are
+      // reflected (a shortened path may no longer reach a later shared cell).
+      const trails = new Map<string, CellId[]>();
+      const trailSets = new Map<string, Set<CellId>>();
+      for (const u of ms) {
+        const t = trailOf(u, moveOf.get(u.id)!.path);
+        trails.set(u.id, t);
+        trailSets.set(u.id, new Set(t));
+      }
+
+      // Detect all enemy pairs with overlapping trails this iteration; each
+      // contributes a candidate (higherInit, lowerInit, interceptionCell).
+      type Pair = { hi: UnitInstance; lo: UnitInstance; cell: CellId };
+      const pairs: Pair[] = [];
+      for (let a = 0; a < ms.length; a++) {
+        for (let b = a + 1; b < ms.length; b++) {
+          const ua = ms[a]!;
+          const ub = ms[b]!;
+          if (ua.faction === ub.faction) continue; // friendlies never fight (§4)
+          // ms is sorted by cmpUnits, so ua is the higher-init unit of the pair.
+          const hiTrail = trails.get(ua.id)!;
+          const loTrail = trails.get(ub.id)!;
+          const loSet = trailSets.get(ub.id)!;
+          // Interception cell = FIRST shared cell in the higher-init trail (§3.3),
+          // but a unit's own ORIGIN is preferred LAST: a crossing is a meeting in
+          // TRANSIT, so the natural interception is a cell at least one crosser
+          // moves INTO. Picking an origin would truncate that mover to a no-move
+          // and (worse) can pick a cell the partner falls short of (head-on swaps
+          // share both origins). So scan the higher-init trail for the first
+          // shared cell that is NOT either unit's origin; fall back to the first
+          // shared cell only if every shared cell is an origin (degenerate). A
+          // mover's origin is hiTrail[0] / loTrail[0] (index 0 of its trail).
+          // The plain first-shared-cell (origin-blind) is the shared
+          // firstSharedCell helper; the origin-skipping scan below specializes it.
+          const hiOrigin = hiTrail[0]!;
+          const loOrigin = loTrail[0]!;
+          const originFallback = firstSharedCell(hiTrail, loTrail);
+          if (originFallback === null) continue; // disjoint trails — no crossing
+          let cell: CellId | null = null;
+          for (const c of hiTrail) {
+            if (!loSet.has(c)) continue;
+            if (c === hiOrigin || c === loOrigin) continue;
+            cell = c;
+            break;
+          }
+          if (cell === null) cell = originFallback;
+          pairs.push({ hi: ua, lo: ub, cell });
+        }
+      }
+      if (pairs.length === 0) break;
+
+      // Deterministic processing order: by the higher-init unit (§2.2), then by
+      // interception cellId. Truncate ONE pair per iteration so the fixpoint is
+      // strictly order-stable and each step shortens at least one path.
+      pairs.sort((p, q) => cmpUnits(p.hi, q.hi) || p.cell - q.cell);
+
+      let truncatedAny = false;
+      for (const { hi, lo, cell } of pairs) {
+        const hiOrder = moveOf.get(hi.id)!;
+        const loOrder = moveOf.get(lo.id)!;
+        const hiIdx = hiOrder.path.indexOf(cell); // -1 ⇒ cell is hi's origin
+        const loIdx = loOrder.path.indexOf(cell);
+        // Truncate each mover's path to END on the interception cell. A unit
+        // whose origin IS the cell (idx -1) keeps an empty path (it stays put,
+        // already on the brawl cell). Skip a pair that is already fully halted
+        // there (both paths already end on the cell) to keep the fixpoint moving.
+        const hiTarget = hiIdx >= 0 ? hiIdx + 1 : 0;
+        const loTarget = loIdx >= 0 ? loIdx + 1 : 0;
+        const hiAlready = hiOrder.path.length === hiTarget;
+        const loAlready = loOrder.path.length === loTarget;
+        if (hiAlready && loAlready) continue;
+        if (!hiAlready) moveOf.set(hi.id, { ...hiOrder, path: hiOrder.path.slice(0, hiTarget) });
+        if (!loAlready) moveOf.set(lo.id, { ...loOrder, path: loOrder.path.slice(0, loTarget) });
+        // Record the interruption (last write wins → the cell each unit actually
+        // halts on after all truncations; a unit dragged into multiple crossings
+        // halts on the earliest one, which the strictly-shortening order yields).
+        interrupted.set(hi.id, { crossedWithId: lo.id, cell });
+        interrupted.set(lo.id, { crossedWithId: hi.id, cell });
+        truncatedAny = true;
+        break; // one truncation per iteration → re-detect from the new state
+      }
+      if (!truncatedAny) break;
+    }
+
+    // Emit one path-interrupted event per interrupted mover, in §2.2 order so
+    // the log is deterministic. The interception cell is where each unit's
+    // (now-truncated) move ends and the Phase A.5 brawl will run.
+    for (const u of [...interrupted.keys()].map((id) => next.units[id]).filter((x): x is UnitInstance => !!x).sort(cmpUnits)) {
+      const rec = interrupted.get(u.id)!;
+      events.push({ type: 'path-interrupted', unitId: u.id, crossedWithId: rec.crossedWithId, cell: rec.cell });
+    }
   }
 
   // ── A. Movement (§2.5) ────────────────────────────────────────────────────
@@ -659,12 +811,23 @@ export function resolveRound(
       return n;
     };
 
-    // Income accrues per base owned at this moment (post-capture).
+    // Income accrues per base owned at this moment (post-capture), then upkeep
+    // is drawn on the faction's LIVING units (clamped at zero — never negative).
+    // New recruits spawn AFTER this loop, so they pay no upkeep this round.
+    const upkeepRate = upkeepRateOf(board);
     for (const faction of [0, 1] as const) {
       const owned = ownedBases(faction);
-      const amount = owned * perBase;
-      credits[faction] += amount;
-      events.push({ type: 'income', faction, bases: owned, amount, creditsAfter: credits[faction] });
+      const income = owned * perBase;
+      credits[faction] += income;
+      events.push({ type: 'income', faction, bases: owned, amount: income, creditsAfter: credits[faction] });
+
+      const living = alive().filter((u) => u.faction === faction);
+      // factionUpkeep is the shared source of truth (UI uses it too) — keep the
+      // resolver as its documented consumer so the two can never drift.
+      const due = factionUpkeep(living, faction, unitTypes, upkeepRate);
+      const paid = Math.min(credits[faction], due);
+      credits[faction] -= paid;
+      events.push({ type: 'upkeep', faction, units: living.length, amount: paid, creditsAfter: credits[faction] });
     }
 
     // Buy resolution. Sanitize mirrors the order sanitize above: unknown unit

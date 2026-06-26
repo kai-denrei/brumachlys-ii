@@ -11,8 +11,8 @@
 // driver math (flip-on-change, roll-on-change, reduced-motion snap, RAF-settle).
 // Visual fidelity is human-verified later.
 
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import { HudCluster } from '../../src/ui/HudCluster';
 import { RoundFlap } from '../../src/ui/skin/displays/RoundFlap';
 import { CreditsOdometer } from '../../src/ui/skin/displays/CreditsOdometer';
@@ -78,6 +78,72 @@ describe('HudCluster wiring (round flap + credits odometer + income)', () => {
     getByLabelText('round 3');
     // credits-hud absent in skirmish — no credits prop.
     expect(queryByTestId('credits-hud')).toBeNull();
+  });
+
+  // v0.9 upkeep (addendum §5): planning shows projected NET (income − upkeep)
+  // for the coming round end, with the income/upkeep breakdown using U+2212.
+  it('shows the net/turn line with an income − upkeep breakdown (planning)', () => {
+    const { getByText } = render(
+      <HudCluster round={7} credits={{ value: 250, income: 100, upkeep: 31, net: 69 }} />,
+    );
+    // headline net: +69/turn
+    getByText('+69/turn');
+    // breakdown detail: (+100 −31), the minus is U+2212 not a hyphen.
+    const detail = getByText(/\(\+100 −31\)/);
+    expect(detail).toBeTruthy();
+    expect(detail.textContent).not.toContain('-'); // no U+002D hyphen
+  });
+
+  it('renders a negative net with the U+2212 minus, not a hyphen', () => {
+    const { getByText } = render(
+      <HudCluster round={8} credits={{ value: 40, income: 100, upkeep: 140, net: -40 }} />,
+    );
+    const net = getByText('−40/turn');
+    expect(net).toBeTruthy();
+    expect(net.textContent).not.toContain('-'); // U+002D absent
+  });
+
+  it('clicking the credits row opens the build dashboard when wired', () => {
+    const onOpenBuild = vi.fn();
+    const { getByTestId } = render(
+      <HudCluster
+        round={9}
+        credits={{ value: 250, income: 100, upkeep: 31, net: 69 }}
+        onOpenBuild={onOpenBuild}
+      />,
+    );
+    const row = getByTestId('credits-hud');
+    expect(row.getAttribute('role')).toBe('button');
+    fireEvent.click(row);
+    expect(onOpenBuild).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the build dashboard via keyboard (Enter and Space) when wired', () => {
+    const onOpenBuild = vi.fn();
+    const { getByTestId } = render(
+      <HudCluster
+        round={9}
+        credits={{ value: 250, income: 100, upkeep: 31, net: 69 }}
+        onOpenBuild={onOpenBuild}
+      />,
+    );
+    const row = getByTestId('credits-hud');
+    // The row is focusable (tabIndex 0) and announces as a button, so it MUST be
+    // keyboard-operable (WCAG 2.1.1) — Enter and Space both activate it.
+    expect(row.getAttribute('tabindex')).toBe('0');
+    fireEvent.keyDown(row, { key: 'Enter' });
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(onOpenBuild).toHaveBeenCalledTimes(2);
+    // A non-activating key does nothing.
+    fireEvent.keyDown(row, { key: 'a' });
+    expect(onOpenBuild).toHaveBeenCalledTimes(2);
+  });
+
+  it('without onOpenBuild the credits row is not a button', () => {
+    const { getByTestId } = render(
+      <HudCluster round={10} credits={{ value: 250, income: 100, upkeep: 31, net: 69 }} />,
+    );
+    expect(getByTestId('credits-hud').getAttribute('role')).toBeNull();
   });
 });
 

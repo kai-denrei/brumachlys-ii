@@ -215,3 +215,34 @@ export function reachableCells(
   }
   return distances;
 }
+
+// ── Path intersection (shared by the resolver's forced-crossing pre-pass and
+// the AI's crossing-awareness heuristic — addendum 2026-06-22). Two intended
+// TRAILS share a cell when their cell sets overlap; this is the geometric core
+// of the forced-crossing rule (two enemy movers whose paths touch a common
+// cell halt there and brawl). Pure, O(|a| + |b|). Trails are ordered cell
+// lists (e.g. [origin, ...steps]); the helpers are order-aware only insofar as
+// `firstSharedCell` honours the ORDER of `a`.
+
+/** True iff some cell appears in BOTH cell lists (set intersection ≠ ∅). */
+export function pathsShareCell(a: readonly CellId[], b: readonly CellId[]): boolean {
+  if (a.length === 0 || b.length === 0) return false;
+  const set = new Set(b);
+  for (const c of a) {
+    if (set.has(c)) return true;
+  }
+  return false;
+}
+
+/** The FIRST cell of `a` (in `a`'s order) that also appears in `b`, or `null`
+ *  if the two lists are disjoint. Order-sensitive in `a` only — this is the
+ *  resolver's "interception cell = first shared cell in the higher-init trail"
+ *  rule, factored out so the AI judges the clash at the same cell. */
+export function firstSharedCell(a: readonly CellId[], b: readonly CellId[]): CellId | null {
+  if (a.length === 0 || b.length === 0) return null;
+  const set = new Set(b);
+  for (const c of a) {
+    if (set.has(c)) return c;
+  }
+  return null;
+}

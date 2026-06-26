@@ -240,7 +240,7 @@ export function ProposalGhost({
 // --- E3 conquest: queued-buy ghosts (addendum §B.4 mandatory messaging) -----
 // A buy queued on an owned base renders a translucent dashed-ring token on
 // the base cell plus a pill naming the purchase and when it lands. Tap →
-// the build sheet for that base (edit/remove).
+// the build dashboard, focused on that base (edit/remove).
 
 export type BuyGhostMark = {
   baseCell: CellId;
@@ -326,8 +326,8 @@ export function BuyGhosts({
 // viewing player owns. Rendered as a Board overlay ABOVE the unit layer, so a
 // unit token standing on the base (e.g. one ordered to move but not yet moved)
 // can NEVER swallow the tap — the operator's "can't buy from an occupied base"
-// complaint. Tap → open that base's build sheet regardless of selection or
-// occupancy. The deselect-then-tap-cell path stays as a fallback.
+// complaint. Tap → open the build dashboard focused on that base, regardless of
+// selection or occupancy. (Plain base-cell taps now open the info sheet.)
 
 export type BuildPipMark = {
   baseCell: CellId;
@@ -388,15 +388,17 @@ export function BuildPips({
                   strokeLinejoin="round"
                 />
               ) : (
-                // plus — open production
-                <g
-                  stroke={stroke}
-                  strokeWidth={r * 0.22}
-                  strokeLinecap="round"
+                // "B" — open the build dashboard for this base
+                <text
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize={r * 1.15}
+                  fontWeight={700}
+                  fill={stroke}
+                  pointerEvents="none"
                 >
-                  <line x1={-r * 0.46} y1={0} x2={r * 0.46} y2={0} />
-                  <line x1={0} y1={-r * 0.46} x2={0} y2={r * 0.46} />
-                </g>
+                  B
+                </text>
               )}
             </g>
           </g>

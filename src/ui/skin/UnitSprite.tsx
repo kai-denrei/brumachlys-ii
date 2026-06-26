@@ -34,9 +34,12 @@ export type UnitSpriteProps = {
   size: number;
   /** What the unit is doing right now: idle ambient / moving / firing. */
   motion?: Motion;
+  /** Horizontal facing: 1 = the sprite's native right, -1 = mirrored to face
+   *  left (toward the enemy). The strips all face right, so left flips. */
+  facing?: 1 | -1;
 };
 
-export function UnitSprite({ unitId, faction, size, motion = 'idle' }: UnitSpriteProps) {
+export function UnitSprite({ unitId, faction, size, motion = 'idle', facing = 1 }: UnitSpriteProps) {
   const plan = useMemo(() => unitSpritePlan(unitId), [unitId]);
   // move/fire are a single fixed clip per unit → derived straight from `motion`
   // (immediate, no tick needed). Only the IDLE ambient loop cycles clips, so
@@ -67,7 +70,9 @@ export function UnitSprite({ unitId, faction, size, motion = 'idle' }: UnitSprit
   const box = size * SPRITE_SCALE;
   const h = size / 2;
   return (
-    <g className="unit-sprite">
+    // Mirror the whole sprite (art + shadow + hit rect, all centered/symmetric)
+    // around the token center to face left. The flip is instant — no transition.
+    <g className="unit-sprite" transform={facing === -1 ? 'scale(-1, 1)' : undefined}>
       {/* Transparent tap target the size of the old squircle: the sprite art is
           pointer-transparent, so the token still selects / long-presses exactly
           as before instead of taps falling through to the cell underneath. */}

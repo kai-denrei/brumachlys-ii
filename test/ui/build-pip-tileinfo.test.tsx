@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// v0.7 Item 1 — owned-base build pips (BuildPips overlay): a tappable "＋" pip
+// v0.7 Item 1 — owned-base build pips (BuildPips overlay): a tappable "B" pip
 // on every owned base, queued bases read a check; the tap fires onBuild with
 // the base cell. v0.7 Item 2 — InfoSheet tier behavior: dark cells read
 // "unscouted" with NO terrain leak; memory/live show terrain; base status line.
@@ -54,6 +54,9 @@ describe('BuildPips (v0.7 Item 1)', () => {
     );
     const pip = container.querySelector('[data-build-pip="0"]')!;
     expect(pip).toBeTruthy();
+    // unqueued base reads a centered "B" glyph (routes to the build dashboard).
+    expect(pip.querySelector('text')?.textContent).toBe('B');
+    expect(pip.getAttribute('aria-label')).toBe('build at base 0');
     fireEvent.click(pip);
     expect(onBuild).toHaveBeenCalledWith(0);
   });

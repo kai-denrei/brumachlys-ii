@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from 'react';
 import type { DirectiveKind, DirectiveState } from '../state/store';
+import { ModeToggle, type AppMode } from './ModeToggle';
 
 export const DIRECTIVE_LABEL: Record<DirectiveKind, string> = {
   'forward-deploy': 'Forward Deploy',
@@ -37,6 +38,10 @@ export type TopCtaProps = {
   onCommit?: () => void;
   onDirective?: (kind: DirectiveKind) => void;
   onClearAll?: () => void;
+  /** Conquest only — the Map/Economy view toggle, gathered into the action row
+   *  beside Commit (replaces the old fixed bottom-center placement). */
+  mode?: AppMode;
+  onModeSelect?: (mode: AppMode) => void;
 };
 
 export function TopCta({
@@ -49,6 +54,8 @@ export function TopCta({
   onCommit,
   onDirective,
   onClearAll,
+  mode,
+  onModeSelect,
 }: TopCtaProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -91,6 +98,7 @@ export function TopCta({
         <button className="cta-pill cta-commit" data-testid="commit-button" onClick={commit}>
           COMMIT {done}/{total}
         </button>
+        {mode && onModeSelect && <ModeToggle mode={mode} onSelect={onModeSelect} />}
       </div>
       {directive && !menuOpen && !confirming && (
         <div className="cta-directive-chip" data-testid="directive-chip">

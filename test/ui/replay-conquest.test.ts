@@ -109,6 +109,38 @@ describe('conquest replay — income', () => {
   });
 });
 
+describe('conquest replay — upkeep', () => {
+  it('own upkeep ticks credits down + logs the draw (U+2212 minus); enemy upkeep is silent', () => {
+    const units = [makeUnit('pi', 0, 2)];
+    const events: ResolutionEvent[] = [
+      { type: 'income', faction: 0, bases: 2, amount: 200, creditsAfter: 450 },
+      { type: 'upkeep', faction: 0, units: 3, amount: 31, creditsAfter: 419 },
+      { type: 'income', faction: 1, bases: 3, amount: 300, creditsAfter: 999 },
+      { type: 'upkeep', faction: 1, units: 5, amount: 77, creditsAfter: 922 },
+    ];
+    const script = build(units, events, { bases: { 0: 0, 1: 0 }, credits: 250 });
+    expect(script.frames.length).toBe(3); // establish + own income + own upkeep
+    expect(script.frames[2]!.credits).toBe(419);
+    // U+2212 minus (not a hyphen): "upkeep −31 · ◈ 419"
+    expect(logText(script)).toContain('upkeep −31 · ◈ 419');
+    // enemy upkeep never surfaces (no witnessable cell)
+    expect(logText(script)).not.toContain('77');
+    expect(logText(script)).not.toContain('922');
+  });
+
+  it('a zero-amount upkeep (rate 0) ticks credits but adds no frame or log line', () => {
+    const units = [makeUnit('pi', 0, 2)];
+    const events: ResolutionEvent[] = [
+      { type: 'income', faction: 0, bases: 1, amount: 100, creditsAfter: 350 },
+      { type: 'upkeep', faction: 0, units: 2, amount: 0, creditsAfter: 350 },
+    ];
+    const script = build(units, events, { bases: { 0: 0 }, credits: 250 });
+    expect(script.frames.length).toBe(2); // establish + own income only; no upkeep beat
+    expect(script.frames[1]!.credits).toBe(350);
+    expect(logText(script)).not.toContain('upkeep');
+  });
+});
+
 describe('conquest replay — spawn (blind buys)', () => {
   const spawn = (
     unitId: string,

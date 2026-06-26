@@ -12,6 +12,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import type { Board, Cell, CellId, TerrainKey, Vec2 } from '../../src/board/types';
 import type { FactionId, GameState, UnitInstance } from '../../src/core/types';
 import type { ReplayFrame, ReplayScript } from '../../src/state/replay';
+import { layoutPhases } from '../../src/state/replay-timing';
 import { useAppStore } from '../../src/state/store';
 import { App } from '../../src/App';
 
@@ -77,6 +78,8 @@ function minScript(
     frames: [minFrame(units)],
     log: [],
     discovered: new Set<CellId>(),
+    phases: layoutPhases(),
+    combatants: { cells: new Set<CellId>(), units: new Set<string>() },
     summary: {
       kills: [],
       damageDealt: [0, 0],
