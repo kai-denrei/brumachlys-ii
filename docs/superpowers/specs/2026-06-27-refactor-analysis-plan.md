@@ -112,12 +112,18 @@ sharing a name/concept, not real dupes.** Only one small win was real and shippe
   restructure, not a type-only freebie. Deferred to Phase 4/7.
 - ⏸ **AI2/AI4 extractions** — touch the brittle FROZEN planner for ~5 LOC; risk/reward poor. Deferred.
 
-## Phase 4 — Component decomposition  ·  risk: medium (UI structure; logic unchanged)
+## Phase 4 — Component decomposition  ·  risk: medium (UI structure; logic unchanged)  ·  **IN PROGRESS**
 Regression suite is the guard; move code, not logic.
-- **App.tsx 1686 → assembler** (A1–A8/AR1): extract `useReplayDriver`, `useBeatClock`,
-  `useAnnouncement`, `useKeyboardShortcuts`, `usePlanningLayer`, store-facade hooks; split
-  `<PlanningBoard>`/`<ReplayBoard>` containers. **Preserve wall-clock-from-mount** (enteredAt
-  resets only on mount/script change; seek = cursor move only).
+- **App.tsx 1686 → assembler** (A1–A8/AR1): extract hooks into `src/ui/hooks/`.
+  - ✅ **DONE (verbatim, 1293 green, tsc clean):** `useKeyboardShortcuts` (Enter/Escape),
+    `useAnnouncement` (the "Your turn" auto-advance + backstop timer + phase-exit clear),
+    `useAutopilot` (Full-Auto demo driver). **App.tsx 1686 → 1523.**
+  - ⏳ **REMAINING — higher risk, want in-browser verification before merge:** `useReplayDriver`
+    (frameIdx + advance loop + seek — ~50 frameIdx readers, wide interface), `useBeatClock`
+    (rAF beat clock — **wall-clock-from-mount determinism**, the area past reviewers got false
+    positives on), `usePlanningLayer` (~15 interdependent memos — staleness risk unit tests may
+    miss), store-facade hooks, `<PlanningBoard>`/`<ReplayBoard>` containers. **Preserve
+    wall-clock-from-mount** (enteredAt resets only on mount/script change; seek = cursor move only).
 - **App→Board 30-prop drill → `useReplayFrame()`** returning one compact frame object (B3/AR2).
 - **Board.tsx layer split** (B4): `<BoardCells/Highlights/Ghosts/Units/Overlays>`.
 - **ReplayFx → `src/ui/skin/fx/` tree** (FX1/FX2/FX3): projectiles/impacts/unit-verbs/callouts +
