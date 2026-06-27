@@ -112,23 +112,26 @@ sharing a name/concept, not real dupes.** Only one small win was real and shippe
   restructure, not a type-only freebie. Deferred to Phase 4/7.
 - ⏸ **AI2/AI4 extractions** — touch the brittle FROZEN planner for ~5 LOC; risk/reward poor. Deferred.
 
-## Phase 4 — Component decomposition  ·  risk: medium (UI structure; logic unchanged)  ·  **IN PROGRESS**
+## Phase 4 — Component decomposition  ·  risk: medium (UI structure; logic unchanged)  ·  **clean hooks DONE**
 Regression suite is the guard; move code, not logic.
-- **App.tsx 1686 → assembler** (A1–A8/AR1): extract hooks into `src/ui/hooks/`.
-  - ✅ **DONE (verbatim, 1293 green, tsc clean):** `useKeyboardShortcuts` (Enter/Escape),
-    `useAnnouncement` (the "Your turn" auto-advance + backstop timer + phase-exit clear),
-    `useAutopilot` (Full-Auto demo driver), `useBeatClock` (the §4 focal-spotlight rAF clock —
-    wall-clock-from-mount preserved verbatim). **App.tsx 1686 → 1463.** All in `src/ui/hooks/`.
-  - ⏳ **REMAINING — wide/intricate, do AFTER the in-browser checkpoint:** `useReplayDriver`
-    (frameIdx/paused/breakdownSlot + advance loop + seek — ~30 readers, and the "new script →
-    restart" effect resets driver + non-driver state together; widest extraction),
-    `usePlanningLayer` (~15 interleaved memos spanning ~500 lines — staleness risk unit tests may
-    miss), store-facade hooks, `<PlanningBoard>`/`<ReplayBoard>` containers. **Preserve
-    wall-clock-from-mount** (enteredAt resets only on mount/script change; seek = cursor move only).
-  - 🔎 **IN-BROWSER CHECK (next):** verify the 4 extracted hooks at localhost — per-beat focal
-    spotlight dim during combat; "Your turn — R{n}" pill on round end (+ reduced-motion backstop);
-    Enter (dismiss → commit-proposal → commit-round) / Escape (clear → deselect); Full-Auto
-    (`?autopilot=greedy`) self-plays.
+- **App.tsx 1686 → 1411 (−16%)** (A1–A8/AR1): 5 hooks extracted into `src/ui/hooks/` + the Phase-1
+  `board-geometry` move.
+  - ✅ **DONE (verbatim pure moves, 1293 green + tsc clean each):** `useKeyboardShortcuts`
+    (Enter/Escape), `useAnnouncement` ("Your turn" auto-advance + backstop + phase-exit clear),
+    `useAutopilot` (Full-Auto), `useBeatClock` (§4 focal-spotlight rAF clock — wall-clock-from-mount
+    verbatim), `useReplayDriver` (frameIdx/paused/breakdownSlot + advance loop + seek/scrub; resets
+    its own state on [script]; ~30 readers consume the returned values).
+  - 🛑 **STOPPED HERE — the rest is interaction-core entanglement, NOT cleanly extractable blind:**
+    `usePlanningLayer` is woven into App — its `friendlyAt`/`visibleEnemyAt`/`pathOpts` helpers are
+    used by the event handlers (onCellTap) + render, not just the ~15 memos, and the planning outputs
+    are read at ~126 sites. Same for the `<PlanningBoard>`/`<ReplayBoard>` containers (B3/AR2 prop
+    drill) and store slicing (ST1). These need dedicated design **with in-browser validation**
+    (planning taps are exactly what the unit suite covers incompletely) — pair them with the
+    deferred bug-fix + localhost session. Doing them blind risks staleness regressions tests miss.
+  - 🔎 **IN-BROWSER CHECK (deferred to the bug session):** the 5 extracted hooks are unit-verified
+    (replay-seek-app/round-tempo/dilation-app/full-auto/propose-confirm/recap cover them) but a
+    localhost pass is still owed — spotlight dim, "Your turn" pill, Enter/Escape, Full-Auto,
+    seek/scrub/pause. (That session also fixes the 2 pre-existing FX bugs — see memory `replay-fx-open-issues`.)
 - **App→Board 30-prop drill → `useReplayFrame()`** returning one compact frame object (B3/AR2).
 - **Board.tsx layer split** (B4): `<BoardCells/Highlights/Ghosts/Units/Overlays>`.
 - **ReplayFx → `src/ui/skin/fx/` tree** (FX1/FX2/FX3): projectiles/impacts/unit-verbs/callouts +
