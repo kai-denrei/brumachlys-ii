@@ -1,14 +1,22 @@
 # Refactor Analysis — verified, prioritized phased plan
 
 ## ▶ RESUME STATE (2026-06-28) — read this first
-**DONE + pushed on `sprite-animation` (all green: 1295 tests, `tsc -b`, purity, prod build):**
+**DONE + green (all green: 1302 tests, `tsc -b`, purity, prod build):**
 audit · **P1** hygiene · **P2** test-kit · **P3** (mostly dissolved on survey) · **P4 partial** — 5
 App hooks + **`usePlanningLayer`** (App 1686→1252) · **P5** — B5 spriteByUnit O(N²)→O(N) + *measured*
 no per-frame render hotspot (rest premature) · **P6** — C1 palette tokens + C3 split styles.css→12
-modules. Plus the 2 replay-FX bugs (fog-vs-spotlight + tracer-laser). See each phase below for detail.
+modules. **P7 STARTED — AI9 (test half) DONE:** byte-identity GOLDEN-MASTER net for the greedy
+planner (`test/ai/planner-golden.test.ts` + `test/ai/__fixtures__/*.json`) — the safety net AI7
+needs. Pins the planner's full per-round order stream across: 3 vs-do-nothing full games (seeds
+16/31/38, the §13.6 acceptance companion), a greedy-vs-greedy mirror (seed 16 — the only
+moving-enemy vector: 17 defensive stances), a conquest game (seed 7 — buys + captures), and the
+synthetic focus-fire board. GEN_GOLDEN-gated regen (NOT `vitest -u`) + CI-no-regen guard + LF-pinned
++ skeptic-reviewed. Plus the 2 replay-FX bugs (fog-vs-spotlight + tracer-laser). See phases below.
 
-**NEXT = Phase 7** (high-risk type/replay/AI). **Then** the two deferred P4 items (PlanningBoard/
-ReplayBoard containers + store slicing ST1/2/3 — the biggest).
+**NEXT = Phase 7 cont.** Recommended order now that the AI net exists: **AI7** `planUnit` decompose
+(gated by the new golden — must stay byte-identical), then the remaining type/replay items (T3,
+FX5/T2, R1). **Then** the two deferred P4 items (PlanningBoard/ReplayBoard containers + store
+slicing ST1/2/3 — the biggest).
 
 **P7 DISCIPLINE (non-negotiable, see §Phase 7 + Risk Register + the bottom resumption note):**
 work **sequentially, NO Workflow fan-out** (16 GB box — memory `no-workflow-fanout-on-kainode`); gate
@@ -218,8 +226,22 @@ before merge. Some are DEFER/DROP.
   `fromMist`).
 - `buildReplay` → extract `handleAttackRun` (R1) — **MED**, line-947 visibility recompute is
   load-bearing; do not reorder.
-- AI `planUnit` decompose (AI7 — MED); AI scorer API + unit tests (AI9). **DROP/DEFER:** R6 (vision
-  cache), AI10 (ConquestMovementPlanner) — reorder risk outweighs gain.
+- ✅ **DONE (AI9 test half, 2026-06-28):** byte-identity GOLDEN MASTER of the greedy planner's full
+  output, `test/ai/planner-golden.test.ts` (+ `__fixtures__/*.json`). The pre-existing AI net was
+  property-only (greedy wins ≥2/3 seeds) + a coarse same-seed-final-state determinism check — it did
+  NOT pin the per-round ORDER stream, so a tie-break/target drift from an AI7 refactor could pass
+  silently. The golden closes that: it records the COMPLETE order stream and fails on any drift.
+  Vectors: 3 vs-do-nothing full games (seeds 16/31/38 — mirrors acceptance `playGame` byte-for-byte),
+  a greedy-vs-greedy mirror (seed 16 — only moving-enemy vector; covers enemy-reactive + 17 defensive
+  stances), a conquest game (seed 7 — `planConquest` buys + capture orders; closes the conquest-blind
+  gap since planUnit/scorer is shared), + the synthetic focus-fire board (isolates the scorer with no
+  resolver). Discipline: regen is `GEN_GOLDEN`-gated (NOT `vitest -u`) so a refactor drift can't be
+  swept by an auto-update; a CI guard forbids regen in CI; `.gitattributes` pins LF; verified
+  deterministic (byte-stable across regen) + teeth-checked (corrupt a value → red). Independent
+  skeptic reviewed (PASS-WITH-FIXES → all fixes applied: faithfulness, CRLF, CI guard, +mirror,
+  +conquest, rng-comment). **NOTE:** the AI9 "scorer API" extraction is folded into AI7 — do it there.
+- AI `planUnit` decompose (AI7 — MED): now GATED by the AI9 golden — output must stay byte-identical.
+  **DROP/DEFER:** R6 (vision cache), AI10 (ConquestMovementPlanner) — reorder risk outweighs gain.
 
 ---
 

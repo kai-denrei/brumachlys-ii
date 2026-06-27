@@ -1,0 +1,1042 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            14,
+            535
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-1-humvee",
+          "path": [
+            280,
+            2,
+            518,
+            19,
+            174
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-2-ranger",
+          "path": [
+            535,
+            30,
+            331,
+            38
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            246,
+            247,
+            523
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            14
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-5-tank",
+          "path": [
+            14,
+            535,
+            30,
+            331
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            14,
+            471
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-7-heavytank",
+          "path": [
+            523,
+            333,
+            332
+          ]
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            30
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-1-humvee",
+          "path": [
+            38,
+            159,
+            26,
+            334,
+            58
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-2-ranger",
+          "path": [
+            159,
+            26,
+            334,
+            150
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            30,
+            331,
+            38
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            247,
+            523
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-5-tank",
+          "path": [
+            38,
+            159,
+            26,
+            334
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            202,
+            204
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-7-heavytank",
+          "path": [
+            155,
+            157,
+            44
+          ]
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            331
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-1-humvee",
+          "path": [
+            126,
+            142,
+            141,
+            463,
+            146
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-2-ranger",
+          "path": [
+            58,
+            126,
+            142,
+            141
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            159,
+            26,
+            336
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            333,
+            332
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-5-tank",
+          "path": [
+            58,
+            433,
+            88
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            174,
+            38
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-7-heavytank",
+          "path": [
+            148,
+            58,
+            433
+          ]
+        }
+      ]
+    },
+    {
+      "round": 4,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            38,
+            159
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-1-humvee",
+          "path": [
+            474,
+            514,
+            461
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-1-humvee",
+          "stance": "defensive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-2-ranger",
+          "path": [
+            463
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-2-ranger",
+          "stance": "defensive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            40,
+            501,
+            57
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            155,
+            157
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-5-tank",
+          "path": [
+            462,
+            94,
+            527,
+            95
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-5-tank",
+          "stance": "defensive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            159,
+            26
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-7-heavytank",
+          "path": [
+            88,
+            462,
+            106
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-7-heavytank",
+          "stance": "defensive"
+        }
+      ]
+    },
+    {
+      "round": 5,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            26,
+            334
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-1-humvee",
+          "path": [
+            460
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-1-humvee",
+          "targetCell": 96
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-1-humvee",
+          "stance": "aggressive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-2-ranger",
+          "path": [
+            473,
+            514,
+            461
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-2-ranger",
+          "targetCell": 96
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-2-ranger",
+          "stance": "aggressive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            124,
+            58,
+            136
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            44,
+            150
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-5-tank",
+          "path": [
+            94,
+            490
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-5-tank",
+          "targetCell": 96
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-5-tank",
+          "stance": "aggressive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            334,
+            58
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-7-heavytank",
+          "path": [
+            462,
+            77,
+            143
+          ]
+        }
+      ]
+    },
+    {
+      "round": 6,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            58,
+            127
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-1-humvee",
+          "path": [
+            364
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-1-humvee",
+          "targetCell": 363
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-2-ranger",
+          "path": [
+            491
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-2-ranger",
+          "targetCell": 363
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            58,
+            501
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-5-tank",
+          "targetCell": 363
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            433,
+            88
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-6-artillery",
+          "targetCell": 508
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-7-heavytank",
+          "path": [
+            125,
+            57
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-7-heavytank",
+          "stance": "aggressive"
+        }
+      ]
+    },
+    {
+      "round": 7,
+      "orders": [
+        {
+          "kind": "attack",
+          "unitId": "f0-1-humvee",
+          "targetCell": 362
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-2-ranger",
+          "path": [
+            363
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-2-ranger",
+          "targetCell": 362
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            141,
+            463
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-6-artillery",
+          "targetCell": 365
+        }
+      ]
+    },
+    {
+      "round": 8,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            125,
+            143
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            58,
+            433,
+            88
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            57,
+            532
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            473,
+            514
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-6-artillery",
+          "stance": "defensive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-7-heavytank",
+          "path": [
+            130,
+            147,
+            146
+          ]
+        }
+      ]
+    },
+    {
+      "round": 9,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            77,
+            463
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-0-sniper",
+          "stance": "defensive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            462,
+            94,
+            527
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-3-infantry",
+          "stance": "defensive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            77,
+            141
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            461
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-7-heavytank",
+          "path": [
+            474,
+            514,
+            326
+          ]
+        }
+      ]
+    },
+    {
+      "round": 10,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            464
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-0-sniper",
+          "targetCell": 108
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-0-sniper",
+          "stance": "aggressive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            461,
+            364
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-3-infantry",
+          "targetCell": 362
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-3-infantry",
+          "stance": "aggressive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            463,
+            472
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-4-grenadier",
+          "stance": "defensive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            514,
+            474
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-6-artillery",
+          "targetCell": 108
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-6-artillery",
+          "stance": "aggressive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-7-heavytank",
+          "path": [
+            95,
+            461
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-7-heavytank",
+          "stance": "defensive"
+        }
+      ]
+    },
+    {
+      "round": 11,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            490
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-0-sniper",
+          "targetCell": 507
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            461,
+            527
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-3-infantry",
+          "stance": "defensive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            68
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            472
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-6-artillery",
+          "targetCell": 507
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-7-heavytank",
+          "path": [
+            364
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-7-heavytank",
+          "targetCell": 362
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-7-heavytank",
+          "stance": "aggressive"
+        }
+      ]
+    },
+    {
+      "round": 12,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            96,
+            362
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-0-sniper",
+          "targetCell": 508
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            96,
+            363
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-3-infantry",
+          "targetCell": 365
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-3-infantry",
+          "stance": "aggressive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            144
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            79,
+            527
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-6-artillery",
+          "targetCell": 508
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-7-heavytank",
+          "path": [
+            362,
+            108
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-7-heavytank",
+          "targetCell": 508
+        }
+      ]
+    },
+    {
+      "round": 13,
+      "orders": [
+        {
+          "kind": "attack",
+          "unitId": "f0-0-sniper",
+          "targetCell": 507
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            364,
+            461,
+            206
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            77,
+            472
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-4-grenadier",
+          "stance": "aggressive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            461,
+            364
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-6-artillery",
+          "targetCell": 118
+        }
+      ]
+    },
+    {
+      "round": 14,
+      "orders": [
+        {
+          "kind": "stance",
+          "unitId": "f0-0-sniper",
+          "stance": "defensive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            461,
+            527
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            146
+          ]
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            363,
+            492
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-6-artillery",
+          "targetCell": 118
+        }
+      ]
+    },
+    {
+      "round": 15,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            365
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-0-sniper",
+          "targetCell": 118
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-0-sniper",
+          "stance": "aggressive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-4-grenadier",
+          "path": [
+            463
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-4-grenadier",
+          "stance": "defensive"
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-6-artillery",
+          "path": [
+            108,
+            362
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-6-artillery",
+          "targetCell": 118
+        }
+      ]
+    },
+    {
+      "round": 16,
+      "orders": [
+        {
+          "kind": "move",
+          "unitId": "f0-0-sniper",
+          "path": [
+            108,
+            492
+          ]
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-0-sniper",
+          "targetCell": 118
+        },
+        {
+          "kind": "move",
+          "unitId": "f0-3-infantry",
+          "path": [
+            96,
+            362,
+            365
+          ]
+        },
+        {
+          "kind": "stance",
+          "unitId": "f0-3-infantry",
+          "stance": "defensive"
+        },
+        {
+          "kind": "attack",
+          "unitId": "f0-6-artillery",
+          "targetCell": 118
+        }
+      ]
+    }
+  ],
+  "finalRound": 17,
+  "outcome": {
+    "winner": 0,
+    "reason": "annihilation"
+  },
+  "survivors": {
+    "f0": 4,
+    "f1": 0
+  }
+}
