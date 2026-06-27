@@ -6,7 +6,13 @@ and the prioritized phased plan below is now written. **Phase 1 (hygiene / dead 
 helper extraction) is COMPLETE** — byte-identical, tsc clean, 1293/1293 green, purity
 green (new `src/ui/board-geometry.ts` + `src/ui/text-format.ts`, 3 `fmtRange` copies
 merged, 3 in-file-only exports un-exported, `markDirectiveModified` hoisted, determinism
-guardrail comments added). **Phases 2–7 are sequenced but not started.**
+guardrail comments added). **Phase 2 (shared test-kit) is COMPLETE** — new `test/fixtures.ts`
+(canonical `bd` + `assertByteIdentical` seam + synthetic re-exports); the `bd` AttackBreakdown
+factory deduped across 11 files (byte-identical, verified by hashing; 1293 green). *Deferred
+within P2 (lower value / variant-heavy):* `toScreen` (8 identical copies — trivial follow-on),
+and `unit`/`lineBoard`/`rowBoard` (genuinely divergent per-test bodies — merging would risk
+masking), plus the vitest jsdom/node split (TS5) and AI seed-lock doc (TS4). **Phases 3–7 not
+started.**
 
 > **Why this was paused (do not repeat):** the original `refactor-analysis` workflow
 > ran ~14 audit auditors **concurrently** (`pipeline`, capped at `min(16, cores−2)` =
