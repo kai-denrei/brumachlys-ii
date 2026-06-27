@@ -17,7 +17,7 @@ import { useEffect, useState } from 'react';
 import type { DirectiveKind, DirectiveState } from '../state/store';
 import { ModeToggle, type AppMode } from './ModeToggle';
 
-export const DIRECTIVE_LABEL: Record<DirectiveKind, string> = {
+const DIRECTIVE_LABEL: Record<DirectiveKind, string> = {
   'forward-deploy': 'Forward Deploy',
   'tactical-retreat': 'Tactical Retreat',
   fortify: 'Fortify',

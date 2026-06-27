@@ -12,6 +12,7 @@ import type { UnitInstance, UnitType } from '../core/types';
 import { IMPASSABLE } from '../core/pathing';
 import { loadUnits } from '../io/data-loader';
 import { UnitRenderer } from './skin';
+import { fmtRange } from './text-format';
 import { projectBoard } from './skin/board-projection';
 
 // ---------------------------------------------------------------------------
@@ -165,11 +166,6 @@ const TERRAIN_NAME: Record<TerrainKey, string> = {
   water: 'Water',
   base: 'Base',
 };
-
-/** min–max range, collapsed when min = max. En dash, never a hyphen. */
-export function fmtRange(min: number, max: number): string {
-  return min === max ? String(max) : `${min}–${max}`;
-}
 
 /** +2 / 0 / −2 — typographic minus (U+2212), keeping the modal hyphen free. */
 function fmtBonus(v: number): string {

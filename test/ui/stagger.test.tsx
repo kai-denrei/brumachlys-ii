@@ -8,7 +8,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { Board as BoardGraph, Cell, CellId } from '../../src/board/types';
 import type { UnitInstance } from '../../src/core/types';
-import { Board, staggerLayout } from '../../src/ui/Board';
+import { Board } from '../../src/ui/Board';
+import { staggerLayout } from '../../src/ui/board-geometry';
 
 afterEach(cleanup);
 

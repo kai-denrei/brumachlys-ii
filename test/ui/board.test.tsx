@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { Board as BoardGraph, Cell, CellId } from '../../src/board/types';
 import type { UnitInstance } from '../../src/core/types';
-import { Board, computeFollowView } from '../../src/ui/Board';
+import { Board } from '../../src/ui/Board';
+import { computeFollowView } from '../../src/ui/board-geometry';
 import { PALETTE } from '../../src/ui/skin';
 
 afterEach(cleanup);

@@ -372,6 +372,17 @@ export type ConquestReplayCtx = {
   credits: number;
 };
 
+/**
+ * Build the deterministic ReplayScript from resolver events. THREE-STAGE
+ * contract (order is load-bearing — DIM2 / spec §5):
+ *   1. fog-honest event walk — applies damage/kills to the sim in resolution
+ *      order, recomputing visibility per attack (a prior kill can shift fog);
+ *   2. wave regroup — a pure PERMUTATION of frames/slots (no re-resolution);
+ *   3. settle-beat insertion — a post-pass that defers visuals, not logic.
+ * Pure function of (board, events, …): same input → byte-identical script
+ * (replay-build.test.ts vectors are the contract). Do NOT reorder the stages or
+ * batch the per-attack visibility recompute.
+ */
 export function buildReplay(
   board: Board,
   baseUnits: readonly UnitInstance[],

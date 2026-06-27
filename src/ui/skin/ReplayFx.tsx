@@ -5,6 +5,15 @@
 // `fx-*` classes); the Board remounts this group per frame (key=frame index)
 // so they restart cleanly.
 //
+// ⚠ DETERMINISM INVARIANT (spec §3 / §10.4 — do NOT break in any refactor):
+// FX timing is WALL-CLOCK-FROM-MOUNT. The Board remounts this whole group via
+// `key={replayFx.key}` each frame (Board.tsx); that keyed remount re-arms every
+// CSS animation from its start. There is NO `animation-play-state`, and `paused`
+// is NEVER threaded into FX. SMIL animations that don't honour a fresh mount are
+// patched to the same model via `beginElement()` (see Shell). When extracting
+// sub-renderers (the planned fx/ split), keep the remount at Board and never add
+// a per-effect replay clock — replay must stay a pure function of (script, cursor).
+//
 // v0.6 FX VOCABULARY (Ask 7) — minimal-vector verbs, ALL ≤500 ms, effects
 // confirm what the data already shows (never compete with it), and they
 // overlap the existing frame timing — playback never slows for them:
@@ -1202,7 +1211,7 @@ function floaterColors(
  *  is gentle (≈√magnitude) so a 1-damage tick and a 99-damage haymaker differ
  *  clearly but the big number never overruns its pill / neighbours.
  *    1 → 1.00×   ·   12 → ~1.30×   ·   99+ → 1.40× (the clamp ceiling). */
-export function floaterSizeScale(text: string): number {
+function floaterSizeScale(text: string): number {
   const mag = Math.abs(parseInt(text.replace(/[^0-9-]/g, ''), 10));
   if (!Number.isFinite(mag) || mag <= 1) return 1;
   // √-ramp from 1×, +~0.115 per √step, clamped to 1.4× so it stays bounded.

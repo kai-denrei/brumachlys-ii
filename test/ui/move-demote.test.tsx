@@ -13,7 +13,8 @@ import { act, cleanup, render } from '@testing-library/react';
 import type { Board as BoardGraph, Cell, CellId } from '../../src/board/types';
 import type { UnitInstance } from '../../src/core/types';
 import { useAppStore } from '../../src/state/store';
-import { Board, DEMOTE_SCALE, demoteSlot } from '../../src/ui/Board';
+import { Board } from '../../src/ui/Board';
+import { DEMOTE_SCALE, demoteSlot } from '../../src/ui/board-geometry';
 
 afterEach(cleanup);
 

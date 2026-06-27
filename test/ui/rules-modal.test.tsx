@@ -8,7 +8,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import unitsJson from '../../data/units.json';
 import { TopBar } from '../../src/ui/TopBar';
-import { RulesModal, fmtRange } from '../../src/ui/RulesModal';
+import { RulesModal } from '../../src/ui/RulesModal';
+import { fmtRange } from '../../src/ui/text-format';
 
 afterEach(cleanup);
 

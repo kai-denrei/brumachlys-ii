@@ -5,7 +5,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { EMPTY_RECAP, useAppStore } from '../../src/state/store';
-import { GameOverBanner, outcomeText } from '../../src/ui/Replay';
+import { GameOverBanner } from '../../src/ui/Replay';
+import { outcomeText } from '../../src/ui/text-format';
 
 afterEach(cleanup);
 

@@ -7,6 +7,7 @@ import type { Stance, UnitInstance, UnitType } from '../core/types';
 import type { OrderKind, UnitOrders } from '../core/orders';
 import { IMPASSABLE } from '../core/pathing';
 import { UnitRenderer } from './skin';
+import { fmtRange } from './text-format';
 
 function SheetShell({
   title,
@@ -221,11 +222,6 @@ export function InfoSheet({
       {occupant && occupantType && <UnitCard unit={occupant} unitType={occupantType} />}
     </SheetShell>
   );
-}
-
-/** min–max range, collapsed to one number when min = max. */
-function fmtRange(min: number, max: number): string {
-  return min === max ? String(max) : `${min}–${max}`;
 }
 
 /** The verbose unit-stats card — the §9.5 long-press info sheet's detail
