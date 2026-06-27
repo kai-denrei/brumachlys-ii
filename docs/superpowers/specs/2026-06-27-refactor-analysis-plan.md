@@ -133,14 +133,20 @@ Regression suite is the guard; move code, not logic.
   `combine()`; move pure helpers (settleDependentOrders→core, countWitnessedBrawls→state/replay)
   out; `state/selectors.ts`; `state/replay-pipeline.ts` coordinator.
 
-## Phase 5 — Performance & bundle (mobile-first)  ·  risk: medium (quantify KB/ms; verify on phone)
-- **Lazy-load skins** (P1/P6/P8): watercolor webp + sprite PNGs (~130 KB off critical path at
-  default 'icon' mode) via `React.lazy` guarded by `renderMode`; glyph fallback while loading.
-- **Code-split Replay + BuildDashboard** (P2, ~55–75 KB). **Guard:** prefetch the replay chunk on
-  COMMIT so FX is loaded before playback — never change replay timing/determinism.
-- **Kill per-frame allocs** (P3): App.tsx:381/253/1114 `new Map/Set` every frame → ref-diff/memoize.
-- Memoize layer1 Dijkstra (P4), visibleCells (P5), fog inversion (P7); fix Board `toScreen`
-  dep-cascade (B1) + spriteByUnit O(N²) (B5).
+## Phase 5 — Performance & bundle (mobile-first)  ·  **PARTIALLY DONE** (modal split)
+- ✅ **DONE — code-split the phase-gated modals** (P2): `BuildDashboard` (App) + `RulesModal` +
+  `PipelineModal` (TopBar) via `React.lazy` + `Suspense`. **Main JS chunk 552.84 → 520.31 KB**
+  (gzip 165.70 → 156.14, −9.6 KB); ~35 KB moved to on-demand chunks. 2 TopBar affordance tests
+  now `waitFor` the lazy mount (assertions unchanged). 1293 green.
+- ❌ **P1/P6/P8 "lazy-load skins" was a MIS-PREMISE** — the watercolor webp (~590 KB) and sprite
+  PNGs (~160 KB) are ALREADY lazy: Vite emits them as separate on-demand asset files fetched only
+  when their skin renders, so at default 'icon' mode they're never downloaded. They were never on
+  the JS critical path. Splitting their *components* saves only ~10–15 KB JS — not done (low value).
+- ⏸ **Code-split core Replay** (rest of P2) — DEFER: ReplayDock/ReplayFx play every round; lazy
+  would stutter. Needs the prefetch-on-COMMIT guard; not worth the risk yet (main chunk only
+  ~20 KB over the 500 KB warning now).
+- ⏸ **Per-frame allocs (P3)**, layer1/visibleCells/fog memoization (P4/P5/P7), Board `toScreen`
+  cascade (B1), spriteByUnit O(N²) (B5) — runtime perf, not yet done.
 
 ## Phase 6 — CSS modularization  ·  risk: low→medium (last; needs bundler CSS support for the split)
 - Tokenize ink-color rgba (C1, 42+ sites) + spacing/timing scale (C6); `.fx-svg-transform` class
