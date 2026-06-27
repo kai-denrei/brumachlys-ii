@@ -61,6 +61,7 @@ import { HudCluster } from './ui/HudCluster';
 import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/Replay';
 import { useCombatAudio } from './ui/audio/useCombatAudio';
 import { useKeyboardShortcuts } from './ui/hooks/useKeyboardShortcuts';
+import { useAnnouncement } from './ui/hooks/useAnnouncement';
 import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
 import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
@@ -140,26 +141,6 @@ function BattleScreen() {
   // on own units during planning. Cleared on phase change (planning exits).
   const [rangeOverlayUnit, setRangeOverlayUnit] = useState<string | null>(null);
 
-  // #5 auto-advance: "Your turn — R{n}" announcement token (null = not shown).
-  // The announcement appears when replay finishes (summary phase), auto-fades
-  // after ~1.9 s via CSS animation. A JS backstop timer (2200 ms) clears it
-  // regardless of CSS — required for prefers-reduced-motion users where the
-  // CSS animation is disabled and opacity stays at 1 indefinitely.
-  type AnnouncementState = {
-    round: number;
-    token: number;
-    /** Snapshot of the round's kills/damage/fizzles — shown briefly so the
-     * player can read the recap without blocking their planning input. */
-    summarySnap: {
-      damageDealt: readonly [number, number];
-      killCount: number;
-      fizzles: number;
-    } | null;
-  };
-  const [announcement, setAnnouncement] = useState<AnnouncementState | null>(null);
-  // Ref holding the active backstop timer so it can be cleared on early dismiss
-  // or when a new announcement replaces an existing one.
-  const announcementTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // v1.1 Feature A: mouse-hover unit card (Board detects; this renders).
   const [hover, setHover] = useState<{ unitId: string; clientX: number; clientY: number } | null>(
@@ -423,79 +404,9 @@ function BattleScreen() {
     }
   }, [autopilot, uiPhase, game]);
 
-  // --- #5 auto-advance: summary → planning with "Your turn" announcement -------
-  // When replay finishes, uiPhase goes to 'summary'. If the game is NOT over,
-  // auto-call closeSummary (the same transition the old CONTINUE pill used),
-  // then show a brief "Your turn — R{n}" toast (with a mini recap snapshot) so
-  // the player knows they can act. The announcement is non-blocking (pointer-
-  // events: none on the overlay; tapping it dismisses early). The CSS animation
-  // fades it out at ~1.9 s. A JS backstop timer (2200 ms) calls dismissAnnouncement
-  // unconditionally — under prefers-reduced-motion the CSS sets animation:none and
-  // opacity:1, so the CSS never removes the pill; the timer is the sole lifecycle
-  // owner. Game-over path: closeSummary transitions to 'over' — that banner is
-  // deliberate and is NOT auto-dismissed.
-  useEffect(() => {
-    if (uiPhase !== 'summary' || autopilot || !game || game.outcome) return;
-    // Next round number = game.round (closeSummary has NOT run yet; the core
-    // resolver already advanced game.round in commit() before returning).
-    const nextRound = game.round;
-
-    // Snapshot the replay summary NOW before closeSummary sets replay → null.
-    const replayState = useAppStore.getState().replay;
-    const summarySnap = replayState
-      ? {
-          damageDealt: replayState.script.summary.damageDealt as readonly [number, number],
-          killCount: replayState.script.summary.kills.length,
-          fizzles: replayState.script.summary.fizzles,
-        }
-      : null;
-
-    // Transition immediately — no perceptible delay. The announcement overlays
-    // the (now-planning) board and fades on its own schedule.
-    useAppStore.getState().closeSummary();
-    // Clear any previous backstop timer before setting a new announcement.
-    if (announcementTimer.current !== null) clearTimeout(announcementTimer.current);
-    setAnnouncement((prev) => ({
-      round: nextRound,
-      token: (prev?.token ?? 0) + 1,
-      summarySnap,
-    }));
-    // Backstop timer: clears the announcement after 2200 ms regardless of CSS.
-    // This is the primary dismissal path for prefers-reduced-motion users (where
-    // the CSS fade is disabled and opacity stays 1 forever). It also covers normal
-    // users in case the animationend event is never fired (detached nodes, etc.).
-    announcementTimer.current = setTimeout(() => {
-      announcementTimer.current = null;
-      setAnnouncement(null);
-    }, 2200);
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uiPhase, autopilot, game?.outcome]);
-
-  // Dismiss the "Your turn" announcement early (tapping it or pressing Enter).
-  // Also cancels the pending backstop timer so it doesn't fire on a null state.
-  const dismissAnnouncement = useCallback(() => {
-    if (announcementTimer.current !== null) {
-      clearTimeout(announcementTimer.current);
-      announcementTimer.current = null;
-    }
-    setAnnouncement(null);
-  }, []);
-
-  // FIX B: when the phase leaves planning (e.g., commit → 'replay'), clear the
-  // announcement state AND cancel its pending backstop timer so the pill never
-  // floats over the replay strip or the game-over summary.
-  //
-  // Implementation note: we track the PREVIOUS phase in a ref so the effect
-  // only fires on the transition FROM 'planning', not on the initial mount when
-  // uiPhase may already be 'summary' (where the announcement hasn't been set yet
-  // and dismissAnnouncement would race with the auto-advance effect).
-  const prevUiPhaseRef = useRef<string | null>(null);
-  useEffect(() => {
-    const prev = prevUiPhaseRef.current;
-    prevUiPhaseRef.current = uiPhase;
-    if (prev === 'planning' && uiPhase !== 'planning') dismissAnnouncement();
-  }, [uiPhase, dismissAnnouncement]);
+  // #5 auto-advance "Your turn" announcement (summary→planning, self-fading pill
+  // + 2200ms backstop) — extracted to a hook (verbatim logic + lifecycle).
+  const { announcement, dismissAnnouncement } = useAnnouncement({ uiPhase, autopilot, game });
 
   // #6 Enter / Escape global shortcuts — extracted to a hook (verbatim logic +
   // priority order documented there).
