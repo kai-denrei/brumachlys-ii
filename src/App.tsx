@@ -62,6 +62,7 @@ import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/R
 import { useCombatAudio } from './ui/audio/useCombatAudio';
 import { useKeyboardShortcuts } from './ui/hooks/useKeyboardShortcuts';
 import { useAnnouncement } from './ui/hooks/useAnnouncement';
+import { useAutopilot } from './ui/hooks/useAutopilot';
 import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
 import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
@@ -389,20 +390,8 @@ function BattleScreen() {
   }, [uiPhase, script, frameIdx]);
   useEffect(() => clearTrails, []); // unmount: drop pending removal timers
 
-  // --- autopilot (dev/demo) ------------------------------------------------------
-  useEffect(() => {
-    if (!autopilot || !game) return;
-    if (uiPhase === 'planning' && !game.outcome) {
-      const t = setTimeout(() => useAppStore.getState().commitAutopilot(), 200);
-      return () => clearTimeout(t);
-    }
-    // #5: autopilot still closes summary — but in normal play the auto-advance
-    // below handles it; autopilot just fires faster to keep the demo running.
-    if (uiPhase === 'summary') {
-      const t = setTimeout(() => useAppStore.getState().closeSummary(), 250);
-      return () => clearTimeout(t);
-    }
-  }, [autopilot, uiPhase, game]);
+  // autopilot (dev/demo Full-Auto) — extracted to a hook (verbatim logic).
+  useAutopilot({ autopilot, uiPhase, game });
 
   // #5 auto-advance "Your turn" announcement (summary→planning, self-fading pill
   // + 2200ms backstop) — extracted to a hook (verbatim logic + lifecycle).
