@@ -117,13 +117,18 @@ Regression suite is the guard; move code, not logic.
 - **App.tsx 1686 → assembler** (A1–A8/AR1): extract hooks into `src/ui/hooks/`.
   - ✅ **DONE (verbatim, 1293 green, tsc clean):** `useKeyboardShortcuts` (Enter/Escape),
     `useAnnouncement` (the "Your turn" auto-advance + backstop timer + phase-exit clear),
-    `useAutopilot` (Full-Auto demo driver). **App.tsx 1686 → 1523.**
-  - ⏳ **REMAINING — higher risk, want in-browser verification before merge:** `useReplayDriver`
-    (frameIdx + advance loop + seek — ~50 frameIdx readers, wide interface), `useBeatClock`
-    (rAF beat clock — **wall-clock-from-mount determinism**, the area past reviewers got false
-    positives on), `usePlanningLayer` (~15 interdependent memos — staleness risk unit tests may
+    `useAutopilot` (Full-Auto demo driver), `useBeatClock` (the §4 focal-spotlight rAF clock —
+    wall-clock-from-mount preserved verbatim). **App.tsx 1686 → 1463.** All in `src/ui/hooks/`.
+  - ⏳ **REMAINING — wide/intricate, do AFTER the in-browser checkpoint:** `useReplayDriver`
+    (frameIdx/paused/breakdownSlot + advance loop + seek — ~30 readers, and the "new script →
+    restart" effect resets driver + non-driver state together; widest extraction),
+    `usePlanningLayer` (~15 interleaved memos spanning ~500 lines — staleness risk unit tests may
     miss), store-facade hooks, `<PlanningBoard>`/`<ReplayBoard>` containers. **Preserve
     wall-clock-from-mount** (enteredAt resets only on mount/script change; seek = cursor move only).
+  - 🔎 **IN-BROWSER CHECK (next):** verify the 4 extracted hooks at localhost — per-beat focal
+    spotlight dim during combat; "Your turn — R{n}" pill on round end (+ reduced-motion backstop);
+    Enter (dismiss → commit-proposal → commit-round) / Escape (clear → deselect); Full-Auto
+    (`?autopilot=greedy`) self-plays.
 - **App→Board 30-prop drill → `useReplayFrame()`** returning one compact frame object (B3/AR2).
 - **Board.tsx layer split** (B4): `<BoardCells/Highlights/Ghosts/Units/Overlays>`.
 - **ReplayFx → `src/ui/skin/fx/` tree** (FX1/FX2/FX3): projectiles/impacts/unit-verbs/callouts +
