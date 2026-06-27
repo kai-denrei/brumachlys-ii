@@ -320,21 +320,10 @@ function Tracer({
   } as React.CSSProperties;
   return (
     <g className="fx-tracer" pointerEvents="none" style={style}>
-      {/* faint DOTTED guide along the whole shot, terminating AT the target —
-          §6: an aligned/long shot must read as a contained dotted line, not a
-          laser to the frame edge (it runs a→b only; the FX layer is also clipped
-          to the board frame so nothing can extend off-screen). */}
-      <line
-        className="fx-tracer-guide"
-        x1={a[0]}
-        y1={a[1]}
-        x2={b[0]}
-        y2={b[1]}
-        stroke={color}
-        strokeWidth={tokenSize * 0.045}
-        strokeLinecap="round"
-        strokeDasharray={`${tokenSize * 0.05} ${tokenSize * 0.12}`}
-      />
+      {/* NO full-line guide: a faint a→b line was drawn here, but for a long
+          same-row shot it read as a board-spanning "laser" (operator call). The
+          crawling round + speed-streak + impact spark carry the shot direction,
+          and the FX layer is clipped to the board frame regardless. */}
       {/* charge glint near the start */}
       <circle className="fx-tracer-charge" cx={a[0]} cy={a[1]} r={tokenSize * 0.16} fill="#fff" />
       {/* the crawling round + its speed-streak tail (translated start→impact) */}

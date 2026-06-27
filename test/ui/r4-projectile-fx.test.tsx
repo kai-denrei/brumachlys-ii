@@ -58,12 +58,13 @@ const proj = (over: Partial<Projectile>): Projectile => ({
 });
 
 describe('R4 ReplayFx — ranged tracer (crawling, not an instant line)', () => {
-  it('renders the crawling tracer primitive (guide + crawling round + spark)', () => {
+  it('renders the crawling tracer primitive (crawling round + streak + spark, NO full-line guide)', () => {
     const { container } = renderFx({ projectiles: [proj({ kind: 'tracer' })] });
     const tracer = container.querySelector('.fx-tracer')!;
     expect(tracer).not.toBeNull();
-    // a faint full-line guide
-    expect(tracer.querySelector('.fx-tracer-guide')).not.toBeNull();
+    // the full-length dotted guide was REMOVED — for a long same-row shot it read
+    // as a board-spanning "laser"; the crawl + spark convey the shot instead.
+    expect(tracer.querySelector('.fx-tracer-guide')).toBeNull();
     // the crawling round (the animated element carries the travel vector vars)
     const round = tracer.querySelector<SVGGElement>('.fx-tracer-round')!;
     expect(round).not.toBeNull();
@@ -92,21 +93,25 @@ describe('R4 ReplayFx — ranged tracer (crawling, not an instant line)', () => 
 });
 
 describe('R4 ReplayFx — tracer GEOMETRY (attacker → defender, right length)', () => {
-  // The guide line MUST run from center(from) to center(to) — the attacker token
-  // to the defender token, along the real vector, NOT off to some fixed point.
-  it('the guide line endpoints equal center(from) / center(to)', () => {
+  // The shot geometry MUST run attacker→defender: the streak originates at the
+  // shooter and the round travels exactly center(to) − center(from) — bounded,
+  // never a runaway off-board line. (The old full-line guide that asserted this
+  // was removed; the crawl carries the same vector.)
+  it('the tracer travel vector equals center(to) − center(from) (bounded a→b)', () => {
     const board = rowBoard(8);
     const { container } = renderFx({ projectiles: [proj({ kind: 'tracer', from: 0, to: 2 })] }, board);
-    const guide = container.querySelector<SVGLineElement>('.fx-tracer-guide')!;
-    expect(guide).not.toBeNull();
     const aExp = toScreen(board.cells.get(0)!.center);
     const bExp = toScreen(board.cells.get(2)!.center);
-    expect(Number(guide.getAttribute('x1'))).toBeCloseTo(aExp[0], 6);
-    expect(Number(guide.getAttribute('y1'))).toBeCloseTo(aExp[1], 6);
-    expect(Number(guide.getAttribute('x2'))).toBeCloseTo(bExp[0], 6);
-    expect(Number(guide.getAttribute('y2'))).toBeCloseTo(bExp[1], 6);
-    // length ≈ the attacker→defender distance (two cells = 200 screen units here),
-    // bounded — NOT a runaway off-board line.
+    // the crawling round carries the travel vector as CSS vars --tx / --ty
+    const round = container.querySelector<SVGGElement>('.fx-tracer-round')!;
+    expect(round).not.toBeNull();
+    expect(round.style.getPropertyValue('--tx')).toBe(`${bExp[0] - aExp[0]}px`);
+    expect(round.style.getPropertyValue('--ty')).toBe(`${bExp[1] - aExp[1]}px`);
+    // the speed-streak's leading end is AT the shooter (center(from))
+    const streak = container.querySelector<SVGLineElement>('.fx-tracer-streak')!;
+    expect(Number(streak.getAttribute('x2'))).toBeCloseTo(aExp[0], 6);
+    expect(Number(streak.getAttribute('y2'))).toBeCloseTo(aExp[1], 6);
+    // travel distance ≈ the attacker→defender distance (two cells = 200), bounded
     const len = Math.hypot(bExp[0] - aExp[0], bExp[1] - aExp[1]);
     expect(len).toBeCloseTo(200, 6);
   });

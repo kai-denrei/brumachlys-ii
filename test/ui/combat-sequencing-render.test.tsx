@@ -162,20 +162,18 @@ describe('§3/B sequenced-beat FX — projectiles play one beat at a time', () =
 });
 
 // ----------------------------------------------------------------------------
-// C/§6. DOTTED + CLIPPED TRACER
+// C/§6. CONTAINED + CLIPPED TRACER
 // ----------------------------------------------------------------------------
-describe('§6 contained dotted tracer — dotted guide + the FX layer clipped to frame', () => {
-  it('the tracer guide is a DOTTED line (stroke-dasharray) from shooter to target', () => {
+describe('§6 contained tracer — no full-line guide + the FX layer clipped to frame', () => {
+  it('the tracer renders NO full-line guide (removed — the crawl conveys the shot)', () => {
     const board = rowBoard(8);
     const { container } = renderFx({ projectiles: [proj({ kind: 'tracer', from: 0, to: 6 })] }, board);
-    const guide = container.querySelector<SVGLineElement>('.fx-tracer-guide')!;
-    expect(guide).not.toBeNull();
-    expect(guide.getAttribute('stroke-dasharray')).toBeTruthy(); // dotted, not a solid laser
-    // it terminates AT the target — the endpoints are exactly a→b (no off-frame run)
-    const a = toScreen(board.cells.get(0)!.center);
-    const b = toScreen(board.cells.get(6)!.center);
-    expect(Number(guide.getAttribute('x1'))).toBeCloseTo(a[0], 6);
-    expect(Number(guide.getAttribute('x2'))).toBeCloseTo(b[0], 6);
+    const tracer = container.querySelector('.fx-tracer')!;
+    expect(tracer).not.toBeNull();
+    // no board-spanning guide line; the crawling round + spark remain
+    expect(container.querySelector('.fx-tracer-guide')).toBeNull();
+    expect(tracer.querySelector('.fx-tracer-round')).not.toBeNull();
+    expect(tracer.querySelector('.fx-tracer-spark')).not.toBeNull();
   });
 
   it('the whole replay-FX layer is CLIPPED to the board frame', () => {
@@ -198,14 +196,16 @@ describe('§6 contained dotted tracer — dotted guide + the FX layer clipped to
     );
   });
 
-  it('an ALIGNED / long shot is contained: the guide ends at the target, the layer is clipped', () => {
+  it('an ALIGNED / long shot is contained: no guide line, travel ends at the target, layer clipped', () => {
     // same-level long shot from cell 0 to cell 7 (the worst "laser to the edge" case)
     const board = rowBoard(8);
     const { container } = renderFx({ projectiles: [proj({ kind: 'tracer', from: 0, to: 7 })] }, board);
-    const guide = container.querySelector<SVGLineElement>('.fx-tracer-guide')!;
+    expect(container.querySelector('.fx-tracer-guide')).toBeNull(); // no board-spanning line
+    const a = toScreen(board.cells.get(0)!.center);
     const b = toScreen(board.cells.get(7)!.center);
-    expect(Number(guide.getAttribute('x2'))).toBeCloseTo(b[0], 6); // ends AT cell 7, not the edge
-    expect(guide.getAttribute('stroke-dasharray')).toBeTruthy();
+    // the crawling round travels exactly a→b (reaches cell 7, never past the edge)
+    const round = container.querySelector<SVGGElement>('.fx-tracer-round')!;
+    expect(round.style.getPropertyValue('--tx')).toBe(`${b[0] - a[0]}px`);
     expect(container.querySelector('.board-replay-fx')!.getAttribute('clip-path')).toBe(
       'url(#board-fx-clip)',
     );

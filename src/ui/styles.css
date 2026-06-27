@@ -1267,16 +1267,8 @@ body {
 }
 
 /* RANGED TRACER ------------------------------------------------------------- */
-/* faint full-line guide: fades in immediately, holds dim */
-.fx-tracer-guide {
-  opacity: 0;
-  animation: fx-tracer-guide var(--proj-dur, 1.8s) ease-out var(--proj-delay, 0ms) forwards;
-}
-@keyframes fx-tracer-guide {
-  0% { opacity: 0; }
-  6% { opacity: 0.28; }
-  100% { opacity: 0.16; }
-}
+/* (the faint full-line guide was removed — it read as a board-spanning "laser"
+   on long same-row shots; the crawl + spark carry the shot.) */
 
 /* charge glint near the start (~0.10) then gone */
 .fx-tracer-charge {
@@ -1406,7 +1398,6 @@ body {
 }
 
 /* faster wave-2x playback: shrink the projectile durations to match */
-.board-replay-2x .fx-tracer-guide,
 .board-replay-2x .fx-tracer-charge,
 .board-replay-2x .fx-tracer-round,
 .board-replay-2x .fx-tracer-spark { animation-duration: 0.9s; }
@@ -1418,7 +1409,7 @@ body {
 .board-replay-2x .fx-stab-flash { animation-duration: 0.21s; }
 
 /* reduced motion: degrade every projectile to a SIMPLE INSTANT MARK — no crawl
-   or arc animation, but the line guide + the impact spark still land (so the
+   or arc animation, but the impact spark still lands at the target (so the
    player still sees WHAT hit WHOM; outcomes are unchanged either way). */
 @media (prefers-reduced-motion: reduce) {
   .fx-tracer-charge,
@@ -1429,11 +1420,6 @@ body {
   .fx-stab-dash {
     animation: none;
     opacity: 0;
-  }
-  /* keep a static faint guide line so the shot direction reads */
-  .fx-tracer-guide {
-    animation: none;
-    opacity: 0.18;
   }
   /* the impact spark / ring snaps to a brief static end-mark (no travel) */
   .fx-tracer-spark,
