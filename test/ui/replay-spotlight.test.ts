@@ -5,8 +5,8 @@
 // strikes that drive the frames; outcomes/damage/fog are unchanged from R1.
 
 import { describe, expect, it } from 'vitest';
+import { bd } from '../fixtures';
 import type {
-  AttackBreakdown,
   ResolutionEvent,
   UnitInstance,
 } from '../../src/core/types';
@@ -16,19 +16,6 @@ import { lineBoard, makeUnit } from '../core/synthetic';
 
 const types = loadUnits();
 const plains = (n: number) => lineBoard(Array(n).fill('plains'));
-
-const bd = (over: Partial<AttackBreakdown> = {}): AttackBreakdown => ({
-  A: 5,
-  Ta: 0,
-  D: 6,
-  Td: 0,
-  B: 0,
-  vet: 0,
-  p: 0.45,
-  damage: 5,
-  gangUp: { total: 0, contributions: [] },
-  ...over,
-});
 
 function build(units: UnitInstance[], events: ResolutionEvent[], cells = 12) {
   return buildReplay(plains(cells), units, events, types, 0);
