@@ -93,18 +93,24 @@ no weakened assertions; no reseed.
   the 1232-line replay-build.test.ts by describe block (TS6 — move only).
 - **TS4 (process guard):** lock AI acceptance seeds with rationale; flag reseed-without-retune.
 
-## Phase 3 — Safe DRY & pure utilities  ·  risk: low (each gated by its suite)
-- `clamp`/`clamp01` → `src/core/math.ts` (D1+D7, 6 sites). **Guard:** `weewar.ts` is combat/
-  (frozen) — keep numeric output byte-identical; run resolver vectors.
-- `center()` merge → `ui/skin/geometry.ts` (D2/FX4); reuse pure `board/vec.ts` from `ui` for
-  inlined `Math.hypot/cos/sin` (D4, 49+ sites — *not* a parallel util).
-- `loadUnits` → store `useUnitTypes()` selector (AR5/RR2; App/Replay/RulesModal/VictoryDashboard/
-  BannerRecap stop re-importing+re-memoizing).
-- Type safety: kill `as unknown as` double-casts in io/data-loader (hand validator, **not** a new
-  Zod dep) + guard RulesModal cast (T4); add `assertNever` exhaustiveness on `ResolutionEvent`
-  (T7 — type-only, catches future missing handlers).
-- AI safe mechanical extractions (AI2 `getDefensiveArmorBonus`, AI4 `isBetterAttack`). **Guard:**
-  AI acceptance byte-identical on all seeds; no reordering.
+## Phase 3 — Safe DRY & pure utilities  ·  **mostly DISSOLVED ON SURVEY** (2026-06-27)
+**Survey verdict — the audit over-counted "duplication" here; most items are distinct functions
+sharing a name/concept, not real dupes.** Only one small win was real and shipped:
+- ✅ **DONE (T4):** RulesModal `roster.find(...) as UnitType` ×2 → explicit non-null guard (removed
+  the type-escapes + the now-unused `UnitType` import).
+- ❌ **D1 clamp → core/math — NO real dup.** The only generic `[0,1]` clamp is `weewar.ts:41`
+  (used only in weewar); `dilation-clock`'s `clamp01(a,b,t)` is a *different* function (inverse-lerp);
+  `clampZoom/Depth/Frame/ReplaySpeed` are distinct domain wrappers. Nothing to merge.
+- ❌ **D2/FX4 `center()` merge** — the two copies differ (one returns `cell.center`, one returns
+  `toScreen(cell.center)`); not worth a shared module for two 3-line variants.
+- ❌ **D4 reuse `board/vec.ts`** — 49+ inline `Math.hypot/cos/sin` sites; large churn, cosmetic. Skip.
+- ⏸ **AR5 `loadUnits` → store selector** — `loadUnits()` just returns the cached static-JSON ref
+  (the `useMemo`s are essentially free); marginal. Deferred.
+- ⏸ **io/data-loader `as unknown as`** — controlled, documented, already pinned by
+  `test/core/data.test.ts`; a runtime validator would duplicate that test for static bundled data. Left.
+- ⏸ **T7 assertNever** — there is no `switch` on `ResolutionEvent` (if-chains), so this is a real
+  restructure, not a type-only freebie. Deferred to Phase 4/7.
+- ⏸ **AI2/AI4 extractions** — touch the brittle FROZEN planner for ~5 LOC; risk/reward poor. Deferred.
 
 ## Phase 4 — Component decomposition  ·  risk: medium (UI structure; logic unchanged)
 Regression suite is the guard; move code, not logic.
