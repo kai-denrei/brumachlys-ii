@@ -1,5 +1,22 @@
 # Refactor Analysis — verified, prioritized phased plan
 
+## ▶ RESUME STATE (2026-06-28) — read this first
+**DONE + pushed on `sprite-animation` (all green: 1295 tests, `tsc -b`, purity, prod build):**
+audit · **P1** hygiene · **P2** test-kit · **P3** (mostly dissolved on survey) · **P4 partial** — 5
+App hooks + **`usePlanningLayer`** (App 1686→1252) · **P5** — B5 spriteByUnit O(N²)→O(N) + *measured*
+no per-frame render hotspot (rest premature) · **P6** — C1 palette tokens + C3 split styles.css→12
+modules. Plus the 2 replay-FX bugs (fog-vs-spotlight + tracer-laser). See each phase below for detail.
+
+**NEXT = Phase 7** (high-risk type/replay/AI). **Then** the two deferred P4 items (PlanningBoard/
+ReplayBoard containers + store slicing ST1/2/3 — the biggest).
+
+**P7 DISCIPLINE (non-negotiable, see §Phase 7 + Risk Register + the bottom resumption note):**
+work **sequentially, NO Workflow fan-out** (16 GB box — memory `no-workflow-fanout-on-kainode`); gate
+EACH item behind **one independent skeptic subagent (run serially)** + a **byte-identical** replay/AI/
+combat-vector diff before merge; **never re-baseline a vector to dodge a refactor / never reseed AI**.
+After EVERY edit (incl. tests) run `tsc -b` before committing — `npm test` does NOT typecheck (memory
+`tsc-b-after-every-edit`). Dev server convention: `vite --port 5199 --strictPort` (don't pkill -f vite).
+
 **Status:** ✅ **RESUMED & COMPLETED 2026-06-27.** The 14-dimension audit was re-run
 **memory-safely** (sequential, one read-only subagent at a time — never a fan-out)
 and the prioritized phased plan below is now written. **Phase 1 (hygiene / dead code /
