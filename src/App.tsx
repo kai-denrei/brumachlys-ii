@@ -50,7 +50,7 @@ import { factionUpkeep, upkeepRateOf } from './core/economy';
 import { loadUnits } from './io/data-loader';
 import type { ReplayFrame } from './state/replay';
 import { dilationAt, spotlightAt } from './state/replay';
-import { clampFrame, frameAtTime, frameStartTime, totalDuration } from './state/replay-timing';
+import { frameStartTime, totalDuration } from './state/replay-timing';
 import { PLAYER_FACTION, useAppStore } from './state/store';
 import { Board, type CaptureToggleState, type StancePopoverState } from './ui/Board';
 import { BottomDock, type DockBuy } from './ui/BottomDock';
@@ -67,6 +67,7 @@ import { useKeyboardShortcuts } from './ui/hooks/useKeyboardShortcuts';
 import { useAnnouncement } from './ui/hooks/useAnnouncement';
 import { useAutopilot } from './ui/hooks/useAutopilot';
 import { useBeatClock } from './ui/hooks/useBeatClock';
+import { useReplayDriver } from './ui/hooks/useReplayDriver';
 import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
 import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
@@ -164,9 +165,10 @@ function BattleScreen() {
 
   // --- replay playback driver (§9.4) ------------------------------------------
   const script = replay?.script ?? null;
-  const [frameIdx, setFrameIdx] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const [breakdownSlot, setBreakdownSlot] = useState<number | null>(null);
+  // replay playback transport (cursor + paused + breakdown slot + advance loop +
+  // seek/scrub) — extracted to a hook (pure: seeking is a cursor move only).
+  const { frameIdx, paused, setPaused, breakdownSlot, setBreakdownSlot, seekToFrame, seekToTime, onScrubStart } =
+    useReplayDriver({ uiPhase, script, replaySpeed, finishReplay });
   // §4 FOCAL SPOTLIGHT beat clock — the sub-frame active-beat read (rAF,
   // wall-clock-from-mount). Extracted to a hook; null between beats / on a
   // non-combat frame / under reduced-motion ⇒ the board restores.
@@ -214,11 +216,9 @@ function BattleScreen() {
     setIgnites((cur) => (cur.size === 0 ? cur : new Set()));
   }
 
-  // New script → restart playback.
+  // New script → reset the transient replay-visual state (the transport itself
+  // resets in useReplayDriver on the same [script] change).
   useEffect(() => {
-    setFrameIdx(0);
-    setPaused(false);
-    setBreakdownSlot(null);
     setSheet(null);
     setSuspendedAt(null);
     setLinger(null);
@@ -264,58 +264,6 @@ function BattleScreen() {
     if (uiPhase !== 'planning') setRangeOverlayUnit(null);
   }, [uiPhase]);
 
-  useEffect(() => {
-    if (uiPhase !== 'replay' || !script) return;
-    if (replaySpeed === 'skip') {
-      setFrameIdx(script.frames.length - 1);
-      finishReplay();
-      return;
-    }
-    if (paused || breakdownSlot !== null) return;
-    const frame = script.frames[frameIdx];
-    if (!frame) {
-      finishReplay();
-      return;
-    }
-    const t = setTimeout(() => {
-      if (frameIdx + 1 >= script.frames.length) finishReplay();
-      else setFrameIdx(frameIdx + 1);
-    }, frame.duration / replaySpeed);
-    return () => clearTimeout(t);
-  }, [uiPhase, script, frameIdx, paused, breakdownSlot, replaySpeed, finishReplay]);
-
-  // --- R7 (SEEK / SCRUB transport) -------------------------------------------
-  // Playback is a PURE function of (resolvedTurn, t): the board render is already
-  // a pure read of frameIdx, so seeking is JUST moving the cursor — no resolver
-  // re-run, no game-state mutation (source spec §3, §12.5). seekToFrame moves the
-  // cursor to any frame in [0, len-1]; seekToTime maps an elapsed time to a frame
-  // via cumulative frame durations (frameAtTime). Both clamp to the script bounds.
-  //
-  // The advance loop above only ever calls finishReplay when it walks PAST the
-  // last frame on its timer (or on `skip`). A seek (forward OR backward) merely
-  // sets frameIdx to a valid in-range frame, so it can never re-trigger the
-  // summary/finish — scrubbing backward leaves playback live but earlier.
-  const seekToFrame = useCallback(
-    (idx: number) => {
-      if (!script) return;
-      setFrameIdx(clampFrame(idx, script.frames.length));
-    },
-    [script],
-  );
-  const seekToTime = useCallback(
-    (ms: number) => {
-      if (!script) return;
-      setFrameIdx(frameAtTime(script.frames, ms));
-    },
-    [script],
-  );
-  // R7 (SCRUB): grabbing the scrubber pauses playback so the dragged frame holds
-  // (it never fights the advance loop, which early-returns while paused). The
-  // play control then resumes — releasing the scrubber leaves it paused, the
-  // cleaner UX. No-op once playback is done (the strip is browse-only then).
-  const onScrubStart = useCallback(() => {
-    if (uiPhase === 'replay') setPaused(true);
-  }, [uiPhase]);
 
   // P9 linger: when a frame lands floaters, hold them (settled, tappable)
   // past the frame — replaced by the next volley's, expired after 2 s. The
