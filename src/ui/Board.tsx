@@ -759,11 +759,23 @@ export function Board({
       const c = board.cells.get(a[f === 0 ? 1 : 0]);
       return c ? toScreen(c.center)[0] : null;
     };
+    // B5: project every unit's cell ONCE. The at-rest facing scan below picks the
+    // nearest enemy by screen distance; re-projecting every enemy for every
+    // infantry unit was O(N²) toScreen calls — precompute the screen positions
+    // and reuse them (and the unit's own ux/uy). Map insertion order matches
+    // unitById, so the nearest-enemy tie-break is identical to the old scan.
+    const screenPos = new Map<string, { faction: FactionId; x: number; y: number }>();
+    for (const e of unitById.values()) {
+      const ec = board.cells.get(e.cell);
+      if (!ec) continue;
+      const [ex, ey] = toScreen(ec.center);
+      screenPos.set(e.id, { faction: e.faction, x: ex, y: ey });
+    }
     for (const u of unitById.values()) {
       if (u.type !== 'infantry') continue; // only the sprite consumes this
-      const ucell = board.cells.get(u.cell);
-      if (!ucell) continue;
-      const [ux, uy] = toScreen(ucell.center);
+      const sp = screenPos.get(u.id);
+      if (!sp) continue;
+      const { x: ux, y: uy } = sp;
       let motion: Motion = 'idle';
       let dir = 0; // screen-x toward whatever the soldier should face
       const tgt = fireTarget.get(u.id);
@@ -783,15 +795,12 @@ export function Board({
         // at rest / directionless: face the nearest visible enemy, else home
         let best = Infinity;
         let bx: number | null = null;
-        for (const e of unitById.values()) {
+        for (const e of screenPos.values()) {
           if (e.faction === u.faction) continue;
-          const ec = board.cells.get(e.cell);
-          if (!ec) continue;
-          const [ex, ey] = toScreen(ec.center);
-          const d = (ex - ux) ** 2 + (ey - uy) ** 2;
+          const d = (e.x - ux) ** 2 + (e.y - uy) ** 2;
           if (d < best) {
             best = d;
-            bx = ex;
+            bx = e.x;
           }
         }
         dir = (bx ?? enemyAnchorX(u.faction) ?? ux + 1) - ux;
