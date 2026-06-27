@@ -60,6 +60,7 @@ import { CasualtyPanel } from './ui/CasualtyPanel';
 import { HudCluster } from './ui/HudCluster';
 import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/Replay';
 import { useCombatAudio } from './ui/audio/useCombatAudio';
+import { useKeyboardShortcuts } from './ui/hooks/useKeyboardShortcuts';
 import { InfoSheet, OrderSheet, UnitHoverCard } from './ui/Sheets';
 import { SkirmishLog } from './ui/SkirmishLog';
 import { StartScreen } from './ui/StartScreen';
@@ -496,73 +497,9 @@ function BattleScreen() {
     if (prev === 'planning' && uiPhase !== 'planning') dismissAnnouncement();
   }, [uiPhase, dismissAnnouncement]);
 
-  // --- #6 [Enter] finalizes the current action -----------------------------------
-  // Global keydown listener. ENTER PRIORITY ORDER (deliberate, documented):
-  //   1. text field focused → ignore (don't interfere with form inputs).
-  //   2. "Your turn" announcement visible → dismiss it ("proceed").
-  //   3. v0.9 a PENDING MOVE proposal exists → COMMIT that proposal (same as a
-  //      second tap / switching units). Enter VALIDATES the pending proposal
-  //      FIRST and stops there — it does NOT also commit the round. This makes
-  //      Enter a single, predictable "confirm what I'm pointing at" key: the
-  //      player presses Enter to lock in the move they just proposed, then
-  //      presses Enter AGAIN (now with no pending proposal) to commit the round.
-  //   4. no pending proposal, planning, ≥1 order/buy queued → COMMIT the round
-  //      (mirrors only the non-zero branch of the CTA pill — the zero-orders
-  //      path triggers a confirm dialog in TopCta that Enter intentionally does
-  //      not open; the player must tap COMMIT explicitly for that flow).
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Enter') return;
-      // (1) Ignore if a text field is focused.
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-      // (2) Dismiss the "Your turn" announcement first — Enter = "proceed".
-      if (announcement) {
-        dismissAnnouncement();
-        return;
-      }
-      if (uiPhase === 'planning' && game && !game.outcome) {
-        const state = useAppStore.getState();
-        // (3) Pending MOVE proposal → commit it and STOP (don't fall through to
-        // round-commit). One Enter confirms the proposal; a second commits.
-        if (state.pendingMove) {
-          e.preventDefault();
-          state.commitPendingMove();
-          return;
-        }
-        // (4) No pending proposal → commit the round if anything is queued.
-        const hasOrders =
-          Object.keys(state.orders).length > 0 || Object.keys(state.buys).length > 0;
-        if (hasOrders) {
-          e.preventDefault();
-          state.commit();
-        }
-        // Zero-orders case: let the user explicitly use the COMMIT pill confirm —
-        // Enter should not silently commit an empty round. (Same guard as TopCta.)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [uiPhase, game, announcement, dismissAnnouncement]);
-
-  // v0.9: Escape clears a pending MOVE proposal (and, with no proposal, keeps
-  // the existing deselect behavior). A dedicated listener — Escape had no
-  // global handler before; it just cancels the transient proposal layer here.
-  useEffect(() => {
-    function handleEscape(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
-      const state = useAppStore.getState();
-      if (state.pendingMove) {
-        state.clearPendingMove();
-        return;
-      }
-      // No pending proposal: deselect (preserve the prior "Escape deselects"
-      // expectation — selecting nothing is the calm reset).
-      if (state.selectedUnitId) state.selectUnit(null);
-    }
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, []);
+  // #6 Enter / Escape global shortcuts — extracted to a hook (verbatim logic +
+  // priority order documented there).
+  useKeyboardShortcuts({ announcement, dismissAnnouncement, uiPhase, game });
 
   // --- E3 conquest selectors -----------------------------------------------------
   const conquest = game?.mode === 'conquest';
