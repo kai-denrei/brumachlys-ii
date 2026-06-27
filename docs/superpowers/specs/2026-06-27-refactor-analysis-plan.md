@@ -121,13 +121,18 @@ Regression suite is the guard; move code, not logic.
     `useAutopilot` (Full-Auto), `useBeatClock` (§4 focal-spotlight rAF clock — wall-clock-from-mount
     verbatim), `useReplayDriver` (frameIdx/paused/breakdownSlot + advance loop + seek/scrub; resets
     its own state on [script]; ~30 readers consume the returned values).
-  - 🛑 **STOPPED HERE — the rest is interaction-core entanglement, NOT cleanly extractable blind:**
-    `usePlanningLayer` is woven into App — its `friendlyAt`/`visibleEnemyAt`/`pathOpts` helpers are
-    used by the event handlers (onCellTap) + render, not just the ~15 memos, and the planning outputs
-    are read at ~126 sites. Same for the `<PlanningBoard>`/`<ReplayBoard>` containers (B3/AR2 prop
-    drill) and store slicing (ST1). These need dedicated design **with in-browser validation**
-    (planning taps are exactly what the unit suite covers incompletely) — pair them with the
-    deferred bug-fix + localhost session. Doing them blind risks staleness regressions tests miss.
+  - ✅ **DONE (A3 `usePlanningLayer`, 2026-06-27, commit 27806de — verbatim, App 1412→1261):** the
+    entangled planning layer (assumedTerrain, knownUnits/boardUnits, selected, friendlyAt/
+    visibleEnemyAt, pathOpts, layer1, ghosts, proposalGhost, pathTo) moved to `src/ui/hooks/
+    usePlanningLayer.ts`. DE-RISKED by destructuring the hook return into the SAME local names →
+    every onCellTap/render consumer (~126 sites) is byte-identical; memos keep exact deps, helpers
+    keep per-render identity. **IN-BROWSER validated** (Playwright vs :5199): select → reach-tint=13,
+    tap → proposal-ghost, tap again → committed ghost-order; no page errors. 1295 green, tsc+purity.
+  - 🛑 **STILL DEFERRED — the `<PlanningBoard>`/`<ReplayBoard>` containers (B3/AR2 prop drill via
+    `useReplayFrame()`) and store slicing (ST1/2/3):** containers are medium; store slicing is the
+    biggest single item (slice AppState via `combine()`, move pure helpers to core/state, add
+    selectors.ts + replay-pipeline.ts) — a fresh architectural design, not a verbatim move. Carry
+    the same in-browser-validation discipline.
   - 🔎 **IN-BROWSER CHECK (deferred to the bug session):** the 5 extracted hooks are unit-verified
     (replay-seek-app/round-tempo/dilation-app/full-auto/propose-confirm/recap cover them) but a
     localhost pass is still owed — spotlight dim, "Your turn" pill, Enter/Escape, Full-Auto,
