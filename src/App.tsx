@@ -29,7 +29,7 @@
 // selector below, so toggling it live drives self-play ON/OFF mid-game. Useful
 // for demos and for exercising long games by hand. The URL flag still seeds it.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BASELESS_GRACE,
   assumedTerrainView,
@@ -55,7 +55,11 @@ import { elapsedReplayTime } from './state/dilation-clock';
 import { PLAYER_FACTION, useAppStore } from './state/store';
 import { Board, type CaptureToggleState, type StancePopoverState } from './ui/Board';
 import { BottomDock, type DockBuy } from './ui/BottomDock';
-import { BuildDashboard } from './ui/BuildDashboard';
+// Code-split: the conquest economy dashboard is opened on demand (button), so
+// keep it out of the initial bundle (v1.6 refactor Phase 5).
+const BuildDashboard = lazy(() =>
+  import('./ui/BuildDashboard').then((m) => ({ default: m.BuildDashboard })),
+);
 import { CasualtyPanel } from './ui/CasualtyPanel';
 import { HudCluster } from './ui/HudCluster';
 import { BreakdownModal, GameOverBanner, ReplayDock, SummarySheet } from './ui/Replay';
@@ -1457,20 +1461,22 @@ function BattleScreen() {
         />
       )}
       {sheet?.kind === 'build' && !replayActive && conquest && (
-        <BuildDashboard
-          board={board}
-          bases={game.bases ?? {}}
-          units={game.units}
-          unitTypes={types}
-          credits={game.credits?.[PLAYER_FACTION] ?? 0}
-          income={income}
-          upkeepRate={upkeepRateOf(board)}
-          buys={buys}
-          focusBase={sheet.focusBase}
-          onQueue={(baseCell, unitTypeKey) => tryQueueBuy({ kind: 'buy', baseCell, unitTypeKey })}
-          onRemove={(baseCell) => removeBuyOrder(baseCell)}
-          onClose={() => setSheet(null)}
-        />
+        <Suspense fallback={null}>
+          <BuildDashboard
+            board={board}
+            bases={game.bases ?? {}}
+            units={game.units}
+            unitTypes={types}
+            credits={game.credits?.[PLAYER_FACTION] ?? 0}
+            income={income}
+            upkeepRate={upkeepRateOf(board)}
+            buys={buys}
+            focusBase={sheet.focusBase}
+            onQueue={(baseCell, unitTypeKey) => tryQueueBuy({ kind: 'buy', baseCell, unitTypeKey })}
+            onRemove={(baseCell) => removeBuyOrder(baseCell)}
+            onClose={() => setSheet(null)}
+          />
+        </Suspense>
       )}
       {sheetUnit && !replayActive && (
         <OrderSheet

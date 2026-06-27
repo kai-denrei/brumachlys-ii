@@ -7,7 +7,7 @@
 // per-version GitHub commit links.
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { TopBar } from '../../src/ui/TopBar';
 import { PipelineModal } from '../../src/ui/PipelineModal';
 import { PIPELINE, TEST_COUNT } from '../../src/ui/pipeline-data';
@@ -18,12 +18,15 @@ const GH_BASE = 'https://github.com/kai-denrei/brumachlys-ii';
 afterEach(cleanup);
 
 describe('TopBar "⌬" affordance', () => {
-  it('opens the pipeline modal and closes it again', () => {
+  it('opens the pipeline modal and closes it again', async () => {
     // round + credits moved to HudCluster — TopBar takes only phase + onBack now.
     const { baseElement, getByLabelText } = render(<TopBar phase="planning" />);
     expect(baseElement.querySelector('[data-testid="pipeline-modal"]')).toBeNull();
     fireEvent.click(getByLabelText('dev pipeline'));
-    expect(baseElement.querySelector('[data-testid="pipeline-modal"]')).not.toBeNull();
+    // PipelineModal is code-split (React.lazy) — it mounts after the chunk resolves.
+    await waitFor(() =>
+      expect(baseElement.querySelector('[data-testid="pipeline-modal"]')).not.toBeNull(),
+    );
     fireEvent.click(getByLabelText('close pipeline'));
     expect(baseElement.querySelector('[data-testid="pipeline-modal"]')).toBeNull();
   });

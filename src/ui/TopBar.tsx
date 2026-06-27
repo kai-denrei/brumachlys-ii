@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { archetypeList, useAppStore, type UnitRenderMode } from '../state/store';
-import { PipelineModal } from './PipelineModal';
-import { RulesModal } from './RulesModal';
 import { VersionBadge } from './VersionBadge';
+
+// Code-split: both modals open on demand (rare taps), so keep them out of the
+// initial bundle (v1.6 refactor Phase 5).
+const PipelineModal = lazy(() =>
+  import('./PipelineModal').then((m) => ({ default: m.PipelineModal })),
+);
+const RulesModal = lazy(() => import('./RulesModal').then((m) => ({ default: m.RulesModal })));
 
 /** E3 conquest credits HUD. Planning: available minus committed buys
  * ("◈ 250 − 150 committed"); replay: the frame's creditsAfter feed ticks it.
@@ -197,9 +202,20 @@ export function TopBar({
       </span>
       {/* portal: .top-bar's backdrop-filter would otherwise become the
           containing block for the modal's position:fixed scrim */}
-      {rulesOpen && createPortal(<RulesModal onClose={() => setRulesOpen(false)} />, document.body)}
+      {rulesOpen &&
+        createPortal(
+          <Suspense fallback={null}>
+            <RulesModal onClose={() => setRulesOpen(false)} />
+          </Suspense>,
+          document.body,
+        )}
       {pipelineOpen &&
-        createPortal(<PipelineModal onClose={() => setPipelineOpen(false)} />, document.body)}
+        createPortal(
+          <Suspense fallback={null}>
+            <PipelineModal onClose={() => setPipelineOpen(false)} />
+          </Suspense>,
+          document.body,
+        )}
     </header>
   );
 }
