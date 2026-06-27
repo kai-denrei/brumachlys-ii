@@ -158,8 +158,21 @@ Regression suite is the guard; move code, not logic.
 - ⏸ **Code-split core Replay** (rest of P2) — DEFER: ReplayDock/ReplayFx play every round; lazy
   would stutter. Needs the prefetch-on-COMMIT guard; not worth the risk yet (main chunk only
   ~20 KB over the 500 KB warning now).
-- ⏸ **Per-frame allocs (P3)**, layer1/visibleCells/fog memoization (P4/P5/P7), Board `toScreen`
-  cascade (B1), spriteByUnit O(N²) (B5) — runtime perf, not yet done.
+- ✅ **DONE (B5 spriteByUnit O(N²)→O(N), 2026-06-28):** precompute every unit's screen position once
+  (a `screenPos` map) instead of re-projecting every enemy for every infantry unit in the at-rest
+  facing scan. Behaviour-identical (insertion order preserves the nearest-enemy tie-break); sprite
+  tests green.
+- ✅ **MEASURED — no per-frame render hotspot (so the rest is premature):** B1 `toScreen` cascade is
+  ALREADY mitigated (toScreen is `useMemo([cells])`, stable unless `board` changes — no per-render
+  identity churn). visibleCells/fog/layer1 do NOT recompute per replay frame: the replay branch
+  renders the builder's precomputed `frame.fog`/`frame.units`, and the planning memos' deps (`game`)
+  don't mutate mid-playback. A Playwright long-task probe over 16 s of `?autopilot=greedy` self-play
+  (many rounds of planning + resolver + per-frame replay render) recorded **exactly ONE long task
+  (128 ms — the AI/resolver compute at a COMMIT, not render); ZERO render-jank tasks during replay.**
+- ⏸ **DROP/DEFER (no measured problem):** P3 per-frame alloc pooling, P4 layer1 Dijkstra cache,
+  P5/P7 visibleCells/fog memoization — already fast for this scale (~14 units); pooling/caching add
+  complexity + regression risk for negligible gain. Revisit only if a real hotspot appears
+  (bigger maps / many units).
 
 ## Phase 6 — CSS modularization  ·  **C1 + C3 DONE** (2026-06-28; value-preserving)
 - ✅ **DONE (C1 tokenize):** the palette was duplicated as raw decimal triplets across 105 rgba()
