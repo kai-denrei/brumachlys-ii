@@ -161,10 +161,23 @@ Regression suite is the guard; move code, not logic.
 - ⏸ **Per-frame allocs (P3)**, layer1/visibleCells/fog memoization (P4/P5/P7), Board `toScreen`
   cascade (B1), spriteByUnit O(N²) (B5) — runtime perf, not yet done.
 
-## Phase 6 — CSS modularization  ·  risk: low→medium (last; needs bundler CSS support for the split)
-- Tokenize ink-color rgba (C1, 42+ sites) + spacing/timing scale (C6); `.fx-svg-transform` class
-  (C2); `will-change`/`contain` on FX (C4); unify reduced-motion (C5). Then split styles.css 4778
-  → feature modules (C3 — verify breakpoints 430/700px, z-index 6–40).
+## Phase 6 — CSS modularization  ·  **C1 + C3 DONE** (2026-06-28; value-preserving)
+- ✅ **DONE (C1 tokenize):** the palette was duplicated as raw decimal triplets across 105 rgba()
+  literals (ink ×79, faction-a ×20, paper ×4, faction-b ×2). Added `--ink-rgb`/`--faction-a-rgb`/
+  `--faction-b-rgb`/`--paper-rgb` companions to the existing hex vars; rewrote each literal to
+  `rgba(var(--*-rgb), <alpha>)`. Provably value-preserving; in-browser confirmed the vars resolve to
+  the original literals. One source of truth for the palette.
+- ✅ **DONE (C3 split):** styles.css 4764 → a barrel that `@import`s **12 feature modules** in cascade
+  order (base/board/start-screen/dock/planning/replay-fx/replay-dock/replay-panels/modals/hud/
+  conquest/animation). Pure line-range cut at the `/* --- SECTION --- */` headers; concatenating the
+  modules back reproduces the original byte-for-byte (asserted before writing). base.css font url()
+  → `../fonts/`. Validated: production build green (CSS still one 61 KB bundle), in-browser all module
+  requests + woff2 resolve, no errors; the fx-language CSS-contract test follows the barrel now.
+- ⏸ **DEFERRED/DROPPED (low value or non-pure):** C2 `.fx-svg-transform` (30 sites, but needs markup
+  changes across the FX components — not a pure-CSS dedup); C4 `will-change`/`contain` (NOT value-
+  preserving — can shift stacking/paint; really a P5-perf item, validate visually); C5 unify reduced-
+  motion (MOOT post-split — each module now owns its reduced-motion beside its component); C6 spacing/
+  timing tokens (judgment-heavy, varied values, low value vs the colour set).
 
 ## Phase 7 — Higher-risk type / replay / AI refactors  ·  risk: HIGH (skeptic + byte-identity gate)
 **Each requires:** an independent skeptic review **and** byte-identical replay/AI/combat vectors
