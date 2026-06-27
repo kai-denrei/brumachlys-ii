@@ -1,0 +1,351 @@
+/* --- board ------------------------------------------------------------- */
+
+.board-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.board-svg {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  touch-action: none; /* pointer events own pan/pinch */
+  user-select: none;
+  -webkit-user-select: none;
+  display: block;
+}
+
+.cell {
+  cursor: pointer;
+  /* R2 (SPOTLIGHT): the desaturate/dim engages and releases by transitioning
+     this group opacity — the planning→replay dim glides in, the SETTLE
+     resaturation glides back out. ~0.35 s matches the SPOTLIGHT phase feel. */
+  transition: opacity 0.35s ease;
+}
+
+/* R2 (SPOTLIGHT): a combatant tile's soft highlight ring — drawn over the
+   dimmed field so the eye lands on the combat. Static; the colour/desaturation
+   is handled by the renderer (reusing the memory-tier desaturate). */
+.cell-spotlight-ring {
+  transition: opacity 0.35s ease;
+}
+
+/* R2 (SPOTLIGHT): combatant unit highlight ring (static, reduced-motion safe). */
+.unit-spotlight-ring {
+  transition: opacity 0.35s ease;
+}
+
+/* R2 (SPOTLIGHT): reduced motion — keep the dim as a STATIC end-state (no
+   harsh transition flash). The dim itself (non-combatants recede, combatants
+   ringed) is fine to show; only the animated glide is suppressed. */
+@media (prefers-reduced-motion: reduce) {
+  .cell,
+  .unit-token,
+  .cell-spotlight-ring,
+  .unit-spotlight-ring {
+    transition: none;
+  }
+}
+
+/* R3 (DILATION): WAVE A "bullet-time" cue. The board cools (a ~22% global
+   desaturation, source-spec DILATION_DESAT) and a subtle vignette closes —
+   layered OVER the board and on top of the R2 spotlight (it does not replace
+   it). Full-bleed, fixed, never intercepts input. Engages on WAVE A, releases
+   (unmounts) over the INTERLUDE back toward normal. The desaturation rides a
+   backdrop-filter so the actual board tints cool; the radial gradient is the
+   vignette closing in. */
+.dilation-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  /* cool desaturation of everything behind the layer */
+  backdrop-filter: saturate(0.78) brightness(0.97);
+  -webkit-backdrop-filter: saturate(0.78) brightness(0.97);
+  /* subtle vignette: clear center, cool-dark closing at the edges */
+  background: radial-gradient(
+    ellipse 90% 90% at 50% 46%,
+    rgba(40, 46, 64, 0) 52%,
+    rgba(28, 34, 52, 0.16) 82%,
+    rgba(20, 26, 44, 0.34) 100%
+  );
+  animation: dilation-cool-in 0.25s ease both;
+}
+
+@keyframes dilation-cool-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Phase 2 (BULLET-TIME DILATION CLOCK): the Swiss-railway clock — a fixed
+   TOP-RIGHT canvas overlay where the SkirmishLog sits, present through the WHOLE
+   replay. It GLIDES during movement, then GROWS/BRIGHTENS IN PLACE at the
+   move→combat handover (the canvas box is sized for the grown state, so the
+   swell never shifts the anchor) and ticks through WAVE_A, then recedes. Layered
+   ABOVE the log (z 26 > the log's z 25) for the slow-mo beat; HUD chrome, never
+   intercepts input, never on a unit token / radar geometry. The actual
+   glide/shift/dilation/release motion is on the canvas (replay-time driven). */
+.dilation-clock {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 0.4rem);
+  right: 0.4rem;
+  z-index: 26;
+  pointer-events: none;
+  /* the canvas centers the clock inside its (grown-sized) box */
+  display: block;
+}
+
+.dilation-clock-canvas {
+  display: block;
+  filter: drop-shadow(0 2px 6px rgba(20, 24, 36, 0.4));
+}
+
+/* Reduced motion: a static cool end-state — no cool-in fade-up. The clock's
+   component already skips the rAF/bloom under prefers-reduced-motion (it paints
+   one static frame); this just stills the vignette transition. */
+@media (prefers-reduced-motion: reduce) {
+  .dilation-vignette {
+    animation: none;
+  }
+}
+
+/* E1 discovery fog: dark → live soft ignite (~0.4 s). The cover path is
+   rendered only while the App keeps the cell in its ignite set (500 ms). */
+.dark-cover-ignite {
+  animation: ignite-fade 0.4s ease-out forwards;
+}
+
+@keyframes ignite-fade {
+  from {
+    opacity: 0.92;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.unit-token {
+  cursor: pointer;
+  /* P8 replay hook: resolved moves animate by transitioning this transform.
+     R2 (SPOTLIGHT): the dim/resaturate also glides this group's opacity. */
+  transition: transform 0.25s ease, opacity 0.35s ease;
+}
+
+.unit-count text {
+  font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* v1.4: idle "awaiting orders" cue — a soft faction-color halo breathing on a
+   2 s period behind own unordered tokens (planning only; Board gates it).
+   Deliberately calm next to the threat vocabulary: the .target-ring below is
+   a crisp 1.1 s enemy-color ring; this is a slow, low-opacity exhale. */
+.idle-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: idle-breathe 2s ease-in-out infinite;
+}
+
+@keyframes idle-breathe {
+  0%,
+  100% {
+    opacity: 0.1;
+    transform: scale(0.97);
+  }
+  50% {
+    opacity: 0.42;
+    transform: scale(1.06);
+  }
+}
+
+/* Reduced motion: no breathing — a static dotted outline carries the same
+   "no orders yet" signal. Dash units are pathLength-normalized (=100). */
+@media (prefers-reduced-motion: reduce) {
+  .idle-pulse {
+    animation: none;
+    opacity: 0.4;
+    transform: none;
+  }
+
+  .idle-pulse-halo {
+    /* 20 even dashes around the pathLength-100 circle — no seam. */
+    stroke-dasharray: 2.2 2.8;
+  }
+}
+
+/* v0.9 active-unit halo: a pulsing faction-color ring around the unit the
+   player is commanding (selected). Louder than the idle "awaiting orders"
+   breath: a crisp, confident pulse so it's obvious WHICH unit is being moved.
+   When a move proposal is pending (.active-halo-proposed) it pulses faster and
+   brighter — the player is mid-confirm. Behind the token body; never taps. */
+.active-halo {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: active-halo-pulse 1.4s ease-in-out infinite;
+}
+
+.active-halo-ring {
+  opacity: 0.85;
+}
+
+.active-halo-proposed {
+  animation-duration: 0.85s;
+}
+
+.active-halo-proposed .active-halo-ring {
+  opacity: 1;
+}
+
+@keyframes active-halo-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.07);
+  }
+}
+
+/* Reduced motion: a static SOLID ring carries the "this unit is selected" cue
+   with no pulse (the proposed state just shows the thicker ring from the SVG). */
+@media (prefers-reduced-motion: reduce) {
+  .active-halo {
+    animation: none;
+    transform: none;
+  }
+
+  .active-halo-ring {
+    opacity: 0.9;
+  }
+}
+
+/* v0.9 radar: bottom-left pip on own units — distance-measurement toggle.
+   The sweep line rotates when the overlay is active so it reads as "scanning".
+   The pip itself inverts to faction color when active (SVG inline fill handles
+   the invert; this block adds the sweep spin and overlay label legibility). */
+.radar-sweep-spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: radar-sweep 2s linear infinite;
+}
+
+@keyframes radar-sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Reduced motion: no sweep rotation — the static sweep line stays at its
+   default angle. The active-state color inversion still communicates ON/OFF. */
+@media (prefers-reduced-motion: reduce) {
+  .radar-sweep-spin {
+    animation: none;
+  }
+}
+
+/* Radar overlay dim: the <rect> that covers the board. Rendered by Board.tsx
+   inside the pan/zoom group so it moves with the board (no coordinate sync). */
+.radar-dim {
+  /* cursor already set inline; this just clarifies intent. */
+  pointer-events: auto;
+}
+
+/* Distance labels: white text with dark stroke (paintOrder="stroke" in SVG),
+   so they read on both bright terrain and the dark dim wash. */
+.radar-dist-label {
+  font-family: -apple-system, 'Segoe UI', Roboto, monospace, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* v0.9 propose-then-confirm: the un-queued PROPOSAL ghost. The destination ring
+   pulses (dashed, faction color) to read as "tap again / Enter to confirm". The
+   solid bright trail + hint pill are static SVG (set in EffectRenderer). */
+.proposal-dest-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: proposal-dest-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes proposal-dest-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(0.97);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+.proposal-hint {
+  animation: proposal-hint-bob 1.2s ease-in-out infinite;
+}
+
+@keyframes proposal-hint-bob {
+  0%,
+  100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proposal-dest-ring {
+    animation: none;
+    opacity: 0.9;
+    transform: none;
+  }
+
+  .proposal-hint {
+    animation: none;
+  }
+}
+
+.target-ring {
+  animation: ring-pulse 1.1s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes ring-pulse {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(1.18);
+  }
+}
+
+/* v0.9 preemptive fire: dashed aim-ring on EMPTY cells a ranged unit can fire
+   at. A slow, calm rotation — discoverable but quieter than the solid
+   target-ring that marks an actual enemy. */
+.aim-ring {
+  animation: aim-spin 6s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes aim-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .target-ring,
+  .aim-ring {
+    animation: none;
+  }
+}

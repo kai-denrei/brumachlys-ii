@@ -1,0 +1,312 @@
+/* --- R4 (PROJECTILE + ATTACK MOTION primitives) -----------------------------
+   Crawling tracers / arcing shells (WAVE_A, the dilated window) and melee stabs
+   (WAVE_B). Each is parameterised by progress over the frame window; the impact
+   fractions (0.80 tracer / 0.88 shell / 0.50 stab) are baked into the keyframe
+   percentages, matching the spec config (WAVE_A_TRACER_IMPACT etc). All WAVE_A
+   projectiles animate on the SAME envelope (no per-unit sequencing); a WAVE_B
+   counter carries --proj-delay (≈75 ms) so an exchange reads as a crossfire.
+   The fx group remounts per frame (Board keys it by frame index) so every
+   animation restarts cleanly. The WAVE_A window is long (the dilation), so the
+   crawl/arc durations are generous; melee is quick + punchy. */
+
+/* shared transform-box for fill-box rotations/translations */
+.fx-tracer,
+.fx-shell,
+.fx-stab {
+  transform-box: fill-box;
+}
+
+/* RANGED TRACER ------------------------------------------------------------- */
+/* (the faint full-line guide was removed — it read as a board-spanning "laser"
+   on long same-row shots; the crawl + spark carry the shot.) */
+
+/* charge glint near the start (~0.10) then gone */
+.fx-tracer-charge {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-tracer-charge var(--proj-dur, 1.8s) ease-out var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-tracer-charge {
+  0% { opacity: 0; transform: scale(0.4); }
+  6% { opacity: 1; transform: scale(1.1); }
+  14% { opacity: 0; transform: scale(0.7); }
+  100% { opacity: 0; }
+}
+
+/* the crawling round + speed-streak tail: translate start→impact, reaching the
+   target at ~0.80 of the window, then vanish into the spark */
+.fx-tracer-round {
+  animation: fx-tracer-crawl var(--proj-dur, 1.8s) linear var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-tracer-crawl {
+  0% { transform: translate(0, 0); opacity: 0; }
+  8% { opacity: 1; }
+  80% { transform: translate(var(--tx), var(--ty)); opacity: 1; }
+  84% { transform: translate(var(--tx), var(--ty)); opacity: 0; }
+  100% { transform: translate(var(--tx), var(--ty)); opacity: 0; }
+}
+.fx-tracer-streak {
+  opacity: 0.85;
+}
+
+/* sharp impact spark fires at ~0.80 */
+.fx-tracer-spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-proj-spark var(--proj-dur, 1.8s) ease-out var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-proj-spark {
+  0%, 79% { opacity: 0; transform: scale(0.3); }
+  82% { opacity: 1; transform: scale(1.05); }
+  94% { opacity: 0.4; transform: scale(1.25); }
+  100% { opacity: 0; transform: scale(1.4); }
+}
+
+/* ARTILLERY SHELL ----------------------------------------------------------- */
+/* dashed ballistic trail: draws on as the shell climbs, lands ~0.88, fades */
+.fx-shell-trail {
+  stroke-dasharray: 6 8;
+  opacity: 0;
+  animation: fx-shell-trail var(--proj-dur, 2.8s) ease-in var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-shell-trail {
+  0% { opacity: 0; }
+  10% { opacity: 0.5; }
+  88% { opacity: 0.5; }
+  100% { opacity: 0; }
+}
+
+/* the shell rides the parabola via SVG SMIL <animateMotion> (see ReplayFx
+   Shell) — NOT a CSS offset-path, which does not translate an SVG <g> along
+   absolute path coords inside the board's transform group (it pinned the round
+   at the layer origin → a stray dot off toward the board edge). Here CSS owns
+   ONLY the opacity track (fade-in, then vanish on impact ~0.88); the TRAVEL is
+   the animateMotion. */
+.fx-shell-round {
+  opacity: 0;
+  animation: fx-shell-fly var(--proj-dur, 2.8s) linear var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-shell-fly {
+  0% { opacity: 0; }
+  6% { opacity: 1; }
+  88% { opacity: 1; }
+  90% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+/* dust + expanding ring burst at the landing (~0.88) */
+.fx-shell-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-shell-ring var(--proj-dur, 2.8s) ease-out var(--proj-delay, 0ms) forwards;
+}
+.fx-shell-ring-2 {
+  animation-delay: calc(var(--proj-delay, 0ms) + 0.04s);
+}
+@keyframes fx-shell-ring {
+  0%, 87% { opacity: 0; transform: scale(0.2); }
+  90% { opacity: 1; transform: scale(0.7); }
+  100% { opacity: 0; transform: scale(2); }
+}
+.fx-shell-dust {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-shell-dust var(--proj-dur, 2.8s) ease-out forwards; /* per-circle delay inline */
+}
+@keyframes fx-shell-dust {
+  0%, 87% { opacity: 0; transform: scale(0.3) translate(0, 0); }
+  91% { opacity: 0.8; transform: scale(1) translate(0, 0); }
+  100% { opacity: 0; transform: scale(1.4) translate(0, -6px); }
+}
+
+/* MELEE STAB ---------------------------------------------------------------- */
+/* short dash toward the target (~0.5 reach) — fast + punchy, lands ~0.50 */
+.fx-stab-dash {
+  animation: fx-stab-dash var(--proj-dur, 0.42s) cubic-bezier(0.3, 0, 0.2, 1) var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-stab-dash {
+  0% { transform: translate(0, 0); opacity: 0; }
+  20% { opacity: 1; }
+  50% { transform: translate(var(--tx), var(--ty)); opacity: 1; }
+  70% { transform: translate(var(--tx), var(--ty)); opacity: 0.5; }
+  100% { transform: translate(0, 0); opacity: 0; }
+}
+.fx-stab-flash {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: fx-stab-flash var(--proj-dur, 0.42s) ease-out var(--proj-delay, 0ms) forwards;
+}
+@keyframes fx-stab-flash {
+  0%, 45% { opacity: 0; transform: scale(0.3); }
+  55% { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 0; transform: scale(1.3); }
+}
+
+/* faster wave-2x playback: shrink the projectile durations to match */
+.board-replay-2x .fx-tracer-charge,
+.board-replay-2x .fx-tracer-round,
+.board-replay-2x .fx-tracer-spark { animation-duration: 0.9s; }
+.board-replay-2x .fx-shell-trail,
+.board-replay-2x .fx-shell-round,
+.board-replay-2x .fx-shell-ring,
+.board-replay-2x .fx-shell-dust { animation-duration: 1.1s; }
+.board-replay-2x .fx-stab-dash,
+.board-replay-2x .fx-stab-flash { animation-duration: 0.21s; }
+
+/* reduced motion: degrade every projectile to a SIMPLE INSTANT MARK — no crawl
+   or arc animation, but the impact spark still lands at the target (so the
+   player still sees WHAT hit WHOM; outcomes are unchanged either way). */
+@media (prefers-reduced-motion: reduce) {
+  .fx-tracer-charge,
+  .fx-tracer-round,
+  .fx-shell-trail,
+  .fx-shell-round,
+  .fx-shell-dust,
+  .fx-stab-dash {
+    animation: none;
+    opacity: 0;
+  }
+  /* the impact spark / ring snaps to a brief static end-mark (no travel) */
+  .fx-tracer-spark,
+  .fx-stab-flash,
+  .fx-shell-ring {
+    animation: none;
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+
+/* floating damage number: rises and holds (stays tappable for breakdown).
+   P9: the animation targets an INNER group — a CSS transform animation
+   replaces the SVG transform ATTRIBUTE on the same element, which silently
+   teleported pills (and bursts) to the layer origin in P8. */
+.fx-floater-rise {
+  animation: fx-float-up 0.7s ease-out forwards;
+}
+
+.fx-floater-pill {
+  cursor: pointer;
+}
+
+@keyframes fx-float-up {
+  0% {
+    opacity: 0;
+    transform: translate(0, 14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+}
+
+/* P9: last-volley pill carried into later frames — settled (the ReplayFx
+   group remounts per frame; without this the pop would replay every frame),
+   slightly faded, still a breakdown tap target. */
+.fx-floater-linger {
+  opacity: 0.88;
+}
+
+.fx-floater-linger .fx-floater-rise {
+  animation: none;
+}
+
+/* Feature A: combat CALLOUT — a transient military-font banner above the event
+   cell (crossing / no-target / capture / kill). Generalizes the old "path
+   interrupted!" sign. The inner group rises up + fades out over ~1s (vs the
+   floater's hold), then drops with the per-frame-remounted fx group. */
+.fx-callout {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.fx-callout-rise {
+  animation: fx-callout-rise 1.05s ease-out forwards;
+}
+.fx-callout-text {
+  /* the @font-face family; the SVG font-family attr names the fallback stack. */
+  font-family: 'Black Ops One', 'Impact', 'Arial Narrow Bold', sans-serif;
+  letter-spacing: 0.02em;
+}
+
+@keyframes fx-callout-rise {
+  0% {
+    opacity: 0;
+    transform: translate(0, 16px) scale(0.82);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(0, 4px) scale(1.04);
+  }
+  32% {
+    transform: translate(0, 0) scale(1);
+  }
+  72% {
+    opacity: 1;
+    transform: translate(0, -8px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(0, -26px) scale(0.98);
+  }
+}
+
+/* fire-from-the-mist impact: expanding rings, no source shown (§7) */
+.fx-impact-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-impact-pop 0.8s ease-out forwards;
+}
+
+.fx-impact-ring-2 {
+  animation-delay: 0.18s;
+}
+
+@keyframes fx-impact-pop {
+  0% {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+/* brawl clash burst */
+.fx-burst {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-burst-pop 0.6s ease-out forwards;
+}
+
+@keyframes fx-burst-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+
+/* --- v1.3 Tweak B: movement origin trails ----------------------------------- */
+/* Persistent layer (NOT remounted per frame): the dotted path + origin ghost
+   hold at 0.7 while the move animates, then fade out over ~1.6 s once the
+   move completes (.fx-trail-fading flips opacity; App removes after 1.9 s). */
+
+.fx-trail {
+  opacity: 0.7;
+  transition: opacity 1.6s ease;
+}
+
+.fx-trail-fading {
+  opacity: 0;
+}
+
+/* (v0.6: the old .fx-kill fade was replaced by the destruction verb —
+   .fx-death-* below, Ask 7.) */

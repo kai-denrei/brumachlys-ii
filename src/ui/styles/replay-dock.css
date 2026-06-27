@@ -1,0 +1,344 @@
+/* --- P8: replay dock — initiative timeline strip (§9.4) -------------------- */
+
+.replay-dock {
+  /* R7: a column — the scrubber spans the full width on top, the strip + speed
+     controls form the row below it. */
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  /* Same reserved height as .bottom-dock so swapping the two docks never
+     resizes .board-area (and never recenters the SVG board). See the note by
+     .bottom-dock. */
+  min-height: calc(env(safe-area-inset-bottom) + var(--dock-min-height));
+  padding: 0.45rem 0.75rem calc(env(safe-area-inset-bottom) + 0.45rem);
+  background: var(--bar-bg);
+  backdrop-filter: blur(6px);
+  border-top: 1px solid rgba(var(--ink-rgb), 0.12);
+  /* The slide-up animation only TRANSLATES (no height change), so it doesn't
+     itself resize the board — and with the reserved height the swap is a pure
+     content change inside a fixed box. */
+  animation: dock-slide-up 0.22s ease-out; /* slides over the dock (§9.4) */
+}
+
+/* R7: the strip + speed-controls row that sits under the scrubber. */
+.replay-dock-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* R7 (SCRUBBER): the full-width seek slider. Paper/ink palette to match the
+   existing dock chrome; the thumb is a faction-A pip. */
+.replay-scrub {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.replay-scrub:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.replay-scrub::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(var(--ink-rgb), 0.22);
+}
+.replay-scrub::-moz-range-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(var(--ink-rgb), 0.22);
+}
+.replay-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--faction-a);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-scrub::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--faction-a);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-scrub:focus-visible {
+  outline: none;
+}
+.replay-scrub:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(var(--faction-a-rgb), 0.4);
+}
+.replay-scrub:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(var(--faction-a-rgb), 0.4);
+}
+
+@keyframes dock-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.timeline-strip {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  align-items: center;
+}
+
+.timeline-empty {
+  font-size: 0.72rem;
+  opacity: 0.55;
+  font-style: italic;
+  padding: 0.4rem 0.2rem;
+}
+
+.timeline-slot {
+  border: none;
+  background: none;
+  padding: 1px;
+  width: 30px;
+  height: 34px;
+  flex: none;
+  border-radius: 9px;
+  position: relative;
+  opacity: 0.45;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.timeline-slot-past {
+  opacity: 0.8;
+}
+
+.timeline-slot-active {
+  opacity: 1;
+  background: rgba(var(--faction-a-rgb), 0.22);
+  box-shadow: 0 0 0 1.5px var(--faction-a);
+}
+
+.timeline-slot-tappable {
+  cursor: pointer;
+}
+
+.timeline-slot-svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.timeline-slot-mist {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: #9a937f;
+  color: #f2eee3;
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timeline-slot-kind {
+  font-size: 0.5rem;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.replay-controls {
+  display: flex;
+  gap: 0.3rem;
+  flex: none;
+  align-items: center;
+}
+
+/* RESOLUTION SLOW-DOWN SLIDER: the fine speed control beside the presets. A
+   compact range + a "0.5×" readout, paper/ink palette to match the dock chrome.
+   Mobile-first: the track stays narrow so the dock fits a 390px viewport. */
+.replay-speed {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+}
+.replay-speed-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 72px;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.replay-speed-slider:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.replay-speed-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(var(--ink-rgb), 0.22);
+}
+.replay-speed-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(var(--ink-rgb), 0.22);
+}
+.replay-speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--faction-a);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-speed-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--faction-a);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-speed-slider:focus-visible {
+  outline: none;
+}
+.replay-speed-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(var(--faction-a-rgb), 0.4);
+}
+.replay-speed-slider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(var(--faction-a-rgb), 0.4);
+}
+.replay-speed-readout {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--ink);
+  opacity: 0.75;
+  min-width: 2.1em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* SECOND SLIDER (sequencing §5): combat dilation depth — mirrors the resolution
+   speed slider but with a combat-red thumb so the two knobs read distinctly
+   (speed = whole-replay wall-clock; dilation = combat-only depth). */
+.replay-dilation {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+}
+.replay-dilation-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 72px;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.replay-dilation-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(var(--ink-rgb), 0.22);
+}
+.replay-dilation-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(var(--ink-rgb), 0.22);
+}
+.replay-dilation-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: #e8362a;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-dilation-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e8362a;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.replay-dilation-slider:focus-visible {
+  outline: none;
+}
+.replay-dilation-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 54, 42, 0.4);
+}
+.replay-dilation-slider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(232, 54, 42, 0.4);
+}
+.replay-dilation-readout {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: #c22;
+  opacity: 0.8;
+  min-width: 4.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.replay-button {
+  border: 1.5px solid rgba(var(--ink-rgb), 0.2);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+  width: 34px;
+  height: 30px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.replay-button-active {
+  background: var(--faction-a);
+  border-color: var(--faction-a);
+  color: #fff;
+}
+
+.replay-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* R8 (AUDIO): the synth-cue toggle — a music note (♪) glyph; OFF shows the
+   crossed note (♪̸). Reuses .replay-button + .replay-button-active for layout
+   and the ON tint, so it matches the speed controls. */
+.replay-audio {
+  font-size: 0.85rem;
+}
+
+/* P9: recenter — appears only while a manual pan suspended auto-follow */
+.replay-recenter {
+  background: var(--faction-a);
+  border-color: var(--faction-a);
+  color: #fff;
+  font-size: 0.9rem;
+}
