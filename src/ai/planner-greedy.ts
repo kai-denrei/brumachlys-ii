@@ -358,6 +358,71 @@ type EnemyInfo = {
   estTrail: CellId[];
 };
 
+/** Per-enemy precomputation shared across all own units, built once per round.
+ *  For each visible enemy: its hop field, the now/next-round threat rings, and
+ *  the estimated trail (crossing-awareness §2). Pure on the view — no weights or
+ *  planner closure state — so it lifts cleanly out of `plan`. See EnemyInfo. */
+function computeEnemyInfos(view: FactionView): EnemyInfo[] {
+  const { board, unitTypes } = view;
+  const enemyInfos: EnemyInfo[] = [];
+  for (const e of view.enemies) {
+    const et = unitTypes[e.type];
+    if (!et) continue;
+    const distFrom = bfsHops(board, e.cell);
+    const enemyCosts = movementCostsFor(et);
+    const reach = reachableCells(board, enemyCosts, e.cell, et.movement);
+    const firing = [e.cell, ...[...reach.keys()].sort((a, b) => a - b)];
+    const nowZone = new Set<CellId>();
+    const threatened = new Set<CellId>();
+    for (const f of firing) {
+      for (const [cell, d] of bfsHops(board, f, et.maxRange)) {
+        if (d < et.minRange) continue;
+        threatened.add(cell);
+        if (f === e.cell) nowZone.add(cell);
+      }
+    }
+    // ── Estimated enemy trail this round (crossing-awareness §2) ────────
+    // HEURISTIC (documented approximation of enemy intent): the enemy moves
+    // along the shortest movement-cost path toward its nearest OWN-unit
+    // target, capped at its own movement budget. We do not know the enemy's
+    // real orders (factions plan independently); this is a cheap, fog-honest
+    // estimate (we know where our own units stand). The stay-put trail is
+    // always element 0 ([enemyCell]) — an enemy that holds still still
+    // "crosses" anyone walking onto its cell. Computed ONCE per round per
+    // enemy (not per own candidate) to stay within the planner budget.
+    const estTrail: CellId[] = [e.cell];
+    let bestTargetCell = -1;
+    let bestTargetHops = Infinity;
+    for (const v of view.own) {
+      const h = distFrom.get(v.cell);
+      if (h === undefined) continue;
+      if (h < bestTargetHops || (h === bestTargetHops && v.cell < bestTargetCell)) {
+        bestTargetHops = h;
+        bestTargetCell = v.cell;
+      }
+    }
+    if (bestTargetCell >= 0 && bestTargetCell !== e.cell) {
+      // Enemy charges its target's cell (a §2.5 charge is a valid move
+      // destination); allow stopping/passing through anywhere, so the
+      // estimate is a plain shortest reachable approach trimmed to budget.
+      const pr = findPath(board, enemyCosts, e.cell, bestTargetCell, {
+        budget: et.movement,
+      });
+      if (pr && pr.path.length > 0) estTrail.push(...pr.path);
+    }
+    enemyInfos.push({
+      unit: e,
+      type: et,
+      distFrom,
+      nowZone,
+      threatened,
+      takenByTerrain: new Map(),
+      estTrail,
+    });
+  }
+  return enemyInfos;
+}
+
 export function createGreedyPlanner(
   overrides: Partial<GreedyWeights> = {},
   conquestOverrides: Partial<ConquestWeights> = {},
@@ -389,63 +454,8 @@ export function createGreedyPlanner(
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       });
 
-      // ── Per-enemy precomputation (shared across all own units) ────────────
-      const enemyInfos: EnemyInfo[] = [];
-      for (const e of view.enemies) {
-        const et = unitTypes[e.type];
-        if (!et) continue;
-        const distFrom = bfsHops(board, e.cell);
-        const enemyCosts = movementCostsFor(et);
-        const reach = reachableCells(board, enemyCosts, e.cell, et.movement);
-        const firing = [e.cell, ...[...reach.keys()].sort((a, b) => a - b)];
-        const nowZone = new Set<CellId>();
-        const threatened = new Set<CellId>();
-        for (const f of firing) {
-          for (const [cell, d] of bfsHops(board, f, et.maxRange)) {
-            if (d < et.minRange) continue;
-            threatened.add(cell);
-            if (f === e.cell) nowZone.add(cell);
-          }
-        }
-        // ── Estimated enemy trail this round (crossing-awareness §2) ────────
-        // HEURISTIC (documented approximation of enemy intent): the enemy moves
-        // along the shortest movement-cost path toward its nearest OWN-unit
-        // target, capped at its own movement budget. We do not know the enemy's
-        // real orders (factions plan independently); this is a cheap, fog-honest
-        // estimate (we know where our own units stand). The stay-put trail is
-        // always element 0 ([enemyCell]) — an enemy that holds still still
-        // "crosses" anyone walking onto its cell. Computed ONCE per round per
-        // enemy (not per own candidate) to stay within the planner budget.
-        const estTrail: CellId[] = [e.cell];
-        let bestTargetCell = -1;
-        let bestTargetHops = Infinity;
-        for (const v of view.own) {
-          const h = distFrom.get(v.cell);
-          if (h === undefined) continue;
-          if (h < bestTargetHops || (h === bestTargetHops && v.cell < bestTargetCell)) {
-            bestTargetHops = h;
-            bestTargetCell = v.cell;
-          }
-        }
-        if (bestTargetCell >= 0 && bestTargetCell !== e.cell) {
-          // Enemy charges its target's cell (a §2.5 charge is a valid move
-          // destination); allow stopping/passing through anywhere, so the
-          // estimate is a plain shortest reachable approach trimmed to budget.
-          const pr = findPath(board, enemyCosts, e.cell, bestTargetCell, {
-            budget: et.movement,
-          });
-          if (pr && pr.path.length > 0) estTrail.push(...pr.path);
-        }
-        enemyInfos.push({
-          unit: e,
-          type: et,
-          distFrom,
-          nowZone,
-          threatened,
-          takenByTerrain: new Map(),
-          estTrail,
-        });
-      }
+      // Per-enemy precomputation (shared across all own units) — see computeEnemyInfos.
+      const enemyInfos = computeEnemyInfos(view);
 
       // ── Conquest base intel (addendum §B.7) ───────────────────────────────
       // Built ONLY from the honest view: believed ownership (cq.bases — stale
