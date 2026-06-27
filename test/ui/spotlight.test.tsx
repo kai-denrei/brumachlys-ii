@@ -123,6 +123,50 @@ describe('R2 spotlight — Board render treatment', () => {
     expect(unitEl(container, 'standin')!.getAttribute('data-spotlight')).toBe('lit');
   });
 
+  // Bug 1 (fog-vs-spotlight): when the PLAYER's own unit fires BEYOND its own
+  // vision, the strike is shown so the target cell joins combatants.cells (it is
+  // 'lit'), yet that cell sits in the player's fog. The −damage floater is drawn
+  // over it, but CellRenderer's dark branch returned early and painted it dark —
+  // the witnessed impact read as "hidden behind the fog". A lit (witnessed-combat)
+  // cell must escape fog darkening: show terrain + the lit ring, never the cover.
+  it('ACTIVE: a witnessed-combat (lit) cell in DARK fog escapes darkening — terrain + ring, no dark-cover', () => {
+    const { container } = render(
+      <Board
+        board={makeBoard()}
+        units={[]}
+        fog={new Set<CellId>([0])} // cell 0 fogged…
+        discovered={new Set<CellId>()} // …and never seen → would be DARK tier
+        spotlight={{ active: true, combatants: { cells: new Set<CellId>([0]), units: new Set<string>() } }}
+        replayFx={{ key: 1, fx: { arcs: [], floaters: [], bursts: [], kills: [] } }}
+      />,
+    );
+    const cell0 = cellEl(container, 0)!;
+    expect(cell0.classList.contains('cell-spotlight-lit')).toBe(true);
+    expect(cell0.classList.contains('cell-dark')).toBe(false);
+    expect(cell0.querySelector('.dark-cover')).toBeNull();
+    expect(container.querySelector('.cell-spotlight-ring')).not.toBeNull();
+  });
+
+  // The softer tier: a lit cell that is fogged-but-DISCOVERED (memory) should
+  // read as live combat, not the desaturated/washed memory treatment.
+  it('ACTIVE: a lit cell in MEMORY fog renders live (no memory wash) + ring', () => {
+    const { container } = render(
+      <Board
+        board={makeBoard()}
+        units={[]}
+        fog={new Set<CellId>([0])}
+        discovered={new Set<CellId>([0])} // fogged + discovered → MEMORY tier
+        spotlight={{ active: true, combatants: { cells: new Set<CellId>([0]), units: new Set<string>() } }}
+        replayFx={{ key: 1, fx: { arcs: [], floaters: [], bursts: [], kills: [] } }}
+      />,
+    );
+    const cell0 = cellEl(container, 0)!;
+    expect(cell0.classList.contains('cell-spotlight-lit')).toBe(true);
+    expect(cell0.classList.contains('cell-memory')).toBe(false);
+    expect(cell0.querySelector('.memory-wash')).toBeNull();
+    expect(container.querySelector('.cell-spotlight-ring')).not.toBeNull();
+  });
+
   it('radar badges untouched: a dimmed token is not given any radar treatment', () => {
     // The replay branch never passes onUnitRadarTap, so no radar pip renders —
     // assert the spotlight dim does not synthesize one (radar stays untouched).

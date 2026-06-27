@@ -334,8 +334,20 @@ export const CellRenderer = memo(function CellRenderer({
     );
   }
 
+  // R2/Bug-1 (fog vs spotlight): a 'lit' cell is a WITNESSED combatant cell —
+  // the replay builder adds a cell to combatants.cells ONLY from shown strikes
+  // (a mist attacker's firing position is withheld), so the only fogged-yet-lit
+  // cell is the target of the PLAYER's own out-of-vision shot. The −damage
+  // floater + arc are already drawn over it, so painting it dark read as "the
+  // impact is hidden behind the fog". A lit cell therefore escapes fog darkening
+  // (dark cover below) and the memory wash (further down): it shows its terrain
+  // and the lit ring so the witnessed impact is legible. Honest — it reveals only
+  // the ground under a strike the player already saw land; enemy units stay
+  // fog-gated (renderUnits) and the mist firing position never leaks.
+  const litCombatant = spotlight === 'lit';
+
   // Dark tier: never seen — paper underfill, near-black cover, zero detail.
-  if (tier === 'dark') {
+  if (tier === 'dark' && !litCombatant) {
     return (
       <g
         className="cell cell-dark"
@@ -360,7 +372,9 @@ export const CellRenderer = memo(function CellRenderer({
     );
   }
 
-  const memory = tier === 'memory';
+  // A lit combatant cell renders LIVE even from the memory tier (no desaturation
+  // / wash) so the witnessed combat reads clearly rather than as a faded memory.
+  const memory = tier === 'memory' && !litCombatant;
   const isCamp = camp && cell.terrain === 'base' && baseTintFaction === null;
   let fill = terrainFill(cell.terrain);
   // E3 (E1 handoff): ownership tint applies AFTER the memory desaturation so
