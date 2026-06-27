@@ -318,7 +318,7 @@ describe('combat callouts — CSS contract (font + reduced-motion static)', () =
   const uiDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/ui');
   const barrel = readFileSync(resolve(uiDir, 'styles.css'), 'utf8');
   const css = [...barrel.matchAll(/@import\s+'\.\/(.+?)';/g)]
-    .map((m) => readFileSync(resolve(uiDir, m[1]), 'utf8'))
+    .map((m) => readFileSync(resolve(uiDir, m[1]!), 'utf8'))
     .join('\n');
 
   it('vendors the Black Ops One @font-face pointing at the woff2', () => {
