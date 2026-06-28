@@ -1622,6 +1622,18 @@ export function buildReplay(
   //     ledger ticks after the board has settled.
   insertSettleBeat(frames, log, doomedDeaths, phases.SETTLE.duration);
 
+  // R1 post-pass: re-derive each frame's unit counts in DISPLAY order. The event
+  // walk applies a combat BUCKET's damage to `sim` before the wave-split emits its
+  // frames, and regroupCombatWaves then reorders WAVE_A ahead of WAVE_B — so a
+  // frame's snapshotted counts could be out of sync with its display position (a
+  // unit hit in the WAVE_B half read its reduced count on the earlier WAVE_A
+  // frame; a unit could read its pre-combat count again on a later greyed frame).
+  // Fix: a unit's displayed count drops ONLY on the frame where its own damage is
+  // shown — recompute count = round-start − cumulative shown-strike damage,
+  // accumulated frame-by-frame in display order. Pure (frames/slots/baseUnits) →
+  // scrub-identical; outcomes/fog/log untouched (only the on-board count display).
+  rederiveFrameCounts(frames, slots, baseUnits);
+
   return {
     slots,
     frames,
@@ -1674,7 +1686,11 @@ function insertSettleBeat(
   const settle: ReplayFrame = {
     duration: settleDuration,
     slot: -1, // a transition/bookkeeping beat, not a timeline action
-    units: base.units,
+    // Fresh unit copies, not a shared reference to the last wave frame's array —
+    // defensive hygiene so the per-frame count re-derivation (rederiveFrameCounts)
+    // can never mutate one frame's counts through another's. (SETTLE itself is
+    // skipped by that pass — it is non-combat — so this is belt-and-suspenders.)
+    units: base.units.map((u) => ({ ...u })),
     fog: base.fog,
     discovered: base.discovered,
     ignite: [],
@@ -1699,6 +1715,56 @@ function insertSettleBeat(
   // log line bound to such a frame (the post-combat ledger / capture / promotion
   // lines) must follow it so it still fires on the right beat.
   for (const entry of log) if (entry.atFrame > lastWave) entry.atFrame += 1;
+}
+
+/** R1 (PURE): re-derive every frame's on-board unit COUNTS so a unit's displayed
+ *  count drops only on the frame where its own damage is witnessed.
+ *
+ *  Why: the event walk applies a combat bucket's full damage to `sim` before the
+ *  wave-split emits that bucket's frames, and regroupCombatWaves then reorders
+ *  WAVE_A ahead of WAVE_B. Both make a frame's count SNAPSHOT (taken in build /
+ *  resolution order) disagree with its DISPLAY position — a WAVE_B defender read
+ *  its post-hit count on the earlier WAVE_A frame, and a unit could read its
+ *  pre-combat count again on a later (greyed) frame.
+ *
+ *  Fix: count(unit, frame N) = round-start count − Σ damage from that unit's
+ *  WITNESSED strikes on frames 0..N (display order). Round-start comes from
+ *  `baseUnits` (authoritative; in a two-faction game every strike the player can
+ *  be shown is one it witnessed, so the slot strikes are the full damage record);
+ *  a mid-round spawn (absent from baseUnits) falls back to its max shown count.
+ *  Mutates each frame's (already per-frame-fresh) unit objects in place. Touches
+ *  only the display count — damage/kills/fog/log are unchanged. Deterministic. */
+function rederiveFrameCounts(
+  frames: ReplayFrame[],
+  slots: TimelineSlot[],
+  baseUnits: readonly UnitInstance[],
+): void {
+  const baseline = new Map<string, number>();
+  for (const u of baseUnits) baseline.set(u.id, u.count); // authoritative round-start
+  // Mid-round spawns aren't in baseUnits — seed their baseline from the max count
+  // they're ever shown at (they appear at full before any same-round hit).
+  for (const f of frames) {
+    for (const u of f.units) {
+      if (!baseline.has(u.id)) baseline.set(u.id, Math.max(baseline.get(u.id) ?? 0, u.count));
+    }
+  }
+  const cum = new Map<string, number>(); // cumulative shown damage per defender
+  for (const f of frames) {
+    // Only WAVE (combat) frames are desynced by the bucket damage-application +
+    // wave-regroup reorder. Every OTHER frame (pre-combat, movement, the
+    // end-of-round veterancy PROMOTION heal, income/upkeep ledger, SETTLE)
+    // snapshots `sim` at its correct, un-reordered point — leave those counts
+    // alone. (Skipping non-combat frames is also what preserves a promotion's
+    // heal, which raises count and is invisible to the damage-only model here.)
+    if (f.wave === undefined) continue;
+    for (const s of slots[f.slot]?.strikes ?? []) {
+      if (s.damage > 0) cum.set(s.defenderId, (cum.get(s.defenderId) ?? 0) + s.damage);
+    }
+    for (const u of f.units) {
+      const base = baseline.get(u.id);
+      if (base !== undefined) u.count = Math.max(0, base - (cum.get(u.id) ?? 0));
+    }
+  }
 }
 
 /** R2 (SPOTLIGHT): is the combat spotlight engaged at this playback cursor?
