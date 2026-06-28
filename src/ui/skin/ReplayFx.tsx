@@ -492,14 +492,23 @@ function Stab({
   dur?: number;
 }) {
   const color = factionColor(faction);
-  let dx = b[0] - a[0];
-  let dy = b[1] - a[1];
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
   const len = Math.hypot(dx, dy);
+  // Same-cell strike: a forced-crossing BRAWL halts both units on ONE tile, so
+  // the attacker→target vector is zero — there is no dash direction. Render ONLY
+  // the impact cross (operator call). The old code nudged dx=tokenSize but kept
+  // the zeroed `len`, so the dash normalized by `len || 1` = 1 and drew a
+  // ~tokenSize²·0.42 line — a board-spanning horizontal "laser".
   if (len < 1e-3) {
-    // brawl (same cell): nudge a fixed direction so both halves still read.
-    dx = tokenSize;
-    dy = 0;
+    return (
+      <g className="fx-stab" pointerEvents="none">
+        <ImpactSpark at={b} tokenSize={tokenSize} className="fx-stab-flash" />
+      </g>
+    );
   }
+  const ux = dx / len; // unit direction toward the target
+  const uy = dy / len;
   const reach = 0.5; // ~half the distance toward the target
   const style = {
     '--proj-delay': `${delay}ms`,
@@ -513,8 +522,8 @@ function Stab({
         <line
           x1={a[0]}
           y1={a[1]}
-          x2={a[0] + (dx / (len || 1)) * tokenSize * 0.42}
-          y2={a[1] + (dy / (len || 1)) * tokenSize * 0.42}
+          x2={a[0] + ux * tokenSize * 0.42}
+          y2={a[1] + uy * tokenSize * 0.42}
           stroke={color}
           strokeWidth={tokenSize * 0.14}
           strokeLinecap="round"

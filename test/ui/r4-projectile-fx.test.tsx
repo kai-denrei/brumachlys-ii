@@ -239,6 +239,27 @@ describe('R4 ReplayFx — melee stab (short dash + flash)', () => {
     expect(stab.style.getPropertyValue('--tx')).not.toBe('');
   });
 
+  // REGRESSION (2026-06-28 operator bug A): a forced-crossing BRAWL puts both
+  // units on ONE tile, so the stab is same-cell (from === to → a === b, len 0).
+  // The dash normalized its direction by `len || 1` = 1 instead of the nudge
+  // length, drawing a line of ~tokenSize²·0.42 (~600 px) — a horizontal "laser"
+  // to the board edge. A same-cell clash has no dash direction: render only the
+  // impact cross (operator call), never a runaway dash.
+  it('a SAME-CELL stab (brawl) draws the impact cross, never a board-spanning dash', () => {
+    const board = rowBoard(8);
+    const { container } = renderFx({ projectiles: [proj({ kind: 'stab', from: 5, to: 5 })] }, board);
+    // the white x/X impact cross still reads the clash
+    expect(container.querySelector('.fx-stab-flash')).not.toBeNull();
+    // the dash, if present at all, must be a SHORT stab — never the runaway line.
+    const dash = container.querySelector<SVGLineElement>('.fx-stab-dash line');
+    if (dash) {
+      const dxLine = Math.abs(Number(dash.getAttribute('x2')) - Number(dash.getAttribute('x1')));
+      const dyLine = Math.abs(Number(dash.getAttribute('y2')) - Number(dash.getAttribute('y1')));
+      expect(dxLine).toBeLessThanOrEqual(40); // ≤ tokenSize; the bug drew ~672
+      expect(dyLine).toBeLessThanOrEqual(40);
+    }
+  });
+
   it('a counter stab carries the ~75 ms crossfire delay var', () => {
     const { container } = renderFx({
       projectiles: [
