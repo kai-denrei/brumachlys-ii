@@ -206,6 +206,19 @@ export const PIPELINE: PipelineEntry[] = [
     commit: '03faba2',
   },
   {
+    version: '1.7.x',
+    date: 'Jun 28',
+    status: 'shipped',
+    title: 'replay fidelity fixes',
+    items: [
+      'fire on a fogged target and it lights up rather than staying dark',
+      'no stray tracer line shooting off the board on aligned shots',
+      'same tile brawls play the impact cross · not a board spanning beam',
+      'hit point counts stay steady across combat frames · no flash back to full',
+    ],
+    commit: 'a56736c',
+  },
+  {
     version: 'next',
     date: null,
     status: 'next',
@@ -225,4 +238,4 @@ export const PIPELINE: PipelineEntry[] = [
  *  output would couple the bundle to the test runner. Update alongside the
  *  version bump; the pipeline test pins it to this constant, not to the
  *  live suite. */
-export const TEST_COUNT = 1293;
+export const TEST_COUNT = 1307;
