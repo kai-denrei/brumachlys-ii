@@ -1,0 +1,1441 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-2-ranger",
+            "path": [
+              280
+            ]
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-2-ranger"
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-1-infantry"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-0-infantry",
+            "path": [
+              279,
+              102,
+              248
+            ]
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-0-infantry"
+          }
+        ],
+        "buys": []
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 2,
+      "p0": {
+        "orders": [],
+        "buys": [
+          {
+            "kind": "buy",
+            "baseCell": 103,
+            "unitTypeKey": "ranger"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 248,
+            "unitTypeKey": "tank"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 279,
+            "unitTypeKey": "ranger"
+          }
+        ]
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 3,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-r2-b103-ranger",
+            "path": [
+              279,
+              102,
+              437,
+              90
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r2-b279-ranger",
+            "path": [
+              102,
+              427,
+              101,
+              155
+            ]
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-r2-b279-ranger"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r2-b248-tank",
+            "path": [
+              102,
+              427,
+              101,
+              158
+            ]
+          }
+        ],
+        "buys": [
+          {
+            "kind": "buy",
+            "baseCell": 103,
+            "unitTypeKey": "tank"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 248,
+            "unitTypeKey": "infantry"
+          }
+        ]
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 4,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-r2-b103-ranger",
+            "path": [
+              155,
+              84,
+              377,
+              378
+            ]
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-r2-b103-ranger"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b248-infantry",
+            "path": [
+              102,
+              429,
+              156
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r2-b248-tank",
+            "path": [
+              84,
+              377
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b103-tank",
+            "path": [
+              279,
+              102,
+              427,
+              85
+            ]
+          }
+        ],
+        "buys": [
+          {
+            "kind": "buy",
+            "baseCell": 103,
+            "unitTypeKey": "ranger"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 155,
+            "unitTypeKey": "tank"
+          }
+        ]
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 5,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-r4-b103-ranger",
+            "path": [
+              279,
+              102,
+              437,
+              90
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b248-infantry",
+            "path": [
+              157,
+              379,
+              123
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r4-b155-tank",
+            "path": [
+              84,
+              377,
+              46,
+              479
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r2-b248-tank",
+            "path": [
+              46,
+              453,
+              135,
+              134
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b103-tank",
+            "path": [
+              388,
+              62,
+              378,
+              46
+            ]
+          }
+        ],
+        "buys": [
+          {
+            "kind": "buy",
+            "baseCell": 103,
+            "unitTypeKey": "ranger"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 155,
+            "unitTypeKey": "ranger"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 248,
+            "unitTypeKey": "ranger"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 279,
+            "unitTypeKey": "infantry"
+          }
+        ]
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 6,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b155-ranger",
+            "path": [
+              84,
+              377,
+              46,
+              453
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b248-ranger",
+            "path": [
+              102,
+              427,
+              101,
+              158
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b103-ranger",
+            "path": [
+              279,
+              102,
+              427,
+              101
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r4-b103-ranger",
+            "path": [
+              155,
+              84,
+              377
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b279-infantry",
+            "path": [
+              102,
+              427,
+              85
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b248-infantry",
+            "path": [
+              46,
+              479,
+              31
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r4-b155-tank",
+            "path": [
+              31,
+              149,
+              21
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r2-b248-tank",
+            "path": [
+              33
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b103-tank",
+            "path": [
+              479,
+              31,
+              150
+            ]
+          }
+        ],
+        "buys": [
+          {
+            "kind": "buy",
+            "baseCell": 103,
+            "unitTypeKey": "tank"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 155,
+            "unitTypeKey": "ranger"
+          }
+        ]
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 7,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b155-ranger",
+            "path": [
+              135,
+              31,
+              149
+            ]
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-r5-b155-ranger"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b248-ranger",
+            "path": [
+              380,
+              378,
+              46,
+              479
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b103-ranger",
+            "path": [
+              517,
+              62,
+              523,
+              43
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r6-b155-ranger",
+            "path": [
+              84,
+              377,
+              46,
+              453
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r4-b103-ranger",
+            "path": [
+              46,
+              479,
+              31,
+              372
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b279-infantry",
+            "path": [
+              388,
+              62,
+              523
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b103-tank",
+            "path": [
+              21,
+              432,
+              203
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r6-b103-tank",
+            "path": [
+              279,
+              102,
+              427,
+              101
+            ]
+          }
+        ],
+        "buys": [
+          {
+            "kind": "buy",
+            "baseCell": 103,
+            "unitTypeKey": "tank"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 155,
+            "unitTypeKey": "ranger"
+          }
+        ]
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 8,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b248-ranger",
+            "path": [
+              31,
+              149,
+              21,
+              432
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b103-ranger",
+            "path": [
+              145,
+              31,
+              149,
+              151
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r6-b155-ranger",
+            "path": [
+              135,
+              134,
+              151,
+              153
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r7-b155-ranger",
+            "path": [
+              84,
+              377,
+              46,
+              479
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r4-b103-ranger",
+            "path": [
+              21,
+              432,
+              24
+            ]
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-r4-b103-ranger"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b279-infantry",
+            "path": [
+              43,
+              145,
+              148
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b248-infantry",
+            "path": [
+              149,
+              21,
+              433
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r7-b103-tank",
+            "path": [
+              279,
+              102,
+              437,
+              90
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r4-b155-tank",
+            "path": [
+              432,
+              24,
+              201
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r2-b248-tank",
+            "path": [
+              151,
+              153,
+              434
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r6-b103-tank",
+            "path": [
+              155,
+              84,
+              377,
+              46
+            ]
+          }
+        ],
+        "buys": [
+          {
+            "kind": "buy",
+            "baseCell": 103,
+            "unitTypeKey": "tank"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 149,
+            "unitTypeKey": "ranger"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 155,
+            "unitTypeKey": "infantry"
+          }
+        ]
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 9,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b248-ranger",
+            "path": [
+              24,
+              342,
+              210,
+              211
+            ]
+          },
+          {
+            "kind": "stance",
+            "unitId": "f0-r5-b248-ranger",
+            "stance": "defensive"
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-r5-b248-ranger"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b103-ranger",
+            "path": [
+              21,
+              432,
+              24,
+              204
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r6-b155-ranger",
+            "path": [
+              21,
+              507,
+              14
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r7-b155-ranger",
+            "path": [
+              31,
+              149,
+              21,
+              432
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b149-ranger",
+            "path": [
+              21,
+              432,
+              24,
+              466
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b279-infantry",
+            "path": [
+              150,
+              21,
+              507
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b155-infantry",
+            "path": [
+              84,
+              377,
+              123
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b248-infantry",
+            "path": [
+              202,
+              14,
+              247
+            ]
+          },
+          {
+            "kind": "stance",
+            "unitId": "f0-r3-b248-infantry",
+            "stance": "defensive"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b103-tank",
+            "path": [
+              279,
+              102,
+              427,
+              85
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r7-b103-tank",
+            "path": [
+              157,
+              379,
+              123,
+              125
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r4-b155-tank",
+            "path": [
+              24,
+              465,
+              35
+            ]
+          },
+          {
+            "kind": "stance",
+            "unitId": "f0-r4-b155-tank",
+            "stance": "defensive"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r2-b248-tank",
+            "path": [
+              24,
+              465,
+              35,
+              439
+            ]
+          },
+          {
+            "kind": "stance",
+            "unitId": "f0-r2-b248-tank",
+            "stance": "defensive"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b103-tank",
+            "path": [
+              24,
+              465,
+              53
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r6-b103-tank",
+            "path": [
+              479,
+              31,
+              149,
+              21
+            ]
+          }
+        ],
+        "buys": [
+          {
+            "kind": "buy",
+            "baseCell": 24,
+            "unitTypeKey": "tank"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 103,
+            "unitTypeKey": "tank"
+          }
+        ]
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 10,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-r6-b155-ranger",
+            "path": [
+              244,
+              15,
+              267,
+              22
+            ]
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-r6-b155-ranger"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b103-ranger",
+            "path": [
+              247,
+              15,
+              267,
+              268
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b149-ranger",
+            "path": [
+              169,
+              210,
+              209,
+              477
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r7-b155-ranger",
+            "path": [
+              24,
+              341,
+              15,
+              489
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b155-infantry",
+            "path": [
+              46,
+              479,
+              31
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b248-infantry",
+            "path": [
+              15,
+              489,
+              34
+            ]
+          },
+          {
+            "kind": "stance",
+            "unitId": "f0-r3-b248-infantry",
+            "stance": "aggressive"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b279-infantry",
+            "path": [
+              14,
+              341,
+              23
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r2-b248-tank",
+            "path": [
+              211,
+              34,
+              476,
+              22,
+              435
+            ]
+          },
+          {
+            "kind": "stance",
+            "unitId": "f0-r2-b248-tank",
+            "stance": "aggressive"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r9-b24-tank",
+            "path": [
+              341,
+              15,
+              270
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b103-tank",
+            "path": [
+              169,
+              35,
+              438
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b103-tank",
+            "path": [
+              388,
+              62,
+              523,
+              43
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r6-b103-tank",
+            "path": [
+              432,
+              24,
+              341,
+              343
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r7-b103-tank",
+            "path": [
+              46,
+              479,
+              31,
+              150
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r9-b103-tank",
+            "path": [
+              279,
+              102,
+              429,
+              156
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r4-b155-tank",
+            "path": [
+              211,
+              34,
+              476,
+              22,
+              267
+            ]
+          },
+          {
+            "kind": "stance",
+            "unitId": "f0-r4-b155-tank",
+            "stance": "aggressive"
+          }
+        ],
+        "buys": [
+          {
+            "kind": "buy",
+            "baseCell": 24,
+            "unitTypeKey": "ranger"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 103,
+            "unitTypeKey": "ranger"
+          },
+          {
+            "kind": "buy",
+            "baseCell": 149,
+            "unitTypeKey": "tank"
+          }
+        ]
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 11,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-r10-b24-ranger",
+            "path": [
+              341,
+              15,
+              269
+            ]
+          },
+          {
+            "kind": "attack",
+            "unitId": "f0-r10-b24-ranger",
+            "targetCell": 268
+          },
+          {
+            "kind": "attack",
+            "unitId": "f0-r6-b155-ranger",
+            "targetCell": 22
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b103-ranger",
+            "path": [
+              489,
+              477
+            ]
+          },
+          {
+            "kind": "attack",
+            "unitId": "f0-r5-b103-ranger",
+            "targetCell": 436
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r10-b103-ranger",
+            "path": [
+              279,
+              102,
+              437,
+              90
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b149-ranger",
+            "path": [
+              34,
+              283
+            ]
+          },
+          {
+            "kind": "attack",
+            "unitId": "f0-r7-b155-ranger",
+            "targetCell": 22
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b155-infantry",
+            "path": [
+              149,
+              21,
+              432
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b248-infantry",
+            "path": [
+              343,
+              209,
+              211
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b279-infantry",
+            "path": [
+              209
+            ]
+          },
+          {
+            "kind": "attack",
+            "unitId": "f0-r2-b248-tank",
+            "targetCell": 436
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b103-tank",
+            "path": [
+              211,
+              208,
+              23
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r10-b149-tank",
+            "path": [
+              21,
+              432,
+              24,
+              465
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b103-tank",
+            "path": [
+              145,
+              31,
+              149,
+              21
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r6-b103-tank",
+            "path": [
+              15,
+              269,
+              13
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r7-b103-tank",
+            "path": [
+              21,
+              432,
+              24,
+              342
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r9-b103-tank",
+            "path": [
+              155,
+              84,
+              377,
+              46
+            ]
+          }
+        ],
+        "buys": []
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 12,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b103-ranger",
+            "path": [
+              22
+            ]
+          },
+          {
+            "kind": "attack",
+            "unitId": "f0-r5-b103-ranger",
+            "targetCell": 436
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-r5-b103-ranger"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r10-b103-ranger",
+            "path": [
+              157,
+              379,
+              123,
+              125
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b149-ranger",
+            "path": [
+              477
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r7-b155-ranger",
+            "path": [
+              22,
+              268
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r10-b24-ranger",
+            "path": [
+              13,
+              435
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b155-infantry",
+            "path": [
+              24,
+              342,
+              210
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b248-infantry",
+            "path": [
+              34,
+              283
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r5-b279-infantry",
+            "path": [
+              489
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r2-b248-tank",
+            "path": [
+              22,
+              267
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b103-tank",
+            "path": [
+              209
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r10-b149-tank",
+            "path": [
+              24,
+              341,
+              15,
+              269
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b103-tank",
+            "path": [
+              432,
+              24,
+              341,
+              15
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r7-b103-tank",
+            "path": [
+              210,
+              211
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r9-b103-tank",
+            "path": [
+              479,
+              31,
+              149,
+              21
+            ]
+          }
+        ],
+        "buys": [
+          {
+            "kind": "buy",
+            "baseCell": 24,
+            "unitTypeKey": "ranger"
+          }
+        ]
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    },
+    {
+      "round": 13,
+      "p0": {
+        "orders": [
+          {
+            "kind": "move",
+            "unitId": "f0-r10-b103-ranger",
+            "path": [
+              453,
+              135,
+              134,
+              151
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b149-ranger",
+            "path": [
+              436
+            ]
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-r8-b149-ranger"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r12-b24-ranger",
+            "path": [
+              341,
+              15,
+              270,
+              477
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r7-b155-ranger",
+            "path": [
+              22,
+              476
+            ]
+          },
+          {
+            "kind": "capture",
+            "unitId": "f0-r7-b155-ranger"
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b155-infantry",
+            "path": [
+              23,
+              489,
+              22
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b248-infantry",
+            "path": [
+              476,
+              22,
+              268
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r3-b103-tank",
+            "path": [
+              34,
+              283
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r10-b149-tank",
+            "path": [
+              15,
+              343,
+              209
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r8-b103-tank",
+            "path": [
+              269
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r7-b103-tank",
+            "path": [
+              208
+            ]
+          },
+          {
+            "kind": "move",
+            "unitId": "f0-r9-b103-tank",
+            "path": [
+              432,
+              24,
+              341,
+              343
+            ]
+          }
+        ],
+        "buys": [
+          {
+            "kind": "buy",
+            "baseCell": 24,
+            "unitTypeKey": "ranger"
+          }
+        ]
+      },
+      "p1": {
+        "orders": [],
+        "buys": []
+      }
+    }
+  ],
+  "finalRound": 14,
+  "outcome": {
+    "winner": 0,
+    "reason": "conquest"
+  },
+  "bases": {
+    "22": 0,
+    "24": 0,
+    "103": 0,
+    "149": 0,
+    "155": 0,
+    "211": 0,
+    "248": 0,
+    "279": 0,
+    "280": 0,
+    "378": 0,
+    "436": 0,
+    "476": 0
+  },
+  "credits": {
+    "0": 2500,
+    "1": 1111
+  },
+  "survivors": {
+    "f0": 16,
+    "f1": 0
+  }
+}

@@ -266,6 +266,11 @@ export type DirectiveKind = 'forward-deploy' | 'tactical-retreat' | 'fortify';
 
 export type DirectiveState = { kind: DirectiveKind; modified: boolean } | null;
 
+/** An order edit on top of a directive fill invalidates its "pristine" badge —
+ * the chip then reads "modified" (the bulk plan no longer holds verbatim). */
+const markDirectiveModified = (d: DirectiveState): DirectiveState =>
+  d ? { ...d, modified: true } : null;
+
 /** CORE-AGENT SEAM (v0.6): `planDirective(kind, view, rng): Order[]` is being
  * added to src/ai by the core agent. Probed optionally so the UI wiring ships
  * first — until the export lands, the directive control renders disabled
@@ -930,7 +935,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         orders: settled.queues,
         // v0.6 Ask 2: an individual edit on top of a directive fill → the
         // chip reads "modified" (the bulk plan no longer holds verbatim).
-        directive: s.directive ? { ...s.directive, modified: true } : null,
+        directive: markDirectiveModified(s.directive),
       }));
       get().signalDropped(settled.dropped);
     }
@@ -940,14 +945,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   removeUnitOrder: (unitId, kind) => {
     const { board, game, orders } = get();
     const removed = removeOrder(orders, unitId, kind);
-    const markModified = (s: AppState): DirectiveState =>
-      s.directive ? { ...s.directive, modified: true } : null;
     if (!board || !game) {
-      set((s) => ({ orders: removed, directive: markModified(s) }));
+      set((s) => ({ orders: removed, directive: markDirectiveModified(s.directive) }));
       return;
     }
     const settled = settleDependentOrders(board, game, removed);
-    set((s) => ({ orders: settled.queues, directive: markModified(s) }));
+    set((s) => ({ orders: settled.queues, directive: markDirectiveModified(s.directive) }));
     get().signalDropped(settled.dropped);
   },
 
@@ -1031,14 +1034,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     // has no path/vacancy dependencies (the resolver checks legality).
     set((s) => ({
       orders: queueOrder(s.orders, { kind: 'capture', unitId }),
-      directive: s.directive ? { ...s.directive, modified: true } : null,
+      directive: markDirectiveModified(s.directive),
     }));
   },
 
   removeCapture: (unitId) => {
     set((s) => ({
       orders: removeOrder(s.orders, unitId, 'capture'),
-      directive: s.directive ? { ...s.directive, modified: true } : null,
+      directive: markDirectiveModified(s.directive),
     }));
   },
 

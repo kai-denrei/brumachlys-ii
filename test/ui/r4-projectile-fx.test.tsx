@@ -58,12 +58,13 @@ const proj = (over: Partial<Projectile>): Projectile => ({
 });
 
 describe('R4 ReplayFx — ranged tracer (crawling, not an instant line)', () => {
-  it('renders the crawling tracer primitive (guide + crawling round + spark)', () => {
+  it('renders the crawling tracer primitive (crawling round + streak + spark, NO full-line guide)', () => {
     const { container } = renderFx({ projectiles: [proj({ kind: 'tracer' })] });
     const tracer = container.querySelector('.fx-tracer')!;
     expect(tracer).not.toBeNull();
-    // a faint full-line guide
-    expect(tracer.querySelector('.fx-tracer-guide')).not.toBeNull();
+    // the full-length dotted guide was REMOVED — for a long same-row shot it read
+    // as a board-spanning "laser"; the crawl + spark convey the shot instead.
+    expect(tracer.querySelector('.fx-tracer-guide')).toBeNull();
     // the crawling round (the animated element carries the travel vector vars)
     const round = tracer.querySelector<SVGGElement>('.fx-tracer-round')!;
     expect(round).not.toBeNull();
@@ -92,21 +93,25 @@ describe('R4 ReplayFx — ranged tracer (crawling, not an instant line)', () => 
 });
 
 describe('R4 ReplayFx — tracer GEOMETRY (attacker → defender, right length)', () => {
-  // The guide line MUST run from center(from) to center(to) — the attacker token
-  // to the defender token, along the real vector, NOT off to some fixed point.
-  it('the guide line endpoints equal center(from) / center(to)', () => {
+  // The shot geometry MUST run attacker→defender: the streak originates at the
+  // shooter and the round travels exactly center(to) − center(from) — bounded,
+  // never a runaway off-board line. (The old full-line guide that asserted this
+  // was removed; the crawl carries the same vector.)
+  it('the tracer travel vector equals center(to) − center(from) (bounded a→b)', () => {
     const board = rowBoard(8);
     const { container } = renderFx({ projectiles: [proj({ kind: 'tracer', from: 0, to: 2 })] }, board);
-    const guide = container.querySelector<SVGLineElement>('.fx-tracer-guide')!;
-    expect(guide).not.toBeNull();
     const aExp = toScreen(board.cells.get(0)!.center);
     const bExp = toScreen(board.cells.get(2)!.center);
-    expect(Number(guide.getAttribute('x1'))).toBeCloseTo(aExp[0], 6);
-    expect(Number(guide.getAttribute('y1'))).toBeCloseTo(aExp[1], 6);
-    expect(Number(guide.getAttribute('x2'))).toBeCloseTo(bExp[0], 6);
-    expect(Number(guide.getAttribute('y2'))).toBeCloseTo(bExp[1], 6);
-    // length ≈ the attacker→defender distance (two cells = 200 screen units here),
-    // bounded — NOT a runaway off-board line.
+    // the crawling round carries the travel vector as CSS vars --tx / --ty
+    const round = container.querySelector<SVGGElement>('.fx-tracer-round')!;
+    expect(round).not.toBeNull();
+    expect(round.style.getPropertyValue('--tx')).toBe(`${bExp[0] - aExp[0]}px`);
+    expect(round.style.getPropertyValue('--ty')).toBe(`${bExp[1] - aExp[1]}px`);
+    // the speed-streak's leading end is AT the shooter (center(from))
+    const streak = container.querySelector<SVGLineElement>('.fx-tracer-streak')!;
+    expect(Number(streak.getAttribute('x2'))).toBeCloseTo(aExp[0], 6);
+    expect(Number(streak.getAttribute('y2'))).toBeCloseTo(aExp[1], 6);
+    // travel distance ≈ the attacker→defender distance (two cells = 200), bounded
     const len = Math.hypot(bExp[0] - aExp[0], bExp[1] - aExp[1]);
     expect(len).toBeCloseTo(200, 6);
   });
@@ -232,6 +237,27 @@ describe('R4 ReplayFx — melee stab (short dash + flash)', () => {
     expect(stab.querySelector('.fx-stab-flash')).not.toBeNull();
     // the dash carries the ~0.5-reach travel vector
     expect(stab.style.getPropertyValue('--tx')).not.toBe('');
+  });
+
+  // REGRESSION (2026-06-28 operator bug A): a forced-crossing BRAWL puts both
+  // units on ONE tile, so the stab is same-cell (from === to → a === b, len 0).
+  // The dash normalized its direction by `len || 1` = 1 instead of the nudge
+  // length, drawing a line of ~tokenSize²·0.42 (~600 px) — a horizontal "laser"
+  // to the board edge. A same-cell clash has no dash direction: render only the
+  // impact cross (operator call), never a runaway dash.
+  it('a SAME-CELL stab (brawl) draws the impact cross, never a board-spanning dash', () => {
+    const board = rowBoard(8);
+    const { container } = renderFx({ projectiles: [proj({ kind: 'stab', from: 5, to: 5 })] }, board);
+    // the white x/X impact cross still reads the clash
+    expect(container.querySelector('.fx-stab-flash')).not.toBeNull();
+    // the dash, if present at all, must be a SHORT stab — never the runaway line.
+    const dash = container.querySelector<SVGLineElement>('.fx-stab-dash line');
+    if (dash) {
+      const dxLine = Math.abs(Number(dash.getAttribute('x2')) - Number(dash.getAttribute('x1')));
+      const dyLine = Math.abs(Number(dash.getAttribute('y2')) - Number(dash.getAttribute('y1')));
+      expect(dxLine).toBeLessThanOrEqual(40); // ≤ tokenSize; the bug drew ~672
+      expect(dyLine).toBeLessThanOrEqual(40);
+    }
   });
 
   it('a counter stab carries the ~75 ms crossfire delay var', () => {

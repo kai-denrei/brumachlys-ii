@@ -7,7 +7,7 @@
 // both to zero except on slivers physically smaller than a 1/4 token.)
 import { describe, expect, it } from 'vitest';
 import { generateUniformBoard } from '../../src/board/generate';
-import { demoteSlot, DEMOTE_SCALE } from '../../src/ui/Board';
+import { demoteSlot, DEMOTE_SCALE } from '../../src/ui/board-geometry';
 
 type P = [number, number];
 

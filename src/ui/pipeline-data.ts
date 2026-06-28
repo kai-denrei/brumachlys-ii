@@ -170,6 +170,55 @@ export const PIPELINE: PipelineEntry[] = [
     commit: 'd855be4',
   },
   {
+    version: '1.4.x',
+    date: 'Jun 22',
+    status: 'shipped',
+    title: 'cinematic resolution',
+    items: [
+      'bullet time dilation clock: glide · shift · dilation · release',
+      'combat callouts: military font event pop ups',
+      'dilation audio: whoom · decelerating ticks · low drone',
+      'resolution slow down slider · shells arc true · sparks land on target',
+    ],
+    commit: '8eaaa77',
+  },
+  {
+    version: '1.5.x',
+    date: 'Jun 23',
+    status: 'shipped',
+    title: 'sequenced combat beats · focal spotlight',
+    items: [
+      'exchanges play one at a time · per beat clock ticks',
+      'focal spotlight: dim everything but the active clash',
+      'dilation depth slider: tune the slow motion',
+    ],
+    commit: 'bdafb59',
+  },
+  {
+    version: '1.6.x',
+    date: 'Jun 26',
+    status: 'shipped',
+    title: 'shell flight · hit point readability',
+    items: [
+      'artillery shells fly their full arc to the target',
+      'hit points flip down on the token after the hit lands',
+    ],
+    commit: '03faba2',
+  },
+  {
+    version: '1.7.x',
+    date: 'Jun 28',
+    status: 'shipped',
+    title: 'replay fidelity fixes',
+    items: [
+      'fire on a fogged target and it lights up rather than staying dark',
+      'no stray tracer line shooting off the board on aligned shots',
+      'same tile brawls play the impact cross · not a board spanning beam',
+      'hit point counts stay steady across combat frames · no flash back to full',
+    ],
+    commit: 'a56736c',
+  },
+  {
     version: 'next',
     date: null,
     status: 'next',
@@ -189,4 +238,4 @@ export const PIPELINE: PipelineEntry[] = [
  *  output would couple the bundle to the test runner. Update alongside the
  *  version bump; the pipeline test pins it to this constant, not to the
  *  live suite. */
-export const TEST_COUNT = 1115;
+export const TEST_COUNT = 1307;

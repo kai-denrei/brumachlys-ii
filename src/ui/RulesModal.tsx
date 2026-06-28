@@ -8,10 +8,11 @@ import { useMemo } from 'react';
 import type { CellId } from '../board/types';
 import type { TerrainKey } from '../board/types';
 import { generateUniformBoard, graphDistance as bfsDistance } from '../board';
-import type { UnitInstance, UnitType } from '../core/types';
+import type { UnitInstance } from '../core/types';
 import { IMPASSABLE } from '../core/pathing';
 import { loadUnits } from '../io/data-loader';
 import { UnitRenderer } from './skin';
+import { fmtRange } from './text-format';
 import { projectBoard } from './skin/board-projection';
 
 // ---------------------------------------------------------------------------
@@ -166,11 +167,6 @@ const TERRAIN_NAME: Record<TerrainKey, string> = {
   base: 'Base',
 };
 
-/** min–max range, collapsed when min = max. En dash, never a hyphen. */
-export function fmtRange(min: number, max: number): string {
-  return min === max ? String(max) : `${min}–${max}`;
-}
-
 /** +2 / 0 / −2 — typographic minus (U+2212), keeping the modal hyphen free. */
 function fmtBonus(v: number): string {
   if (v > 0) return `+${v}`;
@@ -211,8 +207,11 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
   );
   // Terrain effects are uniform within a class — any personnel/vehicle pair
   // represents its class (same trick as the long press info sheet).
-  const personnel = roster.find((t) => t.armorType === 'personnel') as UnitType;
-  const vehicle = roster.find((t) => t.armorType === 'armored') as UnitType;
+  const personnel = roster.find((t) => t.armorType === 'personnel');
+  const vehicle = roster.find((t) => t.armorType === 'armored');
+  if (!personnel || !vehicle) {
+    throw new Error('RulesModal: roster is missing a personnel/armored exemplar (data drift)');
+  }
 
   return (
     <div className="sheet-scrim" onClick={onClose}>

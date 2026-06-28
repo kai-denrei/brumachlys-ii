@@ -311,12 +311,15 @@ describe('combat callouts (Feature A — board-anchored military-font pop-ups)',
 });
 
 describe('combat callouts — CSS contract (font + reduced-motion static)', () => {
-  // Timing/easing/font wiring live in styles.css; assert the load-bearing rules
-  // exist (the markup tests above confirm the structure they hook onto).
-  const css = readFileSync(
-    resolve(dirname(fileURLToPath(import.meta.url)), '../../src/ui/styles.css'),
-    'utf8',
-  );
+  // Timing/easing/font wiring live in the CSS (v1.6 Phase 6: styles.css is now a
+  // barrel that @imports feature modules in cascade order). Reconstruct the full
+  // stylesheet by following the barrel's @imports, so this contract test stays
+  // agnostic to which module a rule lives in.
+  const uiDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/ui');
+  const barrel = readFileSync(resolve(uiDir, 'styles.css'), 'utf8');
+  const css = [...barrel.matchAll(/@import\s+'\.\/(.+?)';/g)]
+    .map((m) => readFileSync(resolve(uiDir, m[1]!), 'utf8'))
+    .join('\n');
 
   it('vendors the Black Ops One @font-face pointing at the woff2', () => {
     expect(css).toMatch(/@font-face[\s\S]*?Black Ops One/);

@@ -5,20 +5,24 @@
 // (en dashes for ranges and a typographic minus are the only dash glyphs).
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import unitsJson from '../../data/units.json';
 import { TopBar } from '../../src/ui/TopBar';
-import { RulesModal, fmtRange } from '../../src/ui/RulesModal';
+import { RulesModal } from '../../src/ui/RulesModal';
+import { fmtRange } from '../../src/ui/text-format';
 
 afterEach(cleanup);
 
 describe('TopBar "i" affordance', () => {
-  it('opens the rules modal and closes it again', () => {
+  it('opens the rules modal and closes it again', async () => {
     // round + credits moved to HudCluster — TopBar now takes only phase + onBack.
     const { baseElement, getByLabelText } = render(<TopBar phase="planning" />);
     expect(baseElement.querySelector('[data-testid="rules-modal"]')).toBeNull();
     fireEvent.click(getByLabelText('how to play'));
-    expect(baseElement.querySelector('[data-testid="rules-modal"]')).not.toBeNull();
+    // RulesModal is code-split (React.lazy) — it mounts after the chunk resolves.
+    await waitFor(() =>
+      expect(baseElement.querySelector('[data-testid="rules-modal"]')).not.toBeNull(),
+    );
     fireEvent.click(getByLabelText('close rules'));
     expect(baseElement.querySelector('[data-testid="rules-modal"]')).toBeNull();
   });

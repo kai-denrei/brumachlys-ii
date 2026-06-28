@@ -1,0 +1,356 @@
+/* Brumachlys II — mobile-first. Townscaper pastel base palette (spec §10.1). */
+
+/* Feature A (callouts §2): a vendored FREE OFL stencil display font for combat
+   CALLOUTS ONLY (system/log text stays JetBrains Mono / system mono). The woff2
+   + the OFL license live under ui/fonts/. font-display: swap so a missed load
+   falls back to the system condensed/Impact stack named on .fx-callout-text. */
+/* NB: this module lives in ui/styles/, so the font path is ../fonts/ (one level
+   up). Vite rebases url() relative to THIS file when inlining the @import. */
+@font-face {
+  font-family: 'Black Ops One';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/black-ops-one-latin.woff2') format('woff2');
+}
+
+:root {
+  --paper: #f2eee3;
+  --paper-rgb: 242, 238, 227;
+  --ink: #4a443a;
+  --ink-rgb: 74, 68, 58;
+  --faction-a: #e8806b;
+  --faction-a-rgb: 232, 128, 107;
+  --faction-b: #7b8bd9;
+  --faction-b-rgb: 123, 139, 217;
+  --bar-bg: rgba(var(--paper-rgb), 0.92);
+  /* R3 (DILATION): the analog clock's single accent hand. A warm brass gold,
+     legible on the dark clock face; the WAVE A bullet-time accent. */
+  --gold: #d7a93a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.top-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: calc(env(safe-area-inset-top) + 0.5rem) 0.75rem 0.5rem;
+  background: var(--bar-bg);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid rgba(var(--ink-rgb), 0.12);
+}
+
+.top-bar-title {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* E3 visual pass: at phone widths the conquest credits HUD shares the bar —
+   without this the title wraps to two lines (observed at 390 px). */
+@media (max-width: 430px) {
+  .top-bar-title {
+    font-size: 0.72rem;
+    letter-spacing: 0.05em;
+  }
+  .top-bar {
+    gap: 0.4rem;
+  }
+}
+
+.top-bar-status {
+  margin-left: auto;
+  font-size: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Gear (⚙) unit-appearance skin picker — a slim button opening a small popover
+   menu of the three skins (Icons / Animated / Watercolor). Replaces the old
+   binary "anim" toggle. */
+.top-bar-gear-root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.top-bar-gear {
+  border: 1px solid rgba(var(--ink-rgb), 0.28);
+  background: transparent;
+  border-radius: 0.4rem;
+  width: 1.7rem;
+  height: 1.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgba(var(--ink-rgb), 0.7);
+  -webkit-tap-highlight-color: transparent;
+}
+.top-bar-gear-open {
+  color: #fff;
+  background: #e8806b; /* factionA coral — reads as "active" while open */
+  border-color: transparent;
+}
+.top-bar-gear-glyph {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+/* The popover: anchored under the gear, right-aligned so it stays on-screen. */
+.top-bar-gear-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 8.5rem;
+  padding: 0.25rem;
+  border-radius: 0.5rem;
+  background: var(--paper, #f7f3ea);
+  border: 1px solid rgba(var(--ink-rgb), 0.18);
+  box-shadow: 0 6px 22px rgba(40, 36, 30, 0.22);
+}
+
+.top-bar-gear-item {
+  font: 600 0.74rem/1 inherit;
+  text-align: left;
+  color: var(--ink, #4a443a);
+  background: transparent;
+  border: none;
+  border-radius: 0.35rem;
+  padding: 0.46rem 0.6rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.top-bar-gear-item:hover {
+  background: rgba(var(--ink-rgb), 0.08);
+}
+.top-bar-gear-item-active {
+  color: #fff;
+  background: #e8806b; /* factionA coral — the live skin */
+  font-weight: 700;
+}
+.top-bar-gear-item-active:hover {
+  background: #e8806b;
+}
+
+/* Section label inside the settings menu (APPEARANCE / DEBUG-TEST). A quiet,
+   uppercase eyebrow — not interactive, not a menuitem. */
+.top-bar-gear-section-label {
+  font: 700 0.58rem/1 inherit;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(var(--ink-rgb), 0.5);
+  padding: 0.35rem 0.6rem 0.25rem;
+  user-select: none;
+}
+
+/* Visual divider between the APPEARANCE and DEBUG sections. */
+.top-bar-gear-separator {
+  height: 1px;
+  margin: 0.3rem 0.4rem;
+  background: rgba(var(--ink-rgb), 0.16);
+}
+
+/* The Full Auto checkbox item: a leading box glyph + label. Inherits the base
+   .top-bar-gear-item layout; the active (checked) state reuses the coral fill. */
+.top-bar-gear-item-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.top-bar-gear-check {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+/* P1-bot archetype picker (FULL AUTO). A quieter sub-eyebrow under Full Auto,
+   then a compact radio row. Items reuse the base item / active-coral styles. */
+.top-bar-gear-subsection-label {
+  font: 700 0.52rem/1 inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(var(--ink-rgb), 0.42);
+  padding: 0.35rem 0.6rem 0.2rem;
+  user-select: none;
+}
+.top-bar-gear-radiogroup {
+  display: flex;
+  flex-direction: column;
+}
+.top-bar-gear-item-radio {
+  font-size: 0.7rem;
+  padding: 0.34rem 0.6rem;
+}
+
+.top-bar-round {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+  /* #1: full opacity — round number is a primary stat */
+  opacity: 1;
+  /* v0.9 HUD: the split-flap canvas sits beside the "R" label, baseline-snug. */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+}
+
+.top-bar-round-r {
+  font-size: 0.7rem;
+  font-weight: 800;
+  opacity: 0.7;
+}
+
+/* v0.9 HUD: the canvas counters render block; vertical-align keeps them on the
+   bar's baseline row. The seeded-wear background is transparent, so the paper
+   shows through (no dark box in the light HUD). */
+.round-flap,
+.credits-odometer {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.round-flap-canvas,
+.credits-odometer-canvas {
+  display: block;
+}
+
+/* v0.9 HUD a11y: the canvas is aria-hidden; this carries the readable value for
+   screen readers + tests without affecting layout. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.phase-chip {
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: rgba(var(--ink-rgb), 0.1);
+  opacity: 0.85;
+}
+
+.phase-chip-replay {
+  background: rgba(var(--faction-a-rgb), 0.22);
+  color: #9c4732;
+}
+
+.phase-chip-over {
+  background: rgba(var(--faction-b-rgb), 0.25);
+  color: #46519c;
+}
+
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  line-height: 1;
+}
+
+.version-shape {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: block;
+}
+
+.version-token {
+  font-size: 0.6rem;
+  opacity: 0.55;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* v1.2: rules "i" — 44px tap target, slim visual so the bar stays slim */
+.top-bar-info {
+  border: none;
+  background: none;
+  width: 44px;
+  height: 44px;
+  margin: -13px -12px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  align-self: center;
+  flex: none;
+}
+
+.top-bar-info-glyph {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(var(--ink-rgb), 0.45);
+  color: rgba(var(--ink-rgb), 0.75);
+  font-size: 0.66rem;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* v0.5.1: dev pipeline "⌬" — shares the 44px target discipline of the "i";
+   negative margins overlap so two slim affordances cost ~40px of bar. */
+.top-bar-pipeline {
+  margin-left: -6px;
+}
+
+.top-bar-pipeline-glyph {
+  font-size: 0.95rem;
+  line-height: 1;
+  color: rgba(var(--ink-rgb), 0.6);
+}
+
+.top-bar-back {
+  border: none;
+  background: none;
+  color: var(--ink);
+  font-size: 1.3rem;
+  line-height: 1;
+  padding: 0 0.35rem 0 0;
+  cursor: pointer;
+  align-self: center;
+}

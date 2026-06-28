@@ -1,0 +1,3 @@
+# Golden-master fixtures are compared by exact string match — pin LF so a
+# Windows checkout (autocrlf) can't inject \r and spuriously fail the AI gate.
+test/ai/__fixtures__/*.json text eol=lf

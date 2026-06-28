@@ -10,17 +10,13 @@ import { describe, expect, it } from 'vitest';
 import { dilationActs, tickCount, tickIndexAt } from '../../src/state/dilation-clock';
 import { layoutBeats, type Beat, type RawBeat, type Wave } from '../../src/state/replay-timing';
 import { buildReplay } from '../../src/state/replay';
-import type { AttackBreakdown, ResolutionEvent } from '../../src/core/types';
+import { bd } from '../fixtures';
+import type { ResolutionEvent } from '../../src/core/types';
 import { loadUnits } from '../../src/io/data-loader';
 import { lineBoard, makeUnit } from '../core/synthetic';
 
 const types = loadUnits();
 const plains = (n: number) => lineBoard(Array(n).fill('plains'));
-
-const bd = (over: Partial<AttackBreakdown> = {}): AttackBreakdown => ({
-  A: 5, Ta: 0, D: 6, Td: 0, B: 0, vet: 0, p: 0.45, damage: 5,
-  gangUp: { total: 0, contributions: [] }, ...over,
-});
 
 const attack = (
   attackerId: string, defenderId: string,

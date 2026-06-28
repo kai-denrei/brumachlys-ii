@@ -1,0 +1,385 @@
+/* --- P8: breakdown modal (§9.4) --------------------------------------------- */
+
+.breakdown-strike {
+  background: #fff;
+  border-radius: 12px;
+  padding: 0.55rem 0.7rem;
+  margin-bottom: 0.55rem;
+}
+
+.breakdown-mist {
+  background: #ece7da;
+}
+
+.breakdown-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.breakdown-kind {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.breakdown-vs {
+  font-size: 0.8rem;
+}
+
+.breakdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.breakdown-table td {
+  padding: 0.14rem 0.25rem;
+}
+
+.bd-term {
+  font-weight: 700;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  width: 2.8rem;
+  white-space: nowrap;
+}
+
+.bd-label {
+  opacity: 0.7;
+}
+
+.bd-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.bd-gangup-row td {
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+
+.bd-p-row td {
+  border-top: 1px solid rgba(var(--ink-rgb), 0.15);
+  padding-top: 0.3rem;
+}
+
+.bd-damage-row td {
+  font-weight: 700;
+}
+
+.bd-damage-row .bd-value {
+  font-size: 0.95rem;
+  color: #9c2f1d;
+}
+
+/* --- P8: round summary sheet (§9.4) ------------------------------------------ */
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.summary-cell {
+  background: #fff;
+  border-radius: 12px;
+  padding: 0.5rem 0.3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.summary-num {
+  font-size: 1.3rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+}
+
+.summary-kills {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.summary-kill-row {
+  display: flex;
+  gap: 0.6rem;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.76rem;
+  align-items: baseline;
+}
+
+.summary-kill-side {
+  font-weight: 700;
+  flex: none;
+  width: 6.2rem;
+}
+
+.summary-kill-names {
+  opacity: 0.8;
+}
+
+/* (v0.6 Ask 1: the summary's continue action moved to the top CTA pill.) */
+
+/* --- P8: game-over banner (§2.8 / §9.6) --------------------------------------- */
+
+.banner-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(var(--paper-rgb), 0.78);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  padding: 1.2rem;
+}
+
+.banner {
+  background: #fbf9f2;
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(var(--ink-rgb), 0.3);
+  padding: 1.4rem 1.3rem 1.2rem;
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  text-align: center;
+  animation: banner-in 0.3s ease-out;
+}
+
+@keyframes banner-in {
+  from {
+    transform: translateY(18px) scale(0.97);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.banner-title {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: 0.14em;
+}
+
+.banner-win {
+  color: var(--faction-a);
+}
+
+.banner-loss {
+  color: var(--faction-b);
+}
+
+.banner-draw {
+  color: #8d8675;
+}
+
+.banner-sub {
+  margin: 0;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.banner-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.banner-rematch {
+  margin-top: 0;
+}
+
+.banner-leave {
+  padding: 0.6rem;
+}
+
+/* --- v1.4: battle recap dashboard inside the banner -------------------------
+   Two compact icon rows (CasualtyPanel vocabulary) + a 5-stat grid in the
+   round-summary card style. Sized so VICTORY banner + recap + seed + actions
+   fit a 390×844 viewport without scrolling; icon rows wrap when an army's
+   worth of casualties piles up. */
+
+.banner-recap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  text-align: left;
+}
+
+.recap-icon-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.recap-icon-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.3rem 0.55rem;
+  min-height: 1.6rem;
+}
+
+.recap-icon-label {
+  flex: none;
+  width: 6.6rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.recap-icon-row .casualty-row {
+  gap: 2px;
+}
+
+.recap-icon-row .casualty-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.recap-none {
+  font-size: 0.7rem;
+  opacity: 0.45;
+}
+
+.recap-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.35rem;
+}
+
+.recap-cell {
+  border: 1px solid rgba(var(--ink-rgb), 0.08);
+  padding: 0.35rem 0.1rem;
+}
+
+.recap-cell .summary-num {
+  font-size: 1.05rem;
+}
+
+.recap-cell .summary-label {
+  font-size: 0.56rem;
+}
+
+/* --- v1.5: VICTORY DASHBOARD (game-over data visualizations) ----------------
+   Four compact sparkline/histogram sections appended below the recap grid.
+   Scrollable on mobile so the banner never overflows the viewport; the charts
+   reuse the paper/pastel cards + faction colors + the mono numeric face. */
+
+.victory-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  /* Mobile-first: cap the dashboard's own height and scroll inside it so the
+     banner's title/seed/actions always stay reachable on a small screen. */
+  max-height: 42vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 0.1rem;
+}
+
+.dash-section {
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.4rem 0.55rem 0.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.dash-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.dash-section-title {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.dash-legend {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dash-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  font-size: 0.56rem;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+}
+
+.dash-legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* sparklines stretch to the card width; the viewBox keeps the aspect. */
+.spark {
+  width: 100%;
+  height: 34px;
+  display: block;
+}
+
+.dash-economy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+}
+
+.dash-spark-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.dash-spark-label {
+  font-size: 0.54rem;
+  letter-spacing: 0.04em;
+  opacity: 0.55;
+  text-align: center;
+}
+
+/* histogram — bars sized by the viewBox; count labels in the mono face. */
+.hist {
+  width: 100%;
+  height: 76px;
+  display: block;
+}
+
+.hist-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}

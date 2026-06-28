@@ -5,6 +5,15 @@
 // `fx-*` classes); the Board remounts this group per frame (key=frame index)
 // so they restart cleanly.
 //
+// ⚠ DETERMINISM INVARIANT (spec §3 / §10.4 — do NOT break in any refactor):
+// FX timing is WALL-CLOCK-FROM-MOUNT. The Board remounts this whole group via
+// `key={replayFx.key}` each frame (Board.tsx); that keyed remount re-arms every
+// CSS animation from its start. There is NO `animation-play-state`, and `paused`
+// is NEVER threaded into FX. SMIL animations that don't honour a fresh mount are
+// patched to the same model via `beginElement()` (see Shell). When extracting
+// sub-renderers (the planned fx/ split), keep the remount at Board and never add
+// a per-effect replay clock — replay must stay a pure function of (script, cursor).
+//
 // v0.6 FX VOCABULARY (Ask 7) — minimal-vector verbs, ALL ≤500 ms, effects
 // confirm what the data already shows (never compete with it), and they
 // overlap the existing frame timing — playback never slows for them:
@@ -311,21 +320,10 @@ function Tracer({
   } as React.CSSProperties;
   return (
     <g className="fx-tracer" pointerEvents="none" style={style}>
-      {/* faint DOTTED guide along the whole shot, terminating AT the target —
-          §6: an aligned/long shot must read as a contained dotted line, not a
-          laser to the frame edge (it runs a→b only; the FX layer is also clipped
-          to the board frame so nothing can extend off-screen). */}
-      <line
-        className="fx-tracer-guide"
-        x1={a[0]}
-        y1={a[1]}
-        x2={b[0]}
-        y2={b[1]}
-        stroke={color}
-        strokeWidth={tokenSize * 0.045}
-        strokeLinecap="round"
-        strokeDasharray={`${tokenSize * 0.05} ${tokenSize * 0.12}`}
-      />
+      {/* NO full-line guide: a faint a→b line was drawn here, but for a long
+          same-row shot it read as a board-spanning "laser" (operator call). The
+          crawling round + speed-streak + impact spark carry the shot direction,
+          and the FX layer is clipped to the board frame regardless. */}
       {/* charge glint near the start */}
       <circle className="fx-tracer-charge" cx={a[0]} cy={a[1]} r={tokenSize * 0.16} fill="#fff" />
       {/* the crawling round + its speed-streak tail (translated start→impact) */}
@@ -494,14 +492,23 @@ function Stab({
   dur?: number;
 }) {
   const color = factionColor(faction);
-  let dx = b[0] - a[0];
-  let dy = b[1] - a[1];
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
   const len = Math.hypot(dx, dy);
+  // Same-cell strike: a forced-crossing BRAWL halts both units on ONE tile, so
+  // the attacker→target vector is zero — there is no dash direction. Render ONLY
+  // the impact cross (operator call). The old code nudged dx=tokenSize but kept
+  // the zeroed `len`, so the dash normalized by `len || 1` = 1 and drew a
+  // ~tokenSize²·0.42 line — a board-spanning horizontal "laser".
   if (len < 1e-3) {
-    // brawl (same cell): nudge a fixed direction so both halves still read.
-    dx = tokenSize;
-    dy = 0;
+    return (
+      <g className="fx-stab" pointerEvents="none">
+        <ImpactSpark at={b} tokenSize={tokenSize} className="fx-stab-flash" />
+      </g>
+    );
   }
+  const ux = dx / len; // unit direction toward the target
+  const uy = dy / len;
   const reach = 0.5; // ~half the distance toward the target
   const style = {
     '--proj-delay': `${delay}ms`,
@@ -515,8 +522,8 @@ function Stab({
         <line
           x1={a[0]}
           y1={a[1]}
-          x2={a[0] + (dx / (len || 1)) * tokenSize * 0.42}
-          y2={a[1] + (dy / (len || 1)) * tokenSize * 0.42}
+          x2={a[0] + ux * tokenSize * 0.42}
+          y2={a[1] + uy * tokenSize * 0.42}
           stroke={color}
           strokeWidth={tokenSize * 0.14}
           strokeLinecap="round"
@@ -1202,7 +1209,7 @@ function floaterColors(
  *  is gentle (≈√magnitude) so a 1-damage tick and a 99-damage haymaker differ
  *  clearly but the big number never overruns its pill / neighbours.
  *    1 → 1.00×   ·   12 → ~1.30×   ·   99+ → 1.40× (the clamp ceiling). */
-export function floaterSizeScale(text: string): number {
+function floaterSizeScale(text: string): number {
   const mag = Math.abs(parseInt(text.replace(/[^0-9-]/g, ''), 10));
   if (!Number.isFinite(mag) || mag <= 1) return 1;
   // √-ramp from 1×, +~0.115 per √step, clamped to 1.4× so it stays bounded.

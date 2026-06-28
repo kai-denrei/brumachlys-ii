@@ -12,10 +12,7 @@ import { useMemo, useState } from 'react';
 import type { UnitInstance, UnitType } from '../core/types';
 import { PLAYER_FACTION } from '../state/store';
 import { UnitRenderer } from './skin';
-
-function fmtRange(min: number, max: number): string {
-  return min === max ? String(max) : `${min}–${max}`;
-}
+import { fmtRange } from './text-format';
 
 /** Throwaway instance so cells render the real token art through the skin. */
 const cellUnit = (type: string): UnitInstance => ({

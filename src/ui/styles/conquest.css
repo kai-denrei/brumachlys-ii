@@ -1,0 +1,648 @@
+/* --- E3 conquest (addendum §B) ------------------------------------------------
+   Credits HUD, mode/round-limit selects, build sheet, buy chips/ghosts,
+   baseless grace warning, capture/spawn replay FX. */
+
+.credits-hud {
+  /* #1: credits as a bold pill — prominent, mobile-legible */
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: var(--faction-a);
+  white-space: nowrap;
+  background: rgba(var(--faction-a-rgb), 0.12);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  /* v0.9 HUD: glyph · odometer canvas · per-turn income on one snug row. */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.credits-glyph {
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.credits-committed {
+  font-weight: 600;
+  font-size: 0.62rem;
+  opacity: 0.7;
+}
+
+/* v0.9 HUD: per-turn income — a small green-leaning "+N/turn" beside credits.
+   Distinct hue from the faction-a credits so it reads as income, not spend. */
+.credits-income {
+  font-weight: 700;
+  font-size: 0.64rem;
+  letter-spacing: 0.01em;
+  color: #4f8b54;
+  white-space: nowrap;
+}
+
+/* v0.9 upkeep (addendum §5): net/turn (income − upkeep) headline + a faint
+   (+income −upkeep) breakdown. The credits row becomes a button once a tap
+   opens the build dashboard (wired Phase 5). */
+.credits-hud[role='button'] {
+  cursor: pointer;
+}
+
+.credits-net {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.credits-net-detail {
+  opacity: 0.7;
+}
+
+.baseless-warning {
+  background: rgba(156, 47, 29, 0.92);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 0.3rem 0.75rem;
+  z-index: 17;
+}
+
+/* start screen: mode cards + round-limit segments (same family as donor cards) */
+
+.mode-row {
+  display: flex;
+  gap: 0.6rem;
+  width: min(420px, 100%);
+}
+
+.mode-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  align-items: flex-start;
+  padding: 0.55rem 0.7rem;
+  background: #fff;
+  border: 2px solid rgba(var(--ink-rgb), 0.15);
+  border-radius: 12px;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mode-card-selected {
+  border-color: var(--faction-a);
+  box-shadow: 0 0 0 2px rgba(var(--faction-a-rgb), 0.25);
+}
+
+.mode-name {
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+}
+
+.mode-desc {
+  font-size: 0.65rem;
+  opacity: 0.65;
+}
+
+.limit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: min(420px, 100%);
+}
+
+.limit-label {
+  font-size: 0.7rem;
+  opacity: 0.7;
+  margin-right: 0.2rem;
+}
+
+.limit-option {
+  min-width: 44px;
+  padding: 0.3rem 0.6rem;
+  background: #fff;
+  border: 1.5px solid rgba(var(--ink-rgb), 0.2);
+  border-radius: 999px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.limit-option-selected {
+  background: var(--faction-a);
+  border-color: var(--faction-a);
+  color: #fff;
+}
+
+/* dock: queued-buy chips (dashed — a promise, not a unit yet) */
+
+.dock-chip-buy {
+  position: relative;
+  border-style: dashed;
+  border-color: rgba(var(--faction-a-rgb), 0.6);
+}
+
+.dock-chip-buy .dock-chip-svg {
+  opacity: 0.6;
+}
+
+.dock-chip-buy-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  font-size: 0.6rem;
+  color: var(--faction-a);
+  font-weight: 700;
+}
+
+/* build sheet (§B.4) */
+
+.build-available {
+  margin-left: auto;
+  margin-right: 0.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--faction-a);
+  font-size: 0.8rem;
+}
+
+.build-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  overflow-y: auto;
+  max-height: 52vh;
+  padding-bottom: 0.25rem;
+}
+
+.build-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.55rem;
+  background: rgba(var(--ink-rgb), 0.05);
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.build-row-locked {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.build-row-queued {
+  border-color: var(--faction-a);
+  background: rgba(var(--faction-a-rgb), 0.12);
+}
+
+.build-row-icon {
+  width: 26px;
+  height: 26px;
+  flex: none;
+}
+
+.build-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.build-row-name {
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.build-row-stats {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  opacity: 0.65;
+  white-space: nowrap;
+}
+
+.build-row-cost {
+  margin-left: auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+}
+
+.build-row-badge {
+  flex: none;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff;
+  background: var(--faction-a);
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+}
+
+/* --- v0.7 Item 3: compact anchored build card --------------------------------
+   Replaces the full-width bottom sheet for production. The scrim is the same
+   click-outside-to-close surface, but no longer bottom-aligns its child — the
+   card positions itself absolutely over the tapped base cell. */
+
+.sheet-scrim-anchored {
+  justify-content: initial;
+  align-items: initial;
+  display: block;
+}
+
+.build-card {
+  position: fixed;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  background: #fbf9f2;
+  border-radius: 14px;
+  border: 1.5px solid rgba(var(--ink-rgb), 0.18);
+  box-shadow: 0 10px 30px rgba(var(--ink-rgb), 0.28);
+  padding: 0.55rem 0.6rem 0.6rem;
+  z-index: 21;
+  animation: build-card-pop 0.14s ease-out;
+}
+
+@keyframes build-card-pop {
+  from {
+    transform-origin: center;
+    opacity: 0.3;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.build-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+
+.build-card-title {
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.03em;
+}
+
+.build-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 0.3rem;
+}
+
+.build-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  padding: 0.35rem 0.1rem 0.3rem;
+  background: rgba(var(--ink-rgb), 0.05);
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.build-cell-focus {
+  background: rgba(var(--ink-rgb), 0.1);
+}
+
+.build-cell-icon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+}
+
+.build-cell-name {
+  font-weight: 600;
+  font-size: 0.6rem;
+  line-height: 1.05;
+  text-align: center;
+}
+
+.build-cell-cost {
+  font-weight: 700;
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.build-cell-badge {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.2rem;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--faction-a);
+  border-radius: 999px;
+  padding: 0.05rem 0.32rem;
+}
+
+.build-stat-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  background: rgba(var(--ink-rgb), 0.05);
+  border-radius: 8px;
+}
+
+.build-stat-name {
+  font-weight: 700;
+  font-size: 0.68rem;
+  flex: none;
+}
+
+.build-stat-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6rem;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.build-card-actions {
+  margin-top: 0.45rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* --- Phase 4: BUILD economy dashboard modal (upkeep addendum §11) -----------
+   Full-screen scrollable sheet — same shell family as .rules-modal, the body
+   scrolls while the header pins. Mobile-first. */
+.build-dashboard {
+  background: #fbf9f2;
+  border-radius: 18px 18px 0 0;
+  margin-top: calc(env(safe-area-inset-top) + 0.6rem);
+  padding: 0.4rem 1rem calc(env(safe-area-inset-bottom) + 1rem);
+  box-shadow: 0 -6px 24px rgba(var(--ink-rgb), 0.2);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: sheet-up 0.18s ease-out;
+}
+
+.build-dash-credits {
+  font-weight: 700;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  margin-right: 0.6rem;
+}
+
+.build-dash-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding-bottom: 1rem;
+}
+
+/* A · economy summary — a compact tabular grid of the planning numbers. */
+.build-dash-econ {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.econ-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  background: rgba(var(--ink-rgb), 0.05);
+  border-radius: 10px;
+  padding: 0.4rem 0.5rem;
+}
+
+.econ-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.econ-value {
+  font-size: 0.84rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.econ-cell-net {
+  background: rgba(var(--ink-rgb), 0.09);
+}
+
+.econ-net-up {
+  color: #2d7a44;
+}
+
+.econ-net-down {
+  color: #b8472d;
+}
+
+/* B · mini-map — a small board overview, bases tinted by ownership. */
+.build-minimap-wrap {
+  margin-bottom: 1rem;
+}
+
+.build-minimap {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  background: #f6f3ea;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--ink-rgb), 0.12);
+}
+
+.build-minimap-base polygon {
+  transition: filter 0.15s ease;
+}
+
+/* C · per-base production list — one section per owned base. */
+.build-base-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.build-dash-row {
+  background: #fff;
+  border: 1.5px solid rgba(var(--ink-rgb), 0.1);
+  border-radius: 12px;
+  padding: 0.55rem 0.6rem 0.6rem;
+}
+
+.build-dash-row-focused {
+  border-color: var(--faction-a);
+  box-shadow: 0 0 0 2px rgba(var(--faction-a-rgb), 0.25);
+}
+
+.build-dash-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.build-dash-row-label {
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+.build-dash-occ {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.build-dash-occ-icon {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.build-dash-occ-vacant {
+  opacity: 0.55;
+}
+
+.build-dash-occ-warn {
+  color: #b8472d;
+}
+
+.build-dash-queued {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(var(--ink-rgb), 0.05);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.build-dash-queued-name {
+  font-weight: 700;
+  font-size: 0.74rem;
+}
+
+.build-dash-queued-cost {
+  font-weight: 700;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  margin-right: auto;
+}
+
+/* D · army roster — counts + per-type upkeep, with a total footer. */
+.build-roster {
+  background: rgba(var(--ink-rgb), 0.04);
+  border-radius: 12px;
+  padding: 0.55rem 0.65rem 0.6rem;
+}
+
+.build-roster-h {
+  margin: 0 0 0.4rem;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.build-roster-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+
+.build-roster-icon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.build-roster-name {
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.build-roster-count {
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+.build-roster-upkeep {
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  min-width: 2.4rem;
+  text-align: right;
+}
+
+.build-roster-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 0.45rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(var(--ink-rgb), 0.12);
+}
+
+.build-roster-total-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.build-roster-total-value {
+  font-size: 0.82rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* v0.7 Item 1: owned-base build pip (Board overlay, above units). */
+.build-pip {
+  cursor: pointer;
+}
+
+.build-pip circle {
+  transition: filter 0.15s ease;
+}
+
+.build-pip-queued circle {
+  opacity: 0.92;
+}
+
+/* v0.7 Item 2: base ownership status line in the info sheet. */
+.info-base-status {
+  font-size: 0.76rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(var(--ink-rgb), 0.07);
+}

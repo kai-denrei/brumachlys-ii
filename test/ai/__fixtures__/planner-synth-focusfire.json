@@ -1,0 +1,12 @@
+[
+  {
+    "kind": "attack",
+    "unitId": "gre0",
+    "targetCell": 2
+  },
+  {
+    "kind": "attack",
+    "unitId": "art0",
+    "targetCell": 2
+  }
+]
