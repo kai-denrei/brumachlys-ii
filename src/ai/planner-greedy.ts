@@ -423,6 +423,55 @@ function computeEnemyInfos(view: FactionView): EnemyInfo[] {
   return enemyInfos;
 }
 
+/** Conquest base intel (addendum §B.7), believed-ownership view: each base cell's
+ *  full-board hop field + visible-enemy threat within BASE_THREAT_RADIUS (nearer
+ *  counts more). Built from the honest view only (cq.bases is stale for unseen
+ *  flips). Empty in skirmish (no view.conquest). Pure on (view, enemyInfos). */
+type BaseIntel = {
+  cell: CellId;
+  owner: FactionId | null; // BELIEVED owner
+  hops: Map<CellId, number>; // full-board BFS from the base cell
+  threat: number;
+};
+
+function computeBaseIntel(
+  view: FactionView,
+  enemyInfos: readonly EnemyInfo[],
+): {
+  baseAt: Map<CellId, BaseIntel>;
+  capturableBases: BaseIntel[];
+  ownBaseCount: number;
+  enemyBaseCount: number;
+  threatenedOwn: BaseIntel[];
+  baseless: boolean;
+} {
+  const { board } = view;
+  const cq = view.conquest;
+  const baseIntel: BaseIntel[] = [];
+  if (cq) {
+    for (const cell of cq.baseCells) {
+      if (!board.cells.has(cell)) continue;
+      const hops = bfsHops(board, cell);
+      let threat = 0;
+      for (const ei of enemyInfos) {
+        const d = hops.get(ei.unit.cell) ?? Infinity;
+        if (d <= BASE_THREAT_RADIUS) {
+          threat += (ei.unit.count * (BASE_THREAT_RADIUS + 1 - d)) / (BASE_THREAT_RADIUS + 1);
+        }
+      }
+      baseIntel.push({ cell, owner: cq.bases[cell] ?? null, hops, threat });
+    }
+  }
+  const baseAt = new Map<CellId, BaseIntel>(baseIntel.map((b) => [b.cell, b]));
+  const capturableBases = baseIntel.filter((b) => b.owner !== view.faction);
+  const ownBaseCount = baseIntel.length - capturableBases.length;
+  const enemyBaseCount = capturableBases.filter((b) => b.owner !== null).length;
+  const threatenedOwn = baseIntel.filter((b) => b.owner === view.faction && b.threat > 0);
+  /** §B.5: zero believed-own bases — the grace counter is ticking. */
+  const baseless = cq !== undefined && ownBaseCount === 0;
+  return { baseAt, capturableBases, ownBaseCount, enemyBaseCount, threatenedOwn, baseless };
+}
+
 export function createGreedyPlanner(
   overrides: Partial<GreedyWeights> = {},
   conquestOverrides: Partial<ConquestWeights> = {},
@@ -457,38 +506,9 @@ export function createGreedyPlanner(
       // Per-enemy precomputation (shared across all own units) — see computeEnemyInfos.
       const enemyInfos = computeEnemyInfos(view);
 
-      // ── Conquest base intel (addendum §B.7) ───────────────────────────────
-      // Built ONLY from the honest view: believed ownership (cq.bases — stale
-      // for unseen flips) + visible enemies. `threat` is visible enemy
-      // strength within BASE_THREAT_RADIUS hops, nearer counting more.
-      type BaseIntel = {
-        cell: CellId;
-        owner: FactionId | null; // BELIEVED owner
-        hops: Map<CellId, number>; // full-board BFS from the base cell
-        threat: number;
-      };
-      const baseIntel: BaseIntel[] = [];
-      if (cq) {
-        for (const cell of cq.baseCells) {
-          if (!board.cells.has(cell)) continue;
-          const hops = bfsHops(board, cell);
-          let threat = 0;
-          for (const ei of enemyInfos) {
-            const d = hops.get(ei.unit.cell) ?? Infinity;
-            if (d <= BASE_THREAT_RADIUS) {
-              threat += (ei.unit.count * (BASE_THREAT_RADIUS + 1 - d)) / (BASE_THREAT_RADIUS + 1);
-            }
-          }
-          baseIntel.push({ cell, owner: cq.bases[cell] ?? null, hops, threat });
-        }
-      }
-      const baseAt = new Map<CellId, BaseIntel>(baseIntel.map((b) => [b.cell, b]));
-      const capturableBases = baseIntel.filter((b) => b.owner !== view.faction);
-      const ownBaseCount = baseIntel.length - capturableBases.length;
-      const enemyBaseCount = capturableBases.filter((b) => b.owner !== null).length;
-      const threatenedOwn = baseIntel.filter((b) => b.owner === view.faction && b.threat > 0);
-      /** §B.5: zero believed-own bases — the grace counter is ticking. */
-      const baseless = cq !== undefined && ownBaseCount === 0;
+      // Conquest base intel (addendum §B.7) — see computeBaseIntel.
+      const { baseAt, capturableBases, ownBaseCount, enemyBaseCount, threatenedOwn, baseless } =
+        computeBaseIntel(view, enemyInfos);
 
       // Desperation curve. SKIRMISH: §2.8 timeout is a draw — a LOSS of a
       // won siege — so caution decays toward the fixed ROUND_LIMIT, floor
