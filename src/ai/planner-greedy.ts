@@ -423,6 +423,142 @@ function computeEnemyInfos(view: FactionView): EnemyInfo[] {
   return enemyInfos;
 }
 
+/** Conquest base intel (addendum §B.7), believed-ownership view: each base cell's
+ *  full-board hop field + visible-enemy threat within BASE_THREAT_RADIUS (nearer
+ *  counts more). Built from the honest view only (cq.bases is stale for unseen
+ *  flips). Empty in skirmish (no view.conquest). Pure on (view, enemyInfos). */
+type BaseIntel = {
+  cell: CellId;
+  owner: FactionId | null; // BELIEVED owner
+  hops: Map<CellId, number>; // full-board BFS from the base cell
+  threat: number;
+};
+
+function computeBaseIntel(
+  view: FactionView,
+  enemyInfos: readonly EnemyInfo[],
+): {
+  baseAt: Map<CellId, BaseIntel>;
+  capturableBases: BaseIntel[];
+  ownBaseCount: number;
+  enemyBaseCount: number;
+  threatenedOwn: BaseIntel[];
+  baseless: boolean;
+} {
+  const { board } = view;
+  const cq = view.conquest;
+  const baseIntel: BaseIntel[] = [];
+  if (cq) {
+    for (const cell of cq.baseCells) {
+      if (!board.cells.has(cell)) continue;
+      const hops = bfsHops(board, cell);
+      let threat = 0;
+      for (const ei of enemyInfos) {
+        const d = hops.get(ei.unit.cell) ?? Infinity;
+        if (d <= BASE_THREAT_RADIUS) {
+          threat += (ei.unit.count * (BASE_THREAT_RADIUS + 1 - d)) / (BASE_THREAT_RADIUS + 1);
+        }
+      }
+      baseIntel.push({ cell, owner: cq.bases[cell] ?? null, hops, threat });
+    }
+  }
+  const baseAt = new Map<CellId, BaseIntel>(baseIntel.map((b) => [b.cell, b]));
+  const capturableBases = baseIntel.filter((b) => b.owner !== view.faction);
+  const ownBaseCount = baseIntel.length - capturableBases.length;
+  const enemyBaseCount = capturableBases.filter((b) => b.owner !== null).length;
+  const threatenedOwn = baseIntel.filter((b) => b.owner === view.faction && b.threat > 0);
+  /** §B.5: zero believed-own bases — the grace counter is ticking. */
+  const baseless = cq !== undefined && ownBaseCount === 0;
+  return { baseAt, capturableBases, ownBaseCount, enemyBaseCount, threatenedOwn, baseless };
+}
+
+/** The desperation / pressure curve — pure scalar planning context from the
+ *  round + base differential. Returns the caution (`urgency`), the escalation
+ *  `pressure`, and the pressure-scaled conquest weights the scorer reads. Pure
+ *  on (view, weights, base counts). See the inline notes for each term's
+ *  measured rationale (several "patient"/flat variants were tried and lost). */
+function computeDesperation(
+  view: FactionView,
+  w: GreedyWeights,
+  cw: ConquestWeights,
+  bases: { ownBaseCount: number; enemyBaseCount: number; baseless: boolean },
+): {
+  lateGame: number;
+  overdrive: number;
+  urgency: number;
+  pressure: number;
+  captureBonusEff: number;
+  advWeight: number;
+  vehicleSquatEff: number;
+} {
+  const { round } = view;
+  const cq = view.conquest;
+  const { ownBaseCount, enemyBaseCount, baseless } = bases;
+  // SKIRMISH: §2.8 timeout is a draw — a LOSS of a won siege — so caution decays
+  // toward the fixed ROUND_LIMIT, floor 0.25: from ~70% of the limit on, the army
+  // accepts increasingly bad trades to convert. (A "patience" variant that ALSO
+  // ran caution hot early was tried and measured worse on every seed: it idled the
+  // melee while the camp was strong, then compressed the same bad trades into fewer
+  // rounds.)
+  // CONQUEST (§B.7): roundLimit may be null — the curve re-keys to the BASE
+  // DIFFERENTIAL. Even or ahead: patient (income compounds for us). Behind: each
+  // believed base of deficit adds pressure (the income gap compounds AGAINST us —
+  // waiting loses). BASELESS: the §B.5 grace counter is ticking, full desperation,
+  // all-out for the nearest capturable base. A stall-breaker clock rises regardless
+  // (mirror standoffs have deficit 0 forever — without a clock NOTHING converts;
+  // observed: 80 rounds, 5-5 bases, parked armies, ~2 attacks a round). An optional
+  // round limit contributes its own late curve when set.
+  let lateGame: number;
+  let overdrive = 0;
+  if (!cq) {
+    lateGame = Math.max(0, round - Math.floor(ROUND_LIMIT * 0.7)) / (ROUND_LIMIT * 0.3);
+  } else {
+    const deficit = Math.max(0, enemyBaseCount - ownBaseCount);
+    lateGame = baseless ? 1 : deficit * cw.pressurePerBaseDown;
+    lateGame = Math.max(
+      lateGame,
+      Math.min(1, Math.max(0, round - cw.stallPressureStart) / cw.stallPressureRamp),
+    );
+    if (cq.roundLimit != null && cq.roundLimit > 0) {
+      lateGame = Math.max(
+        lateGame,
+        Math.max(0, round - Math.floor(cq.roundLimit * 0.7)) / (cq.roundLimit * 0.3),
+      );
+    }
+    // Overdrive: the stage past saturated desperation (see the weight's doc
+    // comment). Pure round arithmetic — deterministic, view-only.
+    overdrive = Math.min(
+      1,
+      Math.max(0, round - cw.stallPressureStart - cw.stallPressureRamp) / cw.overdriveRamp,
+    );
+  }
+  // Caution: desperation drives it to the 0.25 floor; overdrive removes the floor
+  // entirely — at full overdrive units price damage taken at 0 and walk through
+  // covering fire onto objectives. A saturated-but-floored caution was measured as
+  // a stable mirror equilibrium.
+  const urgency = (1 - 0.75 * Math.min(1, lateGame)) * (1 - overdrive);
+  // Escalation pressure for the capture/advance payoffs: desperation saturates at
+  // 1, overdrive stacks a second unit on top (0..2), and a believed base SURPLUS
+  // stacks beyond the ceiling (the asymmetric term — see pressurePerBaseUp).
+  const surplus = cq ? Math.max(0, ownBaseCount - enemyBaseCount) : 0;
+  const pressure = Math.min(1, lateGame) + overdrive + surplus * cw.pressurePerBaseUp;
+  // Pressure-scaled capture payoff: at full desperation a flip is worth chasing
+  // through covering fire (the patient value never converts a defended frontier).
+  const captureBonusEff = cq ? cw.captureBonus * (1 + cw.capturePressure * pressure) : 0;
+  // Pressure-scaled ADVANCE weight (conquest only): at the skirmish 0.3/cell the
+  // engaged frontline never disengages — attack values (~6–8) pin every unit in
+  // contact, production replaces every loss, and the wall holds for 80 rounds. Under
+  // pressure the march itself must outbid a round of trading, so the thrust moves;
+  // captures, not kills, convert a conquest standoff.
+  const advWeight = cq ? w.advance * (1 + cw.advancePressure * pressure) : w.advance;
+  // The vehicle-squat tax must scale WITH the advance weight (v0.6 fix): an escort's
+  // advance field zeroes ON the objective base, so under pressure the flat tax was
+  // outbid by pressure-scaled advance credit — a tank parked itself on the flag and
+  // blocked the flip forever (observed: 9-1 vs do-nothing frozen 100 rounds).
+  const vehicleSquatEff = cq ? cw.vehicleSquat * (1 + cw.advancePressure * pressure) : 0;
+  return { lateGame, overdrive, urgency, pressure, captureBonusEff, advWeight, vehicleSquatEff };
+}
+
 export function createGreedyPlanner(
   overrides: Partial<GreedyWeights> = {},
   conquestOverrides: Partial<ConquestWeights> = {},
@@ -457,108 +593,14 @@ export function createGreedyPlanner(
       // Per-enemy precomputation (shared across all own units) — see computeEnemyInfos.
       const enemyInfos = computeEnemyInfos(view);
 
-      // ── Conquest base intel (addendum §B.7) ───────────────────────────────
-      // Built ONLY from the honest view: believed ownership (cq.bases — stale
-      // for unseen flips) + visible enemies. `threat` is visible enemy
-      // strength within BASE_THREAT_RADIUS hops, nearer counting more.
-      type BaseIntel = {
-        cell: CellId;
-        owner: FactionId | null; // BELIEVED owner
-        hops: Map<CellId, number>; // full-board BFS from the base cell
-        threat: number;
-      };
-      const baseIntel: BaseIntel[] = [];
-      if (cq) {
-        for (const cell of cq.baseCells) {
-          if (!board.cells.has(cell)) continue;
-          const hops = bfsHops(board, cell);
-          let threat = 0;
-          for (const ei of enemyInfos) {
-            const d = hops.get(ei.unit.cell) ?? Infinity;
-            if (d <= BASE_THREAT_RADIUS) {
-              threat += (ei.unit.count * (BASE_THREAT_RADIUS + 1 - d)) / (BASE_THREAT_RADIUS + 1);
-            }
-          }
-          baseIntel.push({ cell, owner: cq.bases[cell] ?? null, hops, threat });
-        }
-      }
-      const baseAt = new Map<CellId, BaseIntel>(baseIntel.map((b) => [b.cell, b]));
-      const capturableBases = baseIntel.filter((b) => b.owner !== view.faction);
-      const ownBaseCount = baseIntel.length - capturableBases.length;
-      const enemyBaseCount = capturableBases.filter((b) => b.owner !== null).length;
-      const threatenedOwn = baseIntel.filter((b) => b.owner === view.faction && b.threat > 0);
-      /** §B.5: zero believed-own bases — the grace counter is ticking. */
-      const baseless = cq !== undefined && ownBaseCount === 0;
+      // Conquest base intel (addendum §B.7) — see computeBaseIntel.
+      const { baseAt, capturableBases, ownBaseCount, enemyBaseCount, threatenedOwn, baseless } =
+        computeBaseIntel(view, enemyInfos);
 
-      // Desperation curve. SKIRMISH: §2.8 timeout is a draw — a LOSS of a
-      // won siege — so caution decays toward the fixed ROUND_LIMIT, floor
-      // 0.25: from ~70% of the limit on, the army accepts increasingly bad
-      // trades to convert. (A "patience" variant that ALSO ran caution hot
-      // early was tried and measured worse on every seed: it idled the melee
-      // while the camp was strong, then compressed the same bad trades into
-      // fewer rounds.)
-      // CONQUEST (§B.7): roundLimit may be null — the curve re-keys to the
-      // BASE DIFFERENTIAL. Even or ahead: patient (income compounds for us).
-      // Behind: each believed base of deficit adds pressure (the income gap
-      // compounds AGAINST us — waiting loses). BASELESS: the §B.5 grace
-      // counter is ticking, full desperation, all-out for the nearest
-      // capturable base. A stall-breaker clock rises regardless (mirror
-      // standoffs have deficit 0 forever — without a clock NOTHING converts;
-      // observed: 80 rounds, 5-5 bases, parked armies, ~2 attacks a round).
-      // An optional round limit contributes its own late curve when set.
-      let lateGame: number;
-      let overdrive = 0;
-      if (!cq) {
-        lateGame = Math.max(0, round - Math.floor(ROUND_LIMIT * 0.7)) / (ROUND_LIMIT * 0.3);
-      } else {
-        const deficit = Math.max(0, enemyBaseCount - ownBaseCount);
-        lateGame = baseless ? 1 : deficit * cw.pressurePerBaseDown;
-        lateGame = Math.max(
-          lateGame,
-          Math.min(1, Math.max(0, round - cw.stallPressureStart) / cw.stallPressureRamp),
-        );
-        if (cq.roundLimit != null && cq.roundLimit > 0) {
-          lateGame = Math.max(
-            lateGame,
-            Math.max(0, round - Math.floor(cq.roundLimit * 0.7)) / (cq.roundLimit * 0.3),
-          );
-        }
-        // Overdrive: the stage past saturated desperation (see the weight's
-        // doc comment). Pure round arithmetic — deterministic, view-only.
-        overdrive = Math.min(
-          1,
-          Math.max(0, round - cw.stallPressureStart - cw.stallPressureRamp) / cw.overdriveRamp,
-        );
-      }
-      // Caution: desperation drives it to the 0.25 floor; overdrive removes
-      // the floor entirely — at full overdrive units price damage taken at 0
-      // and walk through covering fire onto objectives. A saturated-but-
-      // floored caution was measured as a stable mirror equilibrium.
-      const urgency = (1 - 0.75 * Math.min(1, lateGame)) * (1 - overdrive);
-      // Escalation pressure for the capture/advance payoffs: desperation
-      // saturates at 1, overdrive stacks a second unit on top (0..2), and a
-      // believed base SURPLUS stacks beyond the ceiling (the asymmetric
-      // term — see pressurePerBaseUp).
-      const surplus = cq ? Math.max(0, ownBaseCount - enemyBaseCount) : 0;
-      const pressure = Math.min(1, lateGame) + overdrive + surplus * cw.pressurePerBaseUp;
-      // Pressure-scaled capture payoff: at full desperation a flip is worth
-      // chasing through covering fire (the patient value never converts a
-      // defended frontier — observed).
-      const captureBonusEff = cq ? cw.captureBonus * (1 + cw.capturePressure * pressure) : 0;
-      // Pressure-scaled ADVANCE weight (conquest only): at the skirmish
-      // 0.3/cell the engaged frontline never disengages — attack values
-      // (~6–8) pin every unit in contact, production replaces every loss,
-      // and the wall holds for 80 rounds (observed). Under pressure the
-      // march itself must outbid a round of trading, so the thrust actually
-      // moves; captures, not kills, are what convert a conquest standoff.
-      const advWeight = cq ? w.advance * (1 + cw.advancePressure * pressure) : w.advance;
-      // The vehicle-squat tax must scale WITH the advance weight (v0.6 fix):
-      // an escort's advance field zeroes ON the objective base, so under
-      // pressure the flat tax was outbid by pressure-scaled advance credit —
-      // a tank parked itself on the flag and blocked the flip forever
-      // (observed: 9-1 vs do-nothing frozen for 100 rounds, the LAST enemy
-      // base squatted by its own escort).
-      const vehicleSquatEff = cq ? cw.vehicleSquat * (1 + cw.advancePressure * pressure) : 0;
+      // Desperation / pressure curve (caution + escalation + scaled conquest
+      // weights) — see computeDesperation for the measured rationale of each term.
+      const { lateGame, overdrive, urgency, captureBonusEff, advWeight, vehicleSquatEff } =
+        computeDesperation(view, w, cw, { ownBaseCount, enemyBaseCount, baseless });
 
       // Advance objective (per-unit field built below, terrain-aware):
       //   1. visible enemies → walk toward the nearest one;

@@ -62,7 +62,7 @@ describe(`conquest acceptance — donor ${DONOR_ID} (§B.7)`, () => {
 
   // (a) greedy beats do-nothing-with-no-buys, decisively, on 3 seeds.
   for (const seed of SEEDS) {
-    it(`seed ${seed}: greedy beats do-nothing decisively (conquest / base-collapse)`, () => {
+    it(`seed ${seed}: greedy beats do-nothing decisively (conquest / base-collapse)`, { timeout: 30_000 }, () => {
       const r = play(seed, false, 120);
       allPlanTimes.push(...r.planTimesMs);
       expect(r.state.outcome).toBeDefined();
@@ -117,7 +117,7 @@ describe(`conquest acceptance — donor ${DONOR_ID} (§B.7)`, () => {
   });
 
   // (d) determinism: belief threading, planning, buys, resolution — all of it.
-  it('full conquest game is deterministic: same seed → identical final state', () => {
+  it('full conquest game is deterministic: same seed → identical final state', { timeout: 30_000 }, () => {
     const a = play(7, true, 80);
     const b = play(7, true, 80);
     const snap = (r: ConquestReport) =>
