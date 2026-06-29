@@ -815,6 +815,27 @@ function buildAdvanceFields(
   return { advFieldByUnit, advHopsByUnit };
 }
 
+/** Nearest committed ally inside `ei`'s firing ring (hop distance from the
+ *  enemy's current cell) that `ei` can damage. Called per own unit as planning
+ *  proceeds — commitments accumulate in `plannedPosition`, so the result
+ *  tightens as more allies are placed. Pure on (ei, the running
+ *  plannedPosition, the own-unit type lookup). */
+function nearestCommittedTo(
+  ei: EnemyInfo,
+  plannedPosition: Map<string, CellId>,
+  ownTypeById: Map<string, UnitType>,
+): number {
+  let nearest = Infinity;
+  for (const [id, cell] of plannedPosition) {
+    const vt = ownTypeById.get(id);
+    if (!vt || (ei.type.attackStrengths[vt.armorType] ?? 0) <= 0) continue;
+    const d = ei.distFrom.get(cell) ?? Infinity;
+    if (d < ei.type.minRange || d > ei.type.maxRange) continue;
+    if (d < nearest) nearest = d;
+  }
+  return nearest;
+}
+
 export function createGreedyPlanner(
   overrides: Partial<GreedyWeights> = {},
   conquestOverrides: Partial<ConquestWeights> = {},
@@ -1006,21 +1027,6 @@ export function createGreedyPlanner(
         }
         supportersOf.set(ei.unit.id, list);
       }
-      /** Nearest committed ally inside `ei`'s firing ring (hop distance from
-       *  the enemy's current cell) that `ei` can damage. Recomputed per unit
-       *  — commitments accumulate as planning proceeds. */
-      const nearestCommittedTo = (ei: EnemyInfo): number => {
-        let nearest = Infinity;
-        for (const [id, cell] of plannedPosition) {
-          const vt = ownTypeById.get(id);
-          if (!vt || (ei.type.attackStrengths[vt.armorType] ?? 0) <= 0) continue;
-          const d = ei.distFrom.get(cell) ?? Infinity;
-          if (d < ei.type.minRange || d > ei.type.maxRange) continue;
-          if (d < nearest) nearest = d;
-        }
-        return nearest;
-      };
-
       // March boost, OPENING ONLY: with no enemy in sight and the game
       // young there is nothing to weigh against ground — stop strolling
       // (contact by ~R9 instead of ~R15; the round budget on a 30-cell map
@@ -1152,7 +1158,8 @@ export function createGreedyPlanner(
         // Per-enemy nearest committed ally for THIS unit (depends on which
         // allies have already committed — recomputed as planning progresses).
         const shadowDistOf = new Map<EnemyInfo, number>();
-        for (const ei of enemyInfos) shadowDistOf.set(ei, nearestCommittedTo(ei));
+        for (const ei of enemyInfos)
+          shadowDistOf.set(ei, nearestCommittedTo(ei, plannedPosition, ownTypeById));
         // Depletion multiplier (counts are hit points — damaged units value
         // theirs more, up to ~×2 at 1 count) fades with the desperation
         // curve computed above the loop: desperation overrides
