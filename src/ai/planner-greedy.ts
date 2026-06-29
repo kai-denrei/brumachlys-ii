@@ -559,6 +559,126 @@ function computeDesperation(
   return { lateGame, overdrive, urgency, pressure, captureBonusEff, advWeight, vehicleSquatEff };
 }
 
+/** Conquest capture objectives (addendum §B.7) — conquest-only per-unit advance
+ *  targets + the vehicle escort fallback. Personnel claim capturable bases
+ *  greedily in initiative order; vehicles escort rather than squat. Pure on the
+ *  view (unitTypes), the conquest weights, the initiative-sorted `own`, the
+ *  per-enemy infos, and the already-built base intel + desperation scalars +
+ *  the skirmish advance fallback. Returns `targetOf` (own-unit id → its claimed
+ *  objective cell; absent ⇒ escort) and `escortSources` (advance sources for
+ *  the unclaimed). See the inline notes for the THRUST / RAID policy rationale. */
+function computeConquestObjectives(
+  view: FactionView,
+  cw: ConquestWeights,
+  own: readonly UnitInstance[],
+  enemyInfos: readonly EnemyInfo[],
+  intel: { capturableBases: readonly BaseIntel[]; baseAt: Map<CellId, BaseIntel> },
+  desperation: { overdrive: number; baseless: boolean; lateGame: number },
+  advanceSources: CellId[],
+): { targetOf: Map<string, CellId>; escortSources: CellId[] } {
+  const { unitTypes } = view;
+  const { capturableBases, baseAt } = intel;
+  const { overdrive, baseless, lateGame } = desperation;
+  // Personnel claim capturable bases greedily in initiative order
+  // (`own` is already sorted): nearer is better, threatened is worse
+  // (approach hot bases with force, not solo), already-claimed is
+  // worse (spread the expansion). Believed-enemy bases get a small
+  // bump (flipping one swings income BY two).
+  // THRUST (high pressure — baseless or the desperation curve ≥ 0.7):
+  // spreading 1–2 personnel per defended base converts NOTHING (each
+  // probe dies to the local garrison and production replaces every
+  // loss — observed equilibrium). Instead ALL personnel mass on the
+  // single best capturable base (team-scored: reachable by many,
+  // lightly held) and the escorts come with them — a breakthrough,
+  // not a picket line.
+  const claims = new Map<CellId, number>();
+  const targetOf = new Map<string, CellId>();
+  const allPersonnel = own.filter((v) => unitTypes[v.type]?.armorType === 'personnel');
+  // RAID (overdrive ≥ 0.5): the massed thrust is what makes the mirror
+  // ping-pong — both teams contest the SAME frontier base forever.
+  // Raiders instead fan out across every capturable base, threat-blind
+  // and with a near-flat distance discount (the rear bases are the
+  // undefended ones); claimSpread doubled so claims really spread.
+  // Only FAST personnel (movement ≥ 9) raid — a grenadier on a 15-hop
+  // march contributes nothing for 8 rounds, while the same grenadier
+  // in the siege line is the wall-breaker (measured: fanning everyone
+  // out regressed every converted seed back to a stall).
+  const raid = overdrive >= cw.raidThreshold && capturableBases.length > 0;
+  const personnel = raid
+    ? allPersonnel.filter((v) => (unitTypes[v.type]?.movement ?? 0) >= 9)
+    : allPersonnel;
+  const thrust = !raid && (baseless || lateGame >= 0.5) && capturableBases.length > 0;
+  let thrustCell = -1;
+  if (thrust) {
+    // Team scoring with the threat term doubled: the thrust wants the
+    // WEAKLY HELD base it can mass on, not the most contested one.
+    let bestScore = -Infinity;
+    for (const b of capturableBases) {
+      let s = -2 * cw.baseThreat * b.threat + (b.owner !== null ? 0.5 : 0);
+      let reachers = 0;
+      for (const v of personnel) {
+        const d = b.hops.get(v.cell) ?? Infinity;
+        if (!Number.isFinite(d)) continue;
+        reachers++;
+        s += cw.captureBonus / (1 + d / 4);
+      }
+      if (reachers === 0) continue;
+      if (s > bestScore || (s === bestScore && b.cell < thrustCell)) {
+        bestScore = s;
+        thrustCell = b.cell;
+      }
+    }
+    if (thrustCell >= 0) {
+      for (const v of personnel) {
+        if (Number.isFinite(baseAt.get(thrustCell)!.hops.get(v.cell) ?? Infinity)) {
+          targetOf.set(v.id, thrustCell);
+        }
+      }
+    }
+  }
+  if (!thrust || thrustCell < 0) {
+    for (const v of personnel) {
+      let bestCell = -1;
+      let bestScore = -Infinity;
+      for (const b of capturableBases) {
+        const d = b.hops.get(v.cell) ?? Infinity;
+        if (!Number.isFinite(d)) continue;
+        const s =
+          cw.captureBonus / (1 + d / (raid ? 12 : 4)) +
+          (b.owner !== null ? 0.5 : 0) -
+          (raid ? 0 : cw.baseThreat * b.threat) -
+          cw.claimSpread * (raid ? 2 : 1) * (claims.get(b.cell) ?? 0);
+        if (s > bestScore || (s === bestScore && b.cell < bestCell)) {
+          bestScore = s;
+          bestCell = b.cell;
+        }
+      }
+      if (bestCell >= 0) {
+        targetOf.set(v.id, bestCell);
+        claims.set(bestCell, (claims.get(bestCell) ?? 0) + 1);
+      }
+    }
+  }
+  // Vehicles escort rather than squat: during a thrust they move WITH
+  // it (the push needs its fire support — attack values still engage
+  // whatever crosses their range en route); otherwise toward visible
+  // enemies, else the claimed frontier, else any capturable base,
+  // else the skirmish fallback (fog sweep / anchor) — also the
+  // personnel fallback when no capturable base is reachable.
+  const claimedCells = [...new Set(targetOf.values())].sort((a, b) => a - b);
+  const escortSources: CellId[] =
+    thrust && thrustCell >= 0
+      ? [thrustCell]
+      : enemyInfos.length > 0
+        ? enemyInfos.map((ei) => ei.unit.cell).sort((a, b) => a - b)
+        : claimedCells.length > 0
+          ? claimedCells
+          : capturableBases.length > 0
+            ? capturableBases.map((b) => b.cell)
+            : advanceSources;
+  return { targetOf, escortSources };
+}
+
 export function createGreedyPlanner(
   overrides: Partial<GreedyWeights> = {},
   conquestOverrides: Partial<ConquestWeights> = {},
@@ -690,104 +810,17 @@ export function createGreedyPlanner(
           advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), advanceSources));
         }
       } else {
-        // ── Conquest capture objectives (addendum §B.7) ───────────────────
-        // Personnel claim capturable bases greedily in initiative order
-        // (`own` is already sorted): nearer is better, threatened is worse
-        // (approach hot bases with force, not solo), already-claimed is
-        // worse (spread the expansion). Believed-enemy bases get a small
-        // bump (flipping one swings income BY two).
-        // THRUST (high pressure — baseless or the desperation curve ≥ 0.7):
-        // spreading 1–2 personnel per defended base converts NOTHING (each
-        // probe dies to the local garrison and production replaces every
-        // loss — observed equilibrium). Instead ALL personnel mass on the
-        // single best capturable base (team-scored: reachable by many,
-        // lightly held) and the escorts come with them — a breakthrough,
-        // not a picket line.
-        const claims = new Map<CellId, number>();
-        const targetOf = new Map<string, CellId>();
-        const allPersonnel = own.filter((v) => unitTypes[v.type]?.armorType === 'personnel');
-        // RAID (overdrive ≥ 0.5): the massed thrust is what makes the mirror
-        // ping-pong — both teams contest the SAME frontier base forever.
-        // Raiders instead fan out across every capturable base, threat-blind
-        // and with a near-flat distance discount (the rear bases are the
-        // undefended ones); claimSpread doubled so claims really spread.
-        // Only FAST personnel (movement ≥ 9) raid — a grenadier on a 15-hop
-        // march contributes nothing for 8 rounds, while the same grenadier
-        // in the siege line is the wall-breaker (measured: fanning everyone
-        // out regressed every converted seed back to a stall).
-        const raid = overdrive >= cw.raidThreshold && capturableBases.length > 0;
-        const personnel = raid
-          ? allPersonnel.filter((v) => (unitTypes[v.type]?.movement ?? 0) >= 9)
-          : allPersonnel;
-        const thrust = !raid && (baseless || lateGame >= 0.5) && capturableBases.length > 0;
-        let thrustCell = -1;
-        if (thrust) {
-          // Team scoring with the threat term doubled: the thrust wants the
-          // WEAKLY HELD base it can mass on, not the most contested one.
-          let bestScore = -Infinity;
-          for (const b of capturableBases) {
-            let s = -2 * cw.baseThreat * b.threat + (b.owner !== null ? 0.5 : 0);
-            let reachers = 0;
-            for (const v of personnel) {
-              const d = b.hops.get(v.cell) ?? Infinity;
-              if (!Number.isFinite(d)) continue;
-              reachers++;
-              s += cw.captureBonus / (1 + d / 4);
-            }
-            if (reachers === 0) continue;
-            if (s > bestScore || (s === bestScore && b.cell < thrustCell)) {
-              bestScore = s;
-              thrustCell = b.cell;
-            }
-          }
-          if (thrustCell >= 0) {
-            for (const v of personnel) {
-              if (Number.isFinite(baseAt.get(thrustCell)!.hops.get(v.cell) ?? Infinity)) {
-                targetOf.set(v.id, thrustCell);
-              }
-            }
-          }
-        }
-        if (!thrust || thrustCell < 0) {
-          for (const v of personnel) {
-            let bestCell = -1;
-            let bestScore = -Infinity;
-            for (const b of capturableBases) {
-              const d = b.hops.get(v.cell) ?? Infinity;
-              if (!Number.isFinite(d)) continue;
-              const s =
-                cw.captureBonus / (1 + d / (raid ? 12 : 4)) +
-                (b.owner !== null ? 0.5 : 0) -
-                (raid ? 0 : cw.baseThreat * b.threat) -
-                cw.claimSpread * (raid ? 2 : 1) * (claims.get(b.cell) ?? 0);
-              if (s > bestScore || (s === bestScore && b.cell < bestCell)) {
-                bestScore = s;
-                bestCell = b.cell;
-              }
-            }
-            if (bestCell >= 0) {
-              targetOf.set(v.id, bestCell);
-              claims.set(bestCell, (claims.get(bestCell) ?? 0) + 1);
-            }
-          }
-        }
-        // Vehicles escort rather than squat: during a thrust they move WITH
-        // it (the push needs its fire support — attack values still engage
-        // whatever crosses their range en route); otherwise toward visible
-        // enemies, else the claimed frontier, else any capturable base,
-        // else the skirmish fallback (fog sweep / anchor) — also the
-        // personnel fallback when no capturable base is reachable.
-        const claimedCells = [...new Set(targetOf.values())].sort((a, b) => a - b);
-        const escortSources: CellId[] =
-          thrust && thrustCell >= 0
-            ? [thrustCell]
-            : enemyInfos.length > 0
-              ? enemyInfos.map((ei) => ei.unit.cell).sort((a, b) => a - b)
-              : claimedCells.length > 0
-                ? claimedCells
-                : capturableBases.length > 0
-                  ? capturableBases.map((b) => b.cell)
-                  : advanceSources;
+        // Conquest capture objectives (addendum §B.7) — per-unit advance
+        // targets + the vehicle escort fallback. See computeConquestObjectives.
+        const { targetOf, escortSources } = computeConquestObjectives(
+          view,
+          cw,
+          own,
+          enemyInfos,
+          { capturableBases, baseAt },
+          { overdrive, baseless, lateGame },
+          advanceSources,
+        );
         for (const v of own) {
           const vt = unitTypes[v.type];
           if (!vt) continue;
