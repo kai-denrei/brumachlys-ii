@@ -679,6 +679,104 @@ function computeConquestObjectives(
   return { targetOf, escortSources };
 }
 
+/** Advance context — the shared advance objective sources and the camp-hold
+ *  phantom scalars, built once per round. Pure on (view, the per-enemy infos,
+ *  the believed enemy-base count). Returns `advanceSources`/`advHops` (the
+ *  objective field the per-unit advance fields are built over) plus the
+ *  anchor-hold scalars `anchorHops`/`holdScale`/`holdActive` the scorer's
+ *  phantom-threat penalty reads. See the inline notes for the measured
+ *  rationale of the continuous-release hold + the fair-fog hidden-count prior. */
+function computeAdvanceContext(
+  view: FactionView,
+  enemyInfos: readonly EnemyInfo[],
+  enemyBaseCount: number,
+): {
+  anchorHops: Map<CellId, number> | null;
+  holdScale: number;
+  holdActive: boolean;
+  advanceSources: CellId[];
+  advHops: Map<CellId, number>;
+} {
+  const { board } = view;
+  const cq = view.conquest;
+  // Advance objective (per-unit field built below, terrain-aware):
+  //   1. visible enemies → walk toward the nearest one;
+  //   2. none visible, enemy anchor not yet scouted → walk to the anchor
+  //      (§8.2);
+  //   3. anchor scouted and empty → sweep the fog: walk toward the
+  //      nearest non-visible land cell (endgame search for hidden
+  //      survivors — without it the army parks on the empty anchor while
+  //      a last low-vision enemy hides one valley over, round-limit draw).
+  // Terrain-aware matters: hop-based advance freezes armies on river
+  // banks (the straight line across water counts fewer hops than the
+  // bridge detour, so no reachable cell ever "gets closer"). Observed.
+  // Camp-hold zone (fog discipline): the enemy placed on BFS rings around
+  // its anchor, so while ANY cell within CAMP_HOLD hops of the anchor is
+  // still fogged, hidden defenders may sit there — entering on advance
+  // credit alone is how units walk single-file into the camp and die
+  // piecemeal (observed repeatedly, in every visibility mode: partial
+  // contact re-opened the lunges whenever the hold was gated on "nothing
+  // visible"). Implemented as a penalty slope on candidates inside the
+  // zone, active in ALL modes; deliberate attacks out-value it.
+  const anchorKnown = view.enemyAnchor !== null && board.cells.has(view.enemyAnchor);
+  const anchorHops = anchorKnown ? bfsHops(board, view.enemyAnchor!, CAMP_HOLD) : null;
+  // Continuous release: phantom scales with HOW fogged the zone still
+  // is — 1 when fully unscouted, 0 once ≥ 3/4 is visible. A binary
+  // 25%-threshold hold was observed stalling whole sieges: a rim-
+  // standing army keeps ~half the zone fogged forever, so the tax never
+  // lifted and pace died; meanwhile a handful of fog pockets behind the
+  // defenders must not keep taxing legitimate strikes either.
+  let holdScale = 0;
+  if (anchorHops) {
+    let fogged = 0;
+    for (const cell of anchorHops.keys()) {
+      if (!view.visible.has(cell)) fogged++;
+    }
+    const frac = fogged / anchorHops.size;
+    holdScale = Math.max(0, (frac - 0.25) / 0.75);
+  }
+  // The phantom prior also scales with how many enemy units could
+  // actually BE hiding: total army size is public setup knowledge
+  // (§6.4), every enemy death was witnessed (in a two-faction game all
+  // enemy losses are our own kills/brawls), and visible enemies are
+  // seen — so hidden = total − dead − visible is fair-fog arithmetic,
+  // not a hidden-state read. 4+ possible hiders ≈ full camp prior; one
+  // last survivor ≈ quarter strength. Without this the army froze at
+  // the phantom wall for 12 final rounds while a single hidden humvee
+  // count sat in the fog (observed, seed 13) — a round-limit draw of a
+  // 19-counts-vs-1 position.
+  let hiddenEnemies = Math.max(0, view.enemyTotal - view.enemyDead - view.enemies.length);
+  // Conquest: the initial-force arithmetic above cannot see PRODUCTION
+  // (hidden spawns are unknowable — view.ts restricts the public fields
+  // to the setup force). While the enemy is believed to hold any base,
+  // fresh defenders may be materializing behind the fog: keep a floor of
+  // 2 possible hiders so the camp phantom never fully disarms against a
+  // producing opponent. Belief-driven, not a hidden read.
+  if (cq && enemyBaseCount > 0) hiddenEnemies = Math.max(hiddenEnemies, 2);
+  holdScale *= Math.min(1, hiddenEnemies / 4);
+  const holdActive = holdScale > 0;
+  // Advance objective. While the camp-hold is active the objective is
+  // ALWAYS the anchor — fog blinking otherwise alternates the field
+  // between "visible pickets" and "anchor" and the whole army orbits the
+  // rim in a limit cycle (observed: 8 synchronized no-attack rounds).
+  // Attack values react to visible enemies regardless of this field.
+  const advanceSources: CellId[] =
+    anchorKnown && holdActive
+      ? [view.enemyAnchor!]
+      : enemyInfos.length > 0
+        ? enemyInfos.map((ei) => ei.unit.cell).sort((a, b) => a - b)
+        : [...board.cells.values()]
+            .filter((c) => !view.visible.has(c.id) && c.terrain !== 'water')
+            .map((c) => c.id)
+            .sort((a, b) => a - b);
+  // Hop field over the same sources: (a) fallback gradient for units the
+  // cost field cannot reach (e.g. vehicles walled off by mountains —
+  // they press toward the wall, from where artillery can still lob over:
+  // range is hop-based), (b) the anchor-hold radius check below.
+  const advHops = multiSourceHops(board, advanceSources);
+  return { anchorHops, holdScale, holdActive, advanceSources, advHops };
+}
+
 export function createGreedyPlanner(
   overrides: Partial<GreedyWeights> = {},
   conquestOverrides: Partial<ConquestWeights> = {},
@@ -722,81 +820,11 @@ export function createGreedyPlanner(
       const { lateGame, overdrive, urgency, captureBonusEff, advWeight, vehicleSquatEff } =
         computeDesperation(view, w, cw, { ownBaseCount, enemyBaseCount, baseless });
 
-      // Advance objective (per-unit field built below, terrain-aware):
-      //   1. visible enemies → walk toward the nearest one;
-      //   2. none visible, enemy anchor not yet scouted → walk to the anchor
-      //      (§8.2);
-      //   3. anchor scouted and empty → sweep the fog: walk toward the
-      //      nearest non-visible land cell (endgame search for hidden
-      //      survivors — without it the army parks on the empty anchor while
-      //      a last low-vision enemy hides one valley over, round-limit draw).
-      // Terrain-aware matters: hop-based advance freezes armies on river
-      // banks (the straight line across water counts fewer hops than the
-      // bridge detour, so no reachable cell ever "gets closer"). Observed.
-      // Camp-hold zone (fog discipline): the enemy placed on BFS rings around
-      // its anchor, so while ANY cell within CAMP_HOLD hops of the anchor is
-      // still fogged, hidden defenders may sit there — entering on advance
-      // credit alone is how units walk single-file into the camp and die
-      // piecemeal (observed repeatedly, in every visibility mode: partial
-      // contact re-opened the lunges whenever the hold was gated on "nothing
-      // visible"). Implemented as a penalty slope on candidates inside the
-      // zone, active in ALL modes; deliberate attacks out-value it.
-      const anchorKnown = view.enemyAnchor !== null && board.cells.has(view.enemyAnchor);
-      const anchorHops = anchorKnown ? bfsHops(board, view.enemyAnchor!, CAMP_HOLD) : null;
-      // Continuous release: phantom scales with HOW fogged the zone still
-      // is — 1 when fully unscouted, 0 once ≥ 3/4 is visible. A binary
-      // 25%-threshold hold was observed stalling whole sieges: a rim-
-      // standing army keeps ~half the zone fogged forever, so the tax never
-      // lifted and pace died; meanwhile a handful of fog pockets behind the
-      // defenders must not keep taxing legitimate strikes either.
-      let holdScale = 0;
-      if (anchorHops) {
-        let fogged = 0;
-        for (const cell of anchorHops.keys()) {
-          if (!view.visible.has(cell)) fogged++;
-        }
-        const frac = fogged / anchorHops.size;
-        holdScale = Math.max(0, (frac - 0.25) / 0.75);
-      }
-      // The phantom prior also scales with how many enemy units could
-      // actually BE hiding: total army size is public setup knowledge
-      // (§6.4), every enemy death was witnessed (in a two-faction game all
-      // enemy losses are our own kills/brawls), and visible enemies are
-      // seen — so hidden = total − dead − visible is fair-fog arithmetic,
-      // not a hidden-state read. 4+ possible hiders ≈ full camp prior; one
-      // last survivor ≈ quarter strength. Without this the army froze at
-      // the phantom wall for 12 final rounds while a single hidden humvee
-      // count sat in the fog (observed, seed 13) — a round-limit draw of a
-      // 19-counts-vs-1 position.
-      let hiddenEnemies = Math.max(0, view.enemyTotal - view.enemyDead - view.enemies.length);
-      // Conquest: the initial-force arithmetic above cannot see PRODUCTION
-      // (hidden spawns are unknowable — view.ts restricts the public fields
-      // to the setup force). While the enemy is believed to hold any base,
-      // fresh defenders may be materializing behind the fog: keep a floor of
-      // 2 possible hiders so the camp phantom never fully disarms against a
-      // producing opponent. Belief-driven, not a hidden read.
-      if (cq && enemyBaseCount > 0) hiddenEnemies = Math.max(hiddenEnemies, 2);
-      holdScale *= Math.min(1, hiddenEnemies / 4);
-      const holdActive = holdScale > 0;
-      // Advance objective. While the camp-hold is active the objective is
-      // ALWAYS the anchor — fog blinking otherwise alternates the field
-      // between "visible pickets" and "anchor" and the whole army orbits the
-      // rim in a limit cycle (observed: 8 synchronized no-attack rounds).
-      // Attack values react to visible enemies regardless of this field.
-      const advanceSources: CellId[] =
-        anchorKnown && holdActive
-          ? [view.enemyAnchor!]
-          : enemyInfos.length > 0
-            ? enemyInfos.map((ei) => ei.unit.cell).sort((a, b) => a - b)
-            : [...board.cells.values()]
-                .filter((c) => !view.visible.has(c.id) && c.terrain !== 'water')
-                .map((c) => c.id)
-                .sort((a, b) => a - b);
-      // Hop field over the same sources: (a) fallback gradient for units the
-      // cost field cannot reach (e.g. vehicles walled off by mountains —
-      // they press toward the wall, from where artillery can still lob over:
-      // range is hop-based), (b) the anchor-hold radius check below.
-      const advHops = multiSourceHops(board, advanceSources);
+      // Advance context (§8.2 advance objective + camp-hold fog discipline):
+      // the shared advance sources / hop field + the anchor-hold phantom
+      // scalars the scorer reads. See computeAdvanceContext.
+      const { anchorHops, holdScale, holdActive, advanceSources, advHops } =
+        computeAdvanceContext(view, enemyInfos, enemyBaseCount);
       // Terrain-aware advance fields, one per unit (movement costs differ).
       const advFieldByUnit = new Map<string, Map<CellId, number>>();
       // Conquest: advance objectives are PER UNIT (capture targets), so the
