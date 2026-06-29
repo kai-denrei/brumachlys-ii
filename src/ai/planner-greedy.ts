@@ -836,6 +836,18 @@ function nearestCommittedTo(
   return nearest;
 }
 
+/** Fog-touch predicate: true when `cell` is itself fogged or has any fogged
+ *  neighbour — i.e. a hidden enemy could be ON or NEXT TO it. Pure on the view
+ *  (visibility + board adjacency). */
+function fogTouched(view: FactionView, cell: CellId): boolean {
+  const { board } = view;
+  if (!view.visible.has(cell)) return true;
+  for (const n of board.cells.get(cell)!.neighbors) {
+    if (!view.visible.has(n)) return true;
+  }
+  return false;
+}
+
 export function createGreedyPlanner(
   overrides: Partial<GreedyWeights> = {},
   conquestOverrides: Partial<ConquestWeights> = {},
@@ -1139,19 +1151,12 @@ export function createGreedyPlanner(
         // a grenadier kept diving onto a half-scouted ring-1 cell adjacent
         // to a hidden humvee and inside a hidden sniper's ring (seed 11,
         // R20, 10→2, every config).
-        const fogTouched = (cell: CellId): boolean => {
-          if (!view.visible.has(cell)) return true;
-          for (const n of board.cells.get(cell)!.neighbors) {
-            if (!view.visible.has(n)) return true;
-          }
-          return false;
-        };
         const phantomAt = (cell: CellId): number => {
           if (!holdActive || !anchorHops) return 0;
           const ah = anchorHops.get(cell);
           if (ah === undefined || ah >= holdRadius) return 0;
           if (ah <= 2) {
-            return PHANTOM_THREAT * (fogTouched(cell) ? Math.max(holdScale, 0.9) : holdScale);
+            return PHANTOM_THREAT * (fogTouched(view, cell) ? Math.max(holdScale, 0.9) : holdScale);
           }
           return (holdScale * (PHANTOM_THREAT * (holdRadius - ah))) / (holdRadius - 2);
         };
