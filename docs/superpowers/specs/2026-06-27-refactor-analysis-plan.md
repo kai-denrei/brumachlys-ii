@@ -1,11 +1,10 @@
 # Refactor Analysis — verified, prioritized phased plan
 
 ## ▶ RESUME STATE (2026-06-29) — read this first
-**DEPLOY STATUS (2026-06-29):** AI7 **steps 4–8** (commits `0cbbc48`→`e3cf0f8`) are committed on
-`sprite-animation` but **NOT yet pushed / PR'd** — the branch is 5 ahead of `origin/sprite-animation`.
-All 5 are byte-identical refactors (golden green WITHOUT regen + a serial skeptic PASS each; 1307
-tests, `tsc -b`, purity green). Push + PR→`main` when ready to deploy (the earlier P1–P6 + AI7 1–3
-work below was already merged + LIVE).
+**DEPLOY STATUS (2026-06-29):** AI7 **steps 4–8** (commits `0cbbc48`→`e3cf0f8`) are **MERGED to `main`
+via PR #8 and LIVE on GitHub Pages** (merge `19b3910`; CI deploy run green — `npm test` 1307 + bust +
+build + deploy-pages all passed). All 5 are byte-identical refactors (golden green WITHOUT regen + a
+serial skeptic PASS each). The whole P1–P6 + AI7 1–8 arc is now deployed.
 
 **DONE + green + DEPLOYED (1307 tests, `tsc -b`, purity, prod build all green; merged to `main`
 via PR #6+#7 and LIVE on GitHub Pages):**
