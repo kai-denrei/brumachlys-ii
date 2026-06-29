@@ -777,6 +777,44 @@ function computeAdvanceContext(
   return { anchorHops, holdScale, holdActive, advanceSources, advHops };
 }
 
+/** Per-unit terrain-aware advance fields (movement costs differ per unit). In
+ *  skirmish (objectives === null) every unit's field is built over the shared
+ *  `advanceSources`. In conquest the objectives are PER UNIT (capture targets),
+ *  so the hop fallback is per unit too; `advHopsByUnit` stays empty in skirmish
+ *  (the shared `advHops` is used unchanged). Pure on (view, own, advanceSources,
+ *  the conquest objectives). */
+function buildAdvanceFields(
+  view: FactionView,
+  own: readonly UnitInstance[],
+  advanceSources: CellId[],
+  objectives: { targetOf: Map<string, CellId>; escortSources: CellId[] } | null,
+): {
+  advFieldByUnit: Map<string, Map<CellId, number>>;
+  advHopsByUnit: Map<string, Map<CellId, number>>;
+} {
+  const { board, unitTypes } = view;
+  const advFieldByUnit = new Map<string, Map<CellId, number>>();
+  const advHopsByUnit = new Map<string, Map<CellId, number>>();
+  if (!objectives) {
+    for (const v of own) {
+      const vt = unitTypes[v.type];
+      if (!vt) continue;
+      advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), advanceSources));
+    }
+  } else {
+    const { targetOf, escortSources } = objectives;
+    for (const v of own) {
+      const vt = unitTypes[v.type];
+      if (!vt) continue;
+      const t = targetOf.get(v.id);
+      const sources = t !== undefined ? [t] : escortSources;
+      advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), sources));
+      advHopsByUnit.set(v.id, multiSourceHops(board, sources));
+    }
+  }
+  return { advFieldByUnit, advHopsByUnit };
+}
+
 export function createGreedyPlanner(
   overrides: Partial<GreedyWeights> = {},
   conquestOverrides: Partial<ConquestWeights> = {},
@@ -825,39 +863,26 @@ export function createGreedyPlanner(
       // scalars the scorer reads. See computeAdvanceContext.
       const { anchorHops, holdScale, holdActive, advanceSources, advHops } =
         computeAdvanceContext(view, enemyInfos, enemyBaseCount);
-      // Terrain-aware advance fields, one per unit (movement costs differ).
-      const advFieldByUnit = new Map<string, Map<CellId, number>>();
-      // Conquest: advance objectives are PER UNIT (capture targets), so the
-      // hop fallback must be per unit too. Empty in skirmish — the shared
-      // advHops above is used unchanged.
-      const advHopsByUnit = new Map<string, Map<CellId, number>>();
-      if (!cq) {
-        for (const v of own) {
-          const vt = unitTypes[v.type];
-          if (!vt) continue;
-          advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), advanceSources));
-        }
-      } else {
-        // Conquest capture objectives (addendum §B.7) — per-unit advance
-        // targets + the vehicle escort fallback. See computeConquestObjectives.
-        const { targetOf, escortSources } = computeConquestObjectives(
-          view,
-          cw,
-          own,
-          enemyInfos,
-          { capturableBases, baseAt },
-          { overdrive, baseless, lateGame },
-          advanceSources,
-        );
-        for (const v of own) {
-          const vt = unitTypes[v.type];
-          if (!vt) continue;
-          const t = targetOf.get(v.id);
-          const sources = t !== undefined ? [t] : escortSources;
-          advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), sources));
-          advHopsByUnit.set(v.id, multiSourceHops(board, sources));
-        }
-      }
+      // Per-unit terrain-aware advance fields. Conquest first computes the
+      // per-unit capture objectives (addendum §B.7 — see computeConquestObjectives);
+      // skirmish builds every field over the shared advanceSources.
+      const objectives = cq
+        ? computeConquestObjectives(
+            view,
+            cw,
+            own,
+            enemyInfos,
+            { capturableBases, baseAt },
+            { overdrive, baseless, lateGame },
+            advanceSources,
+          )
+        : null;
+      const { advFieldByUnit, advHopsByUnit } = buildAdvanceFields(
+        view,
+        own,
+        advanceSources,
+        objectives,
+      );
       // NOTE on scouting: no unit gets a phantom exemption. An earlier
       // design let the best-vision unit creep inside the hold radius "to
       // scout" — observed suicide hole: the exemption zeroed the phantom on
