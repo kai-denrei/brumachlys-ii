@@ -1,6 +1,12 @@
 # Refactor Analysis — verified, prioritized phased plan
 
-## ▶ RESUME STATE (2026-06-28) — read this first
+## ▶ RESUME STATE (2026-06-29) — read this first
+**DEPLOY STATUS (2026-06-29):** AI7 **steps 4–8** (commits `0cbbc48`→`e3cf0f8`) are committed on
+`sprite-animation` but **NOT yet pushed / PR'd** — the branch is 5 ahead of `origin/sprite-animation`.
+All 5 are byte-identical refactors (golden green WITHOUT regen + a serial skeptic PASS each; 1307
+tests, `tsc -b`, purity green). Push + PR→`main` when ready to deploy (the earlier P1–P6 + AI7 1–3
+work below was already merged + LIVE).
+
 **DONE + green + DEPLOYED (1307 tests, `tsc -b`, purity, prod build all green; merged to `main`
 via PR #6+#7 and LIVE on GitHub Pages):**
 audit · **P1** hygiene · **P2** test-kit · **P3** (mostly dissolved on survey) · **P4 partial** — 5
@@ -18,16 +24,35 @@ untouched). See memory `replay-fx-open-2026-06-28` + [[dev]] deban.
   games (16/31/38), a greedy-vs-greedy mirror (16), a conquest game (7), the synthetic focus-fire
   board. Regen `GEN_GOLDEN`-gated (NOT `vitest -u`) + CI-no-regen guard + LF-pinned. This is THE gate
   for every AI refactor below — output must stay byte-identical (golden green WITHOUT regen).
-- **AI7 steps 1–3 DONE** — the planner's per-round PRECOMPUTE is fully lifted out of the ~1110-line
-  `createGreedyPlanner.plan()` closure to module-level pure fns, each byte-identical:
-  `computeEnemyInfos` · `computeBaseIntel` · `computeDesperation`.
+- **AI7 steps 1–8 DONE** — the planner's per-round PRECOMPUTE + the conquest/advance objective
+  machinery + the first two scorer helpers are lifted out of the ~1100-line
+  `createGreedyPlanner.plan()` closure to module-level pure fns, each byte-identical (golden green
+  WITHOUT regen + a serial skeptic PASS per step):
+  - steps 1–3 (per-round precompute): `computeEnemyInfos` · `computeBaseIntel` · `computeDesperation`.
+  - **step 4** `computeConquestObjectives` (claims/targetOf/thrust/raid/escortSources → `{targetOf,
+    escortSources}`); **step 5** `computeAdvanceContext` (anchor/holdScale phantom scalars + shared
+    advanceSources/advHops → `{anchorHops,holdScale,holdActive,advanceSources,advHops}`); **step 6**
+    `buildAdvanceFields` (per-unit advFieldByUnit/advHopsByUnit; objectives hoisted to `cq ? … : null`
+    in plan(), branch on `!objectives` ≡ old `!cq`). → completes old NEXT items 1 (conquest-objectives)
+    + 2 (advance-field builders).
+  - **step 7** `nearestCommittedTo(ei, plannedPosition, ownTypeById)` (plan-level scorer helper, reads
+    the live accumulating maps by ref — single call site); **step 8** `fogTouched(view, cell)` (the
+    fog-touch predicate; was a per-unit-loop closure but captured only loop-invariant view/board →
+    hoist-safe; single call site inside phantomAt).
 
-**▶ NEXT = AI7 continued (the per-UNIT loop), in ASCENDING risk:**
-1. **conquest-objectives block** (claims/targetOf/thrust/raid/escort sources) — bounded, conquest-only.
-2. **advance-field builders** (advFieldByUnit/advHopsByUnit, holdScale/anchor logic).
-3. **the per-candidate SCORER** — the DEEP core (`cmpPick` + the inner helpers `advanceAt`/`cqBonusAt`/
-   `fogTouched`/`phantomAt`/`crossingAdjustOf`/`nearestCommittedTo`, ~778→1484): captures the MOST
-   closure state → highest risk. Gate behind the golden + a serial skeptic; extract incrementally.
+**▶ NEXT = AI7 item 3, the per-candidate SCORER core — the DEEP, HIGH-RISK part. Extract the remaining
+per-unit-loop helpers (each captures per-unit loop state — `u`/`ut`/`costs`/`holdRadius`/the unit's
+reach/advField — so each needs its captured inputs threaded explicitly), in ASCENDING risk:**
+1. **`phantomAt(cell)`** (~line 1149) — next-easiest: captures plan-level `holdActive`/`anchorHops`/
+   `holdScale` + the PER-UNIT `holdRadius` (= `Math.max(ut.vision, CAMP_HOLD)`) + calls module-level
+   `fogTouched`. Pass `{holdActive, anchorHops, holdScale, holdRadius}` (or view + a ctx obj). Single
+   call cluster (the `taken`/phantom terms). Module-level `fogTouched` is already its only sub-call.
+2. **`advanceAt(cell)`** (~1073) + **`cqBonusAt(cell, survives)`** (~1096) — the advance/capture credit
+   terms; capture the unit's `advField`/`unitAdvHops`/`baseCost`/`baseHops` + conquest weights + base intel.
+3. **`crossingAdjustOf(ownPath)`** (~1208) — forced-crossing rank adjust; the deepest single helper.
+4. **`cmpPick(a,b)`** (~1491) — the final Pick comparator/tie-break; pins the ORDER stream most directly.
+Gate EACH behind the golden (green WITHOUT regen) + one serial skeptic; extract incrementally,
+commit per step. `plan()` is still the big closure — these helpers are where the order stream is decided.
 Then the remaining type/replay P7 items: **T3** GameState union (mind the `mode`-absent skirmish
 shape — see Phase 7), **FX5/T2** ReplayFxData union, **R1** `handleAttackRun`.
 **Then** the deferred **P4** (PlanningBoard/ReplayBoard containers + store slicing ST1/2/3 — the
