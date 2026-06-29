@@ -1,22 +1,72 @@
 # Refactor Analysis — verified, prioritized phased plan
 
-## ▶ RESUME STATE (2026-06-28) — read this first
-**DONE + green (all green: 1302 tests, `tsc -b`, purity, prod build):**
+## ▶ RESUME STATE (2026-06-29) — read this first
+**DEPLOY STATUS (2026-06-29):** AI7 **steps 4–8** (commits `0cbbc48`→`e3cf0f8`) are committed on
+`sprite-animation` but **NOT yet pushed / PR'd** — the branch is 5 ahead of `origin/sprite-animation`.
+All 5 are byte-identical refactors (golden green WITHOUT regen + a serial skeptic PASS each; 1307
+tests, `tsc -b`, purity green). Push + PR→`main` when ready to deploy (the earlier P1–P6 + AI7 1–3
+work below was already merged + LIVE).
+
+**DONE + green + DEPLOYED (1307 tests, `tsc -b`, purity, prod build all green; merged to `main`
+via PR #6+#7 and LIVE on GitHub Pages):**
 audit · **P1** hygiene · **P2** test-kit · **P3** (mostly dissolved on survey) · **P4 partial** — 5
 App hooks + **`usePlanningLayer`** (App 1686→1252) · **P5** — B5 spriteByUnit O(N²)→O(N) + *measured*
 no per-frame render hotspot (rest premature) · **P6** — C1 palette tokens + C3 split styles.css→12
-modules. **P7 STARTED — AI9 (test half) DONE:** byte-identity GOLDEN-MASTER net for the greedy
-planner (`test/ai/planner-golden.test.ts` + `test/ai/__fixtures__/*.json`) — the safety net AI7
-needs. Pins the planner's full per-round order stream across: 3 vs-do-nothing full games (seeds
-16/31/38, the §13.6 acceptance companion), a greedy-vs-greedy mirror (seed 16 — the only
-moving-enemy vector: 17 defensive stances), a conquest game (seed 7 — buys + captures), and the
-synthetic focus-fire board. GEN_GOLDEN-gated regen (NOT `vitest -u`) + CI-no-regen guard + LF-pinned
-+ skeptic-reviewed. Plus the 2 replay-FX bugs (fog-vs-spotlight + tracer-laser). See phases below.
+modules.
+**4 replay-FX bugs FIXED:** fog-vs-spotlight (artillery target dark) · tracer-laser (aligned shot) ·
+same-cell stab "laser" (forced-crossing brawl — render only the impact cross) · on-board HP count
+"back at 10" (`rederiveFrameCounts` — bucket+regroup desynced per-frame counts from display order;
+re-derive each COMBAT frame in display order, monotonic; non-combat frames incl. promotion-heal
+untouched). See memory `replay-fx-open-2026-06-28` + [[dev]] deban.
+**P7 STARTED (high-risk AI/replay, gate-first):**
+- **AI9 DONE** — byte-identity GOLDEN-MASTER for the greedy planner (`test/ai/planner-golden.test.ts`
+  + `test/ai/__fixtures__/*.json`): pins the full per-round order stream across 3 vs-do-nothing full
+  games (16/31/38), a greedy-vs-greedy mirror (16), a conquest game (7), the synthetic focus-fire
+  board. Regen `GEN_GOLDEN`-gated (NOT `vitest -u`) + CI-no-regen guard + LF-pinned. This is THE gate
+  for every AI refactor below — output must stay byte-identical (golden green WITHOUT regen).
+- **AI7 steps 1–8 DONE** — the planner's per-round PRECOMPUTE + the conquest/advance objective
+  machinery + the first two scorer helpers are lifted out of the ~1100-line
+  `createGreedyPlanner.plan()` closure to module-level pure fns, each byte-identical (golden green
+  WITHOUT regen + a serial skeptic PASS per step):
+  - steps 1–3 (per-round precompute): `computeEnemyInfos` · `computeBaseIntel` · `computeDesperation`.
+  - **step 4** `computeConquestObjectives` (claims/targetOf/thrust/raid/escortSources → `{targetOf,
+    escortSources}`); **step 5** `computeAdvanceContext` (anchor/holdScale phantom scalars + shared
+    advanceSources/advHops → `{anchorHops,holdScale,holdActive,advanceSources,advHops}`); **step 6**
+    `buildAdvanceFields` (per-unit advFieldByUnit/advHopsByUnit; objectives hoisted to `cq ? … : null`
+    in plan(), branch on `!objectives` ≡ old `!cq`). → completes old NEXT items 1 (conquest-objectives)
+    + 2 (advance-field builders).
+  - **step 7** `nearestCommittedTo(ei, plannedPosition, ownTypeById)` (plan-level scorer helper, reads
+    the live accumulating maps by ref — single call site); **step 8** `fogTouched(view, cell)` (the
+    fog-touch predicate; was a per-unit-loop closure but captured only loop-invariant view/board →
+    hoist-safe; single call site inside phantomAt).
 
-**NEXT = Phase 7 cont.** Recommended order now that the AI net exists: **AI7** `planUnit` decompose
-(gated by the new golden — must stay byte-identical), then the remaining type/replay items (T3,
-FX5/T2, R1). **Then** the two deferred P4 items (PlanningBoard/ReplayBoard containers + store
-slicing ST1/2/3 — the biggest).
+**▶ NEXT = AI7 item 3, the per-candidate SCORER core — the DEEP, HIGH-RISK part. Extract the remaining
+per-unit-loop helpers (each captures per-unit loop state — `u`/`ut`/`costs`/`holdRadius`/the unit's
+reach/advField — so each needs its captured inputs threaded explicitly), in ASCENDING risk:**
+1. **`phantomAt(cell)`** (~line 1149) — next-easiest: captures plan-level `holdActive`/`anchorHops`/
+   `holdScale` + the PER-UNIT `holdRadius` (= `Math.max(ut.vision, CAMP_HOLD)`) + calls module-level
+   `fogTouched`. Pass `{holdActive, anchorHops, holdScale, holdRadius}` (or view + a ctx obj). Single
+   call cluster (the `taken`/phantom terms). Module-level `fogTouched` is already its only sub-call.
+2. **`advanceAt(cell)`** (~1073) + **`cqBonusAt(cell, survives)`** (~1096) — the advance/capture credit
+   terms; capture the unit's `advField`/`unitAdvHops`/`baseCost`/`baseHops` + conquest weights + base intel.
+3. **`crossingAdjustOf(ownPath)`** (~1208) — forced-crossing rank adjust; the deepest single helper.
+4. **`cmpPick(a,b)`** (~1491) — the final Pick comparator/tie-break; pins the ORDER stream most directly.
+Gate EACH behind the golden (green WITHOUT regen) + one serial skeptic; extract incrementally,
+commit per step. `plan()` is still the big closure — these helpers are where the order stream is decided.
+Then the remaining type/replay P7 items: **T3** GameState union (mind the `mode`-absent skirmish
+shape — see Phase 7), **FX5/T2** ReplayFxData union, **R1** `handleAttackRun`.
+**Then** the deferred **P4** (PlanningBoard/ReplayBoard containers + store slicing ST1/2/3 — the
+biggest single item, a fresh architectural design, not a verbatim move).
+Still OWED before tagging v0.9: the **AI re-tune / sweep harness** (4 cumulative acceptance reseeds
+have hollowed the signal — see [[dev]]/[[pm]] OQ).
+
+**METHOD for each AI7 step (proven, repeat it):** (a) grep the block's symbols to confirm which
+outputs are used OUTSIDE it (don't over-destructure → `noUnusedLocals` will bark); (b) lift to a
+module-level pure fn (view + weights + already-computed inputs), keep internal-only locals internal;
+(c) `tsc -b` THEN the golden (must be green WITHOUT regen) THEN full `npm test`; (d) commit per step.
+Reminders: **no Workflow fan-out** (16 GB box); `tsc -b` after EVERY edit (vitest doesn't typecheck);
+heavy resolver-loop tests need an explicit `{ timeout: 30_000 }` (the default 5000ms is a CI trap);
+dev server `vite --port 5199 --strictPort`. Branch `sprite-animation`; PR→`main` deploys to Pages.
 
 **P7 DISCIPLINE (non-negotiable, see §Phase 7 + Risk Register + the bottom resumption note):**
 work **sequentially, NO Workflow fan-out** (16 GB box — memory `no-workflow-fanout-on-kainode`); gate

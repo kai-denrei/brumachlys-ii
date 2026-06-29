@@ -559,6 +559,295 @@ function computeDesperation(
   return { lateGame, overdrive, urgency, pressure, captureBonusEff, advWeight, vehicleSquatEff };
 }
 
+/** Conquest capture objectives (addendum §B.7) — conquest-only per-unit advance
+ *  targets + the vehicle escort fallback. Personnel claim capturable bases
+ *  greedily in initiative order; vehicles escort rather than squat. Pure on the
+ *  view (unitTypes), the conquest weights, the initiative-sorted `own`, the
+ *  per-enemy infos, and the already-built base intel + desperation scalars +
+ *  the skirmish advance fallback. Returns `targetOf` (own-unit id → its claimed
+ *  objective cell; absent ⇒ escort) and `escortSources` (advance sources for
+ *  the unclaimed). See the inline notes for the THRUST / RAID policy rationale. */
+function computeConquestObjectives(
+  view: FactionView,
+  cw: ConquestWeights,
+  own: readonly UnitInstance[],
+  enemyInfos: readonly EnemyInfo[],
+  intel: { capturableBases: readonly BaseIntel[]; baseAt: Map<CellId, BaseIntel> },
+  desperation: { overdrive: number; baseless: boolean; lateGame: number },
+  advanceSources: CellId[],
+): { targetOf: Map<string, CellId>; escortSources: CellId[] } {
+  const { unitTypes } = view;
+  const { capturableBases, baseAt } = intel;
+  const { overdrive, baseless, lateGame } = desperation;
+  // Personnel claim capturable bases greedily in initiative order
+  // (`own` is already sorted): nearer is better, threatened is worse
+  // (approach hot bases with force, not solo), already-claimed is
+  // worse (spread the expansion). Believed-enemy bases get a small
+  // bump (flipping one swings income BY two).
+  // THRUST (high pressure — baseless or the desperation curve ≥ 0.7):
+  // spreading 1–2 personnel per defended base converts NOTHING (each
+  // probe dies to the local garrison and production replaces every
+  // loss — observed equilibrium). Instead ALL personnel mass on the
+  // single best capturable base (team-scored: reachable by many,
+  // lightly held) and the escorts come with them — a breakthrough,
+  // not a picket line.
+  const claims = new Map<CellId, number>();
+  const targetOf = new Map<string, CellId>();
+  const allPersonnel = own.filter((v) => unitTypes[v.type]?.armorType === 'personnel');
+  // RAID (overdrive ≥ 0.5): the massed thrust is what makes the mirror
+  // ping-pong — both teams contest the SAME frontier base forever.
+  // Raiders instead fan out across every capturable base, threat-blind
+  // and with a near-flat distance discount (the rear bases are the
+  // undefended ones); claimSpread doubled so claims really spread.
+  // Only FAST personnel (movement ≥ 9) raid — a grenadier on a 15-hop
+  // march contributes nothing for 8 rounds, while the same grenadier
+  // in the siege line is the wall-breaker (measured: fanning everyone
+  // out regressed every converted seed back to a stall).
+  const raid = overdrive >= cw.raidThreshold && capturableBases.length > 0;
+  const personnel = raid
+    ? allPersonnel.filter((v) => (unitTypes[v.type]?.movement ?? 0) >= 9)
+    : allPersonnel;
+  const thrust = !raid && (baseless || lateGame >= 0.5) && capturableBases.length > 0;
+  let thrustCell = -1;
+  if (thrust) {
+    // Team scoring with the threat term doubled: the thrust wants the
+    // WEAKLY HELD base it can mass on, not the most contested one.
+    let bestScore = -Infinity;
+    for (const b of capturableBases) {
+      let s = -2 * cw.baseThreat * b.threat + (b.owner !== null ? 0.5 : 0);
+      let reachers = 0;
+      for (const v of personnel) {
+        const d = b.hops.get(v.cell) ?? Infinity;
+        if (!Number.isFinite(d)) continue;
+        reachers++;
+        s += cw.captureBonus / (1 + d / 4);
+      }
+      if (reachers === 0) continue;
+      if (s > bestScore || (s === bestScore && b.cell < thrustCell)) {
+        bestScore = s;
+        thrustCell = b.cell;
+      }
+    }
+    if (thrustCell >= 0) {
+      for (const v of personnel) {
+        if (Number.isFinite(baseAt.get(thrustCell)!.hops.get(v.cell) ?? Infinity)) {
+          targetOf.set(v.id, thrustCell);
+        }
+      }
+    }
+  }
+  if (!thrust || thrustCell < 0) {
+    for (const v of personnel) {
+      let bestCell = -1;
+      let bestScore = -Infinity;
+      for (const b of capturableBases) {
+        const d = b.hops.get(v.cell) ?? Infinity;
+        if (!Number.isFinite(d)) continue;
+        const s =
+          cw.captureBonus / (1 + d / (raid ? 12 : 4)) +
+          (b.owner !== null ? 0.5 : 0) -
+          (raid ? 0 : cw.baseThreat * b.threat) -
+          cw.claimSpread * (raid ? 2 : 1) * (claims.get(b.cell) ?? 0);
+        if (s > bestScore || (s === bestScore && b.cell < bestCell)) {
+          bestScore = s;
+          bestCell = b.cell;
+        }
+      }
+      if (bestCell >= 0) {
+        targetOf.set(v.id, bestCell);
+        claims.set(bestCell, (claims.get(bestCell) ?? 0) + 1);
+      }
+    }
+  }
+  // Vehicles escort rather than squat: during a thrust they move WITH
+  // it (the push needs its fire support — attack values still engage
+  // whatever crosses their range en route); otherwise toward visible
+  // enemies, else the claimed frontier, else any capturable base,
+  // else the skirmish fallback (fog sweep / anchor) — also the
+  // personnel fallback when no capturable base is reachable.
+  const claimedCells = [...new Set(targetOf.values())].sort((a, b) => a - b);
+  const escortSources: CellId[] =
+    thrust && thrustCell >= 0
+      ? [thrustCell]
+      : enemyInfos.length > 0
+        ? enemyInfos.map((ei) => ei.unit.cell).sort((a, b) => a - b)
+        : claimedCells.length > 0
+          ? claimedCells
+          : capturableBases.length > 0
+            ? capturableBases.map((b) => b.cell)
+            : advanceSources;
+  return { targetOf, escortSources };
+}
+
+/** Advance context — the shared advance objective sources and the camp-hold
+ *  phantom scalars, built once per round. Pure on (view, the per-enemy infos,
+ *  the believed enemy-base count). Returns `advanceSources`/`advHops` (the
+ *  objective field the per-unit advance fields are built over) plus the
+ *  anchor-hold scalars `anchorHops`/`holdScale`/`holdActive` the scorer's
+ *  phantom-threat penalty reads. See the inline notes for the measured
+ *  rationale of the continuous-release hold + the fair-fog hidden-count prior. */
+function computeAdvanceContext(
+  view: FactionView,
+  enemyInfos: readonly EnemyInfo[],
+  enemyBaseCount: number,
+): {
+  anchorHops: Map<CellId, number> | null;
+  holdScale: number;
+  holdActive: boolean;
+  advanceSources: CellId[];
+  advHops: Map<CellId, number>;
+} {
+  const { board } = view;
+  const cq = view.conquest;
+  // Advance objective (per-unit field built below, terrain-aware):
+  //   1. visible enemies → walk toward the nearest one;
+  //   2. none visible, enemy anchor not yet scouted → walk to the anchor
+  //      (§8.2);
+  //   3. anchor scouted and empty → sweep the fog: walk toward the
+  //      nearest non-visible land cell (endgame search for hidden
+  //      survivors — without it the army parks on the empty anchor while
+  //      a last low-vision enemy hides one valley over, round-limit draw).
+  // Terrain-aware matters: hop-based advance freezes armies on river
+  // banks (the straight line across water counts fewer hops than the
+  // bridge detour, so no reachable cell ever "gets closer"). Observed.
+  // Camp-hold zone (fog discipline): the enemy placed on BFS rings around
+  // its anchor, so while ANY cell within CAMP_HOLD hops of the anchor is
+  // still fogged, hidden defenders may sit there — entering on advance
+  // credit alone is how units walk single-file into the camp and die
+  // piecemeal (observed repeatedly, in every visibility mode: partial
+  // contact re-opened the lunges whenever the hold was gated on "nothing
+  // visible"). Implemented as a penalty slope on candidates inside the
+  // zone, active in ALL modes; deliberate attacks out-value it.
+  const anchorKnown = view.enemyAnchor !== null && board.cells.has(view.enemyAnchor);
+  const anchorHops = anchorKnown ? bfsHops(board, view.enemyAnchor!, CAMP_HOLD) : null;
+  // Continuous release: phantom scales with HOW fogged the zone still
+  // is — 1 when fully unscouted, 0 once ≥ 3/4 is visible. A binary
+  // 25%-threshold hold was observed stalling whole sieges: a rim-
+  // standing army keeps ~half the zone fogged forever, so the tax never
+  // lifted and pace died; meanwhile a handful of fog pockets behind the
+  // defenders must not keep taxing legitimate strikes either.
+  let holdScale = 0;
+  if (anchorHops) {
+    let fogged = 0;
+    for (const cell of anchorHops.keys()) {
+      if (!view.visible.has(cell)) fogged++;
+    }
+    const frac = fogged / anchorHops.size;
+    holdScale = Math.max(0, (frac - 0.25) / 0.75);
+  }
+  // The phantom prior also scales with how many enemy units could
+  // actually BE hiding: total army size is public setup knowledge
+  // (§6.4), every enemy death was witnessed (in a two-faction game all
+  // enemy losses are our own kills/brawls), and visible enemies are
+  // seen — so hidden = total − dead − visible is fair-fog arithmetic,
+  // not a hidden-state read. 4+ possible hiders ≈ full camp prior; one
+  // last survivor ≈ quarter strength. Without this the army froze at
+  // the phantom wall for 12 final rounds while a single hidden humvee
+  // count sat in the fog (observed, seed 13) — a round-limit draw of a
+  // 19-counts-vs-1 position.
+  let hiddenEnemies = Math.max(0, view.enemyTotal - view.enemyDead - view.enemies.length);
+  // Conquest: the initial-force arithmetic above cannot see PRODUCTION
+  // (hidden spawns are unknowable — view.ts restricts the public fields
+  // to the setup force). While the enemy is believed to hold any base,
+  // fresh defenders may be materializing behind the fog: keep a floor of
+  // 2 possible hiders so the camp phantom never fully disarms against a
+  // producing opponent. Belief-driven, not a hidden read.
+  if (cq && enemyBaseCount > 0) hiddenEnemies = Math.max(hiddenEnemies, 2);
+  holdScale *= Math.min(1, hiddenEnemies / 4);
+  const holdActive = holdScale > 0;
+  // Advance objective. While the camp-hold is active the objective is
+  // ALWAYS the anchor — fog blinking otherwise alternates the field
+  // between "visible pickets" and "anchor" and the whole army orbits the
+  // rim in a limit cycle (observed: 8 synchronized no-attack rounds).
+  // Attack values react to visible enemies regardless of this field.
+  const advanceSources: CellId[] =
+    anchorKnown && holdActive
+      ? [view.enemyAnchor!]
+      : enemyInfos.length > 0
+        ? enemyInfos.map((ei) => ei.unit.cell).sort((a, b) => a - b)
+        : [...board.cells.values()]
+            .filter((c) => !view.visible.has(c.id) && c.terrain !== 'water')
+            .map((c) => c.id)
+            .sort((a, b) => a - b);
+  // Hop field over the same sources: (a) fallback gradient for units the
+  // cost field cannot reach (e.g. vehicles walled off by mountains —
+  // they press toward the wall, from where artillery can still lob over:
+  // range is hop-based), (b) the anchor-hold radius check below.
+  const advHops = multiSourceHops(board, advanceSources);
+  return { anchorHops, holdScale, holdActive, advanceSources, advHops };
+}
+
+/** Per-unit terrain-aware advance fields (movement costs differ per unit). In
+ *  skirmish (objectives === null) every unit's field is built over the shared
+ *  `advanceSources`. In conquest the objectives are PER UNIT (capture targets),
+ *  so the hop fallback is per unit too; `advHopsByUnit` stays empty in skirmish
+ *  (the shared `advHops` is used unchanged). Pure on (view, own, advanceSources,
+ *  the conquest objectives). */
+function buildAdvanceFields(
+  view: FactionView,
+  own: readonly UnitInstance[],
+  advanceSources: CellId[],
+  objectives: { targetOf: Map<string, CellId>; escortSources: CellId[] } | null,
+): {
+  advFieldByUnit: Map<string, Map<CellId, number>>;
+  advHopsByUnit: Map<string, Map<CellId, number>>;
+} {
+  const { board, unitTypes } = view;
+  const advFieldByUnit = new Map<string, Map<CellId, number>>();
+  const advHopsByUnit = new Map<string, Map<CellId, number>>();
+  if (!objectives) {
+    for (const v of own) {
+      const vt = unitTypes[v.type];
+      if (!vt) continue;
+      advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), advanceSources));
+    }
+  } else {
+    const { targetOf, escortSources } = objectives;
+    for (const v of own) {
+      const vt = unitTypes[v.type];
+      if (!vt) continue;
+      const t = targetOf.get(v.id);
+      const sources = t !== undefined ? [t] : escortSources;
+      advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), sources));
+      advHopsByUnit.set(v.id, multiSourceHops(board, sources));
+    }
+  }
+  return { advFieldByUnit, advHopsByUnit };
+}
+
+/** Nearest committed ally inside `ei`'s firing ring (hop distance from the
+ *  enemy's current cell) that `ei` can damage. Called per own unit as planning
+ *  proceeds — commitments accumulate in `plannedPosition`, so the result
+ *  tightens as more allies are placed. Pure on (ei, the running
+ *  plannedPosition, the own-unit type lookup). */
+function nearestCommittedTo(
+  ei: EnemyInfo,
+  plannedPosition: Map<string, CellId>,
+  ownTypeById: Map<string, UnitType>,
+): number {
+  let nearest = Infinity;
+  for (const [id, cell] of plannedPosition) {
+    const vt = ownTypeById.get(id);
+    if (!vt || (ei.type.attackStrengths[vt.armorType] ?? 0) <= 0) continue;
+    const d = ei.distFrom.get(cell) ?? Infinity;
+    if (d < ei.type.minRange || d > ei.type.maxRange) continue;
+    if (d < nearest) nearest = d;
+  }
+  return nearest;
+}
+
+/** Fog-touch predicate: true when `cell` is itself fogged or has any fogged
+ *  neighbour — i.e. a hidden enemy could be ON or NEXT TO it. Pure on the view
+ *  (visibility + board adjacency). */
+function fogTouched(view: FactionView, cell: CellId): boolean {
+  const { board } = view;
+  if (!view.visible.has(cell)) return true;
+  for (const n of board.cells.get(cell)!.neighbors) {
+    if (!view.visible.has(n)) return true;
+  }
+  return false;
+}
+
 export function createGreedyPlanner(
   overrides: Partial<GreedyWeights> = {},
   conquestOverrides: Partial<ConquestWeights> = {},
@@ -602,201 +891,31 @@ export function createGreedyPlanner(
       const { lateGame, overdrive, urgency, captureBonusEff, advWeight, vehicleSquatEff } =
         computeDesperation(view, w, cw, { ownBaseCount, enemyBaseCount, baseless });
 
-      // Advance objective (per-unit field built below, terrain-aware):
-      //   1. visible enemies → walk toward the nearest one;
-      //   2. none visible, enemy anchor not yet scouted → walk to the anchor
-      //      (§8.2);
-      //   3. anchor scouted and empty → sweep the fog: walk toward the
-      //      nearest non-visible land cell (endgame search for hidden
-      //      survivors — without it the army parks on the empty anchor while
-      //      a last low-vision enemy hides one valley over, round-limit draw).
-      // Terrain-aware matters: hop-based advance freezes armies on river
-      // banks (the straight line across water counts fewer hops than the
-      // bridge detour, so no reachable cell ever "gets closer"). Observed.
-      // Camp-hold zone (fog discipline): the enemy placed on BFS rings around
-      // its anchor, so while ANY cell within CAMP_HOLD hops of the anchor is
-      // still fogged, hidden defenders may sit there — entering on advance
-      // credit alone is how units walk single-file into the camp and die
-      // piecemeal (observed repeatedly, in every visibility mode: partial
-      // contact re-opened the lunges whenever the hold was gated on "nothing
-      // visible"). Implemented as a penalty slope on candidates inside the
-      // zone, active in ALL modes; deliberate attacks out-value it.
-      const anchorKnown = view.enemyAnchor !== null && board.cells.has(view.enemyAnchor);
-      const anchorHops = anchorKnown ? bfsHops(board, view.enemyAnchor!, CAMP_HOLD) : null;
-      // Continuous release: phantom scales with HOW fogged the zone still
-      // is — 1 when fully unscouted, 0 once ≥ 3/4 is visible. A binary
-      // 25%-threshold hold was observed stalling whole sieges: a rim-
-      // standing army keeps ~half the zone fogged forever, so the tax never
-      // lifted and pace died; meanwhile a handful of fog pockets behind the
-      // defenders must not keep taxing legitimate strikes either.
-      let holdScale = 0;
-      if (anchorHops) {
-        let fogged = 0;
-        for (const cell of anchorHops.keys()) {
-          if (!view.visible.has(cell)) fogged++;
-        }
-        const frac = fogged / anchorHops.size;
-        holdScale = Math.max(0, (frac - 0.25) / 0.75);
-      }
-      // The phantom prior also scales with how many enemy units could
-      // actually BE hiding: total army size is public setup knowledge
-      // (§6.4), every enemy death was witnessed (in a two-faction game all
-      // enemy losses are our own kills/brawls), and visible enemies are
-      // seen — so hidden = total − dead − visible is fair-fog arithmetic,
-      // not a hidden-state read. 4+ possible hiders ≈ full camp prior; one
-      // last survivor ≈ quarter strength. Without this the army froze at
-      // the phantom wall for 12 final rounds while a single hidden humvee
-      // count sat in the fog (observed, seed 13) — a round-limit draw of a
-      // 19-counts-vs-1 position.
-      let hiddenEnemies = Math.max(0, view.enemyTotal - view.enemyDead - view.enemies.length);
-      // Conquest: the initial-force arithmetic above cannot see PRODUCTION
-      // (hidden spawns are unknowable — view.ts restricts the public fields
-      // to the setup force). While the enemy is believed to hold any base,
-      // fresh defenders may be materializing behind the fog: keep a floor of
-      // 2 possible hiders so the camp phantom never fully disarms against a
-      // producing opponent. Belief-driven, not a hidden read.
-      if (cq && enemyBaseCount > 0) hiddenEnemies = Math.max(hiddenEnemies, 2);
-      holdScale *= Math.min(1, hiddenEnemies / 4);
-      const holdActive = holdScale > 0;
-      // Advance objective. While the camp-hold is active the objective is
-      // ALWAYS the anchor — fog blinking otherwise alternates the field
-      // between "visible pickets" and "anchor" and the whole army orbits the
-      // rim in a limit cycle (observed: 8 synchronized no-attack rounds).
-      // Attack values react to visible enemies regardless of this field.
-      const advanceSources: CellId[] =
-        anchorKnown && holdActive
-          ? [view.enemyAnchor!]
-          : enemyInfos.length > 0
-            ? enemyInfos.map((ei) => ei.unit.cell).sort((a, b) => a - b)
-            : [...board.cells.values()]
-                .filter((c) => !view.visible.has(c.id) && c.terrain !== 'water')
-                .map((c) => c.id)
-                .sort((a, b) => a - b);
-      // Hop field over the same sources: (a) fallback gradient for units the
-      // cost field cannot reach (e.g. vehicles walled off by mountains —
-      // they press toward the wall, from where artillery can still lob over:
-      // range is hop-based), (b) the anchor-hold radius check below.
-      const advHops = multiSourceHops(board, advanceSources);
-      // Terrain-aware advance fields, one per unit (movement costs differ).
-      const advFieldByUnit = new Map<string, Map<CellId, number>>();
-      // Conquest: advance objectives are PER UNIT (capture targets), so the
-      // hop fallback must be per unit too. Empty in skirmish — the shared
-      // advHops above is used unchanged.
-      const advHopsByUnit = new Map<string, Map<CellId, number>>();
-      if (!cq) {
-        for (const v of own) {
-          const vt = unitTypes[v.type];
-          if (!vt) continue;
-          advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), advanceSources));
-        }
-      } else {
-        // ── Conquest capture objectives (addendum §B.7) ───────────────────
-        // Personnel claim capturable bases greedily in initiative order
-        // (`own` is already sorted): nearer is better, threatened is worse
-        // (approach hot bases with force, not solo), already-claimed is
-        // worse (spread the expansion). Believed-enemy bases get a small
-        // bump (flipping one swings income BY two).
-        // THRUST (high pressure — baseless or the desperation curve ≥ 0.7):
-        // spreading 1–2 personnel per defended base converts NOTHING (each
-        // probe dies to the local garrison and production replaces every
-        // loss — observed equilibrium). Instead ALL personnel mass on the
-        // single best capturable base (team-scored: reachable by many,
-        // lightly held) and the escorts come with them — a breakthrough,
-        // not a picket line.
-        const claims = new Map<CellId, number>();
-        const targetOf = new Map<string, CellId>();
-        const allPersonnel = own.filter((v) => unitTypes[v.type]?.armorType === 'personnel');
-        // RAID (overdrive ≥ 0.5): the massed thrust is what makes the mirror
-        // ping-pong — both teams contest the SAME frontier base forever.
-        // Raiders instead fan out across every capturable base, threat-blind
-        // and with a near-flat distance discount (the rear bases are the
-        // undefended ones); claimSpread doubled so claims really spread.
-        // Only FAST personnel (movement ≥ 9) raid — a grenadier on a 15-hop
-        // march contributes nothing for 8 rounds, while the same grenadier
-        // in the siege line is the wall-breaker (measured: fanning everyone
-        // out regressed every converted seed back to a stall).
-        const raid = overdrive >= cw.raidThreshold && capturableBases.length > 0;
-        const personnel = raid
-          ? allPersonnel.filter((v) => (unitTypes[v.type]?.movement ?? 0) >= 9)
-          : allPersonnel;
-        const thrust = !raid && (baseless || lateGame >= 0.5) && capturableBases.length > 0;
-        let thrustCell = -1;
-        if (thrust) {
-          // Team scoring with the threat term doubled: the thrust wants the
-          // WEAKLY HELD base it can mass on, not the most contested one.
-          let bestScore = -Infinity;
-          for (const b of capturableBases) {
-            let s = -2 * cw.baseThreat * b.threat + (b.owner !== null ? 0.5 : 0);
-            let reachers = 0;
-            for (const v of personnel) {
-              const d = b.hops.get(v.cell) ?? Infinity;
-              if (!Number.isFinite(d)) continue;
-              reachers++;
-              s += cw.captureBonus / (1 + d / 4);
-            }
-            if (reachers === 0) continue;
-            if (s > bestScore || (s === bestScore && b.cell < thrustCell)) {
-              bestScore = s;
-              thrustCell = b.cell;
-            }
-          }
-          if (thrustCell >= 0) {
-            for (const v of personnel) {
-              if (Number.isFinite(baseAt.get(thrustCell)!.hops.get(v.cell) ?? Infinity)) {
-                targetOf.set(v.id, thrustCell);
-              }
-            }
-          }
-        }
-        if (!thrust || thrustCell < 0) {
-          for (const v of personnel) {
-            let bestCell = -1;
-            let bestScore = -Infinity;
-            for (const b of capturableBases) {
-              const d = b.hops.get(v.cell) ?? Infinity;
-              if (!Number.isFinite(d)) continue;
-              const s =
-                cw.captureBonus / (1 + d / (raid ? 12 : 4)) +
-                (b.owner !== null ? 0.5 : 0) -
-                (raid ? 0 : cw.baseThreat * b.threat) -
-                cw.claimSpread * (raid ? 2 : 1) * (claims.get(b.cell) ?? 0);
-              if (s > bestScore || (s === bestScore && b.cell < bestCell)) {
-                bestScore = s;
-                bestCell = b.cell;
-              }
-            }
-            if (bestCell >= 0) {
-              targetOf.set(v.id, bestCell);
-              claims.set(bestCell, (claims.get(bestCell) ?? 0) + 1);
-            }
-          }
-        }
-        // Vehicles escort rather than squat: during a thrust they move WITH
-        // it (the push needs its fire support — attack values still engage
-        // whatever crosses their range en route); otherwise toward visible
-        // enemies, else the claimed frontier, else any capturable base,
-        // else the skirmish fallback (fog sweep / anchor) — also the
-        // personnel fallback when no capturable base is reachable.
-        const claimedCells = [...new Set(targetOf.values())].sort((a, b) => a - b);
-        const escortSources: CellId[] =
-          thrust && thrustCell >= 0
-            ? [thrustCell]
-            : enemyInfos.length > 0
-              ? enemyInfos.map((ei) => ei.unit.cell).sort((a, b) => a - b)
-              : claimedCells.length > 0
-                ? claimedCells
-                : capturableBases.length > 0
-                  ? capturableBases.map((b) => b.cell)
-                  : advanceSources;
-        for (const v of own) {
-          const vt = unitTypes[v.type];
-          if (!vt) continue;
-          const t = targetOf.get(v.id);
-          const sources = t !== undefined ? [t] : escortSources;
-          advFieldByUnit.set(v.id, multiSourceCost(board, movementCostsFor(vt), sources));
-          advHopsByUnit.set(v.id, multiSourceHops(board, sources));
-        }
-      }
+      // Advance context (§8.2 advance objective + camp-hold fog discipline):
+      // the shared advance sources / hop field + the anchor-hold phantom
+      // scalars the scorer reads. See computeAdvanceContext.
+      const { anchorHops, holdScale, holdActive, advanceSources, advHops } =
+        computeAdvanceContext(view, enemyInfos, enemyBaseCount);
+      // Per-unit terrain-aware advance fields. Conquest first computes the
+      // per-unit capture objectives (addendum §B.7 — see computeConquestObjectives);
+      // skirmish builds every field over the shared advanceSources.
+      const objectives = cq
+        ? computeConquestObjectives(
+            view,
+            cw,
+            own,
+            enemyInfos,
+            { capturableBases, baseAt },
+            { overdrive, baseless, lateGame },
+            advanceSources,
+          )
+        : null;
+      const { advFieldByUnit, advHopsByUnit } = buildAdvanceFields(
+        view,
+        own,
+        advanceSources,
+        objectives,
+      );
       // NOTE on scouting: no unit gets a phantom exemption. An earlier
       // design let the best-vision unit creep inside the hold radius "to
       // scout" — observed suicide hole: the exemption zeroed the phantom on
@@ -920,21 +1039,6 @@ export function createGreedyPlanner(
         }
         supportersOf.set(ei.unit.id, list);
       }
-      /** Nearest committed ally inside `ei`'s firing ring (hop distance from
-       *  the enemy's current cell) that `ei` can damage. Recomputed per unit
-       *  — commitments accumulate as planning proceeds. */
-      const nearestCommittedTo = (ei: EnemyInfo): number => {
-        let nearest = Infinity;
-        for (const [id, cell] of plannedPosition) {
-          const vt = ownTypeById.get(id);
-          if (!vt || (ei.type.attackStrengths[vt.armorType] ?? 0) <= 0) continue;
-          const d = ei.distFrom.get(cell) ?? Infinity;
-          if (d < ei.type.minRange || d > ei.type.maxRange) continue;
-          if (d < nearest) nearest = d;
-        }
-        return nearest;
-      };
-
       // March boost, OPENING ONLY: with no enemy in sight and the game
       // young there is nothing to weigh against ground — stop strolling
       // (contact by ~R9 instead of ~R15; the round budget on a 30-cell map
@@ -1047,26 +1151,20 @@ export function createGreedyPlanner(
         // a grenadier kept diving onto a half-scouted ring-1 cell adjacent
         // to a hidden humvee and inside a hidden sniper's ring (seed 11,
         // R20, 10→2, every config).
-        const fogTouched = (cell: CellId): boolean => {
-          if (!view.visible.has(cell)) return true;
-          for (const n of board.cells.get(cell)!.neighbors) {
-            if (!view.visible.has(n)) return true;
-          }
-          return false;
-        };
         const phantomAt = (cell: CellId): number => {
           if (!holdActive || !anchorHops) return 0;
           const ah = anchorHops.get(cell);
           if (ah === undefined || ah >= holdRadius) return 0;
           if (ah <= 2) {
-            return PHANTOM_THREAT * (fogTouched(cell) ? Math.max(holdScale, 0.9) : holdScale);
+            return PHANTOM_THREAT * (fogTouched(view, cell) ? Math.max(holdScale, 0.9) : holdScale);
           }
           return (holdScale * (PHANTOM_THREAT * (holdRadius - ah))) / (holdRadius - 2);
         };
         // Per-enemy nearest committed ally for THIS unit (depends on which
         // allies have already committed — recomputed as planning progresses).
         const shadowDistOf = new Map<EnemyInfo, number>();
-        for (const ei of enemyInfos) shadowDistOf.set(ei, nearestCommittedTo(ei));
+        for (const ei of enemyInfos)
+          shadowDistOf.set(ei, nearestCommittedTo(ei, plannedPosition, ownTypeById));
         // Depletion multiplier (counts are hit points — damaged units value
         // theirs more, up to ~×2 at 1 count) fades with the desperation
         // curve computed above the loop: desperation overrides
